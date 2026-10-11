@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Application
+    x:Class="Data_Analysis.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Data_Analysis">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- 暖色调全局主题调色板（参考模板风格） -->
+            <SolidColorBrush x:Key="WarmBgBrush" Color="#F7F4EB"/>
+            <SolidColorBrush x:Key="SidebarBgBrush" Color="#EFEAE0"/>
+            <SolidColorBrush x:Key="RailBgBrush" Color="#EAE5DA"/>
+            <SolidColorBrush x:Key="CardBgBrush" Color="#FFFFFF"/>
+            <SolidColorBrush x:Key="CardSubtleBrush" Color="#FDFCF9"/>
+            <SolidColorBrush x:Key="BorderMutedBrush" Color="#E2DDD0"/>
+            <SolidColorBrush x:Key="AccentWarmBrush" Color="#B85D19"/>
+            <SolidColorBrush x:Key="AccentWarmHoverBrush" Color="#A24F13"/>
+            <SolidColorBrush x:Key="TextPrimaryBrush" Color="#2E2822"/>
+            <SolidColorBrush x:Key="TextSecondaryBrush" Color="#7D746A"/>
+            <SolidColorBrush x:Key="UserBubbleBrush" Color="#EBE3D3"/>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
+
