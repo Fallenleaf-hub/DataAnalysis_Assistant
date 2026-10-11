@@ -26,10 +26,9 @@ jobs:
         shell: pwsh
         run: |
           dotnet publish Data_Analysis/Data_Analysis.csproj `
-            -c Release `
-            -r win-x64 `
-            --self-contained true `
-            -p:Platform=x64 `
+            /p:PublishProfile=win-x64 `
+            -p:PublishTrimmed=false `
+            -p:PublishReadyToRun=false `
             -p:WindowsPackageType=None `
             -p:WindowsAppSDKSelfContained=true `
             -o ./publish/Data_Analysis
