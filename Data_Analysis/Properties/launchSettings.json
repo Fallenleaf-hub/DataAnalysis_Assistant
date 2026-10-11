@@ -1,10 +1,10 @@
 {
   "profiles": {
-    "Data_Analysis (Package)": {
-      "commandName": "MsixPackage"
-    },
     "Data_Analysis (Unpackaged)": {
       "commandName": "Project"
+    },
+    "Data_Analysis (Package)": {
+      "commandName": "MsixPackage"
     }
   }
 }
