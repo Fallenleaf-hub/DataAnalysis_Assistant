@@ -27,11 +27,13 @@ using DataAnalysis_Assistant.Services.Context;
 using DataAnalysis_Assistant.Services.Agent;
 using DataAnalysis_Assistant.Services.Export;
 using DataAnalysis_Assistant.Services.Tools;
+using DataAnalysis_Assistant.Services.Persistence;
 
 namespace DataAnalysis_Assistant
 {
     public partial class MainWindow : Window
     {
+        public ObservableCollection<DocumentGroup> DocumentGroups { get; } = new();
         public ObservableCollection<DocumentItem> Documents { get; } = new();
         public ObservableCollection<ChatMessageItem> ChatMessages { get; } = new();
         public ObservableCollection<ChatSessionItem> ChatSessions { get; } = new();
@@ -39,7 +41,9 @@ namespace DataAnalysis_Assistant
         public ObservableCollection<ChartArtifactItem> PlotGallery { get; } = new();
 
         private AppSettings _settings = new();
+        private DocumentGroup? _currentGroup;
         private DocumentItem? _currentDoc;
+        private ChatSessionItem? _currentSession;
         private ChartArtifactItem? _activeDashboardPlot;
         private ChartArtifactItem? _viewingPlot;
         private readonly PythonEnvironmentService _pythonEnvService = new();
@@ -60,19 +64,22 @@ namespace DataAnalysis_Assistant
         // 对话运行状态与中断控制
         private CancellationTokenSource? _chatCts;
         private bool _isChatGenerating = false;
+        private readonly SemaphoreSlim _persistLock = new(1, 1);
+        private DateTime _lastDebouncePersistTime = DateTime.MinValue;
 
         public MainWindow()
         {
             InitializeComponent();
 
             // 绑定数据源
+            lvDocumentGroups.ItemsSource = DocumentGroups;
             lvDocuments.ItemsSource = Documents;
             icChatMessages.ItemsSource = ChatMessages;
             lvHistorySessions.ItemsSource = ChatSessions;
             lvPlotGallery.ItemsSource = PlotGallery;
 
-            // 初始化最近对话历史会话列表
-            InitializeSampleChatSessions();
+            // 加载本地持久化文档库与历史会话
+            _ = LoadPersistedLibraryDataAsync();
 
             // 加载配置
             LoadSettings();
@@ -103,18 +110,83 @@ namespace DataAnalysis_Assistant
             }
         }
 
-        private void InitializeSampleChatSessions()
+        private async Task LoadPersistedLibraryDataAsync()
         {
-            ChatSessions.Add(new ChatSessionItem { Title = "财务报表分析", IsSelected = true });
-            ChatSessions.Add(new ChatSessionItem { Title = "销售数据分析" });
-            ChatSessions.Add(new ChatSessionItem { Title = "用户留存洞察" });
-            ChatSessions.Add(new ChatSessionItem { Title = "季度成本核算" });
-            ChatSessions.Add(new ChatSessionItem { Title = "供应链数据透视" });
-            ChatSessions.Add(new ChatSessionItem { Title = "竞品指标分析" });
-            ChatSessions.Add(new ChatSessionItem { Title = "客户满意度调研" });
-            ChatSessions.Add(new ChatSessionItem { Title = "营销ROI测算" });
-            ChatSessions.Add(new ChatSessionItem { Title = "年度运营全景" });
-            ChatSessions.Add(new ChatSessionItem { Title = "数据异动排查" });
+            try
+            {
+                // 1. 加载文档组
+                var groups = await LibraryPersistenceService.Instance.ListAllGroupsAsync();
+                DocumentGroups.Clear();
+                foreach (var g in groups)
+                {
+                    DocumentGroups.Add(g);
+                }
+
+                // 2. 加载文档元数据
+                var docs = await LibraryPersistenceService.Instance.ListAllDocumentsAsync();
+                Documents.Clear();
+                foreach (var d in docs)
+                {
+                    Documents.Add(d);
+                }
+
+                // 3. 加载历史真实会话
+                var sessions = await LibraryPersistenceService.Instance.ListAllSessionsAsync();
+                ChatSessions.Clear();
+                if (sessions.Count > 0)
+                {
+                    foreach (var s in sessions)
+                    {
+                        ChatSessions.Add(s);
+                    }
+                    _currentSession = ChatSessions.FirstOrDefault();
+                    if (_currentSession != null)
+                    {
+                        _currentSession.IsSelected = true;
+                        lvHistorySessions.SelectedItem = _currentSession;
+                        // 若绑定的文档组存在，匹配当前组
+                        if (!string.IsNullOrEmpty(_currentSession.BindGroupId))
+                        {
+                            _currentGroup = DocumentGroups.FirstOrDefault(g => g.GroupId == _currentSession.BindGroupId);
+                            if (_currentGroup != null)
+                            {
+                                _currentGroup.IsSelected = true;
+                                lvDocumentGroups.SelectedItem = _currentGroup;
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    // 首次启动：自动初始化默认持久化会话
+                    var defaultSession = new ChatSessionItem
+                    {
+                        Title = "默认数据分析会话",
+                        CreatedAt = DateTime.Now,
+                        LastActiveAt = DateTime.Now,
+                        IsSelected = true
+                    };
+                    await LibraryPersistenceService.Instance.SaveSessionAsync(defaultSession);
+                    ChatSessions.Add(defaultSession);
+                    _currentSession = defaultSession;
+                    lvHistorySessions.SelectedItem = defaultSession;
+                }
+
+                UpdateDocCountDisplay();
+                UpdateHistoryCountDisplay();
+
+                // 恢复第一个文档预览
+                _currentDoc = Documents.FirstOrDefault();
+                if (_currentDoc != null)
+                {
+                    lvDocuments.SelectedItem = _currentDoc;
+                    DisplayDocument(_currentDoc);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"加载持久化数据失败: {ex.Message}");
+            }
         }
 
         #region 界面导航与二级界面控制
@@ -1672,6 +1744,16 @@ fig.tight_layout()
 
                     Documents.Add(item);
                     lastAdded = item;
+
+                    // 持久化文档元数据至磁盘
+                    await LibraryPersistenceService.Instance.SaveDocumentMetaAsync(item);
+
+                    // 若当前选定了文档组，自动将新导入的文档纳管至该组
+                    if (_currentGroup != null && !_currentGroup.DocumentIds.Contains(item.DocId))
+                    {
+                        await LibraryPersistenceService.Instance.AddDocumentToGroupAsync(_currentGroup.GroupId, item.DocId);
+                        _currentGroup.LastActiveAt = DateTime.Now;
+                    }
                 }
 
                 UpdateDocCountDisplay();
@@ -1687,11 +1769,19 @@ fig.tight_layout()
             }
         }
 
-        private void btnRemoveDoc_Click(object sender, RoutedEventArgs e)
+        private async void btnRemoveDoc_Click(object sender, RoutedEventArgs e)
         {
             if (sender is Button btn && btn.Tag is DocumentItem doc)
             {
                 Documents.Remove(doc);
+
+                // 若当前选定了文档组，同步从组中移除
+                if (_currentGroup != null && _currentGroup.DocumentIds.Contains(doc.DocId))
+                {
+                    await LibraryPersistenceService.Instance.RemoveDocumentFromGroupAsync(_currentGroup.GroupId, doc.DocId);
+                    _currentGroup.LastActiveAt = DateTime.Now;
+                }
+
                 UpdateDocCountDisplay();
 
                 if (_currentDoc == doc)
@@ -1700,6 +1790,124 @@ fig.tight_layout()
                     lvDocuments.SelectedItem = _currentDoc;
                     DisplayDocument(_currentDoc);
                 }
+            }
+        }
+
+        // 重新定位本地失效文档路径
+        private async void btnRelocateDoc_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Tag is DocumentItem doc)
+            {
+                try
+                {
+                    var picker = new FileOpenPicker
+                    {
+                        ViewMode = PickerViewMode.List,
+                        SuggestedStartLocation = PickerLocationId.DocumentsLibrary
+                    };
+                    if (!string.IsNullOrEmpty(doc.Extension))
+                    {
+                        picker.FileTypeFilter.Add(doc.Extension.ToLowerInvariant());
+                    }
+                    picker.FileTypeFilter.Add("*");
+
+                    var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+                    WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+
+                    var file = await picker.PickSingleFileAsync();
+                    if (file != null)
+                    {
+                        doc.Path = file.Path;
+                        doc.Name = file.Name;
+                        LibraryPersistenceService.Instance.CheckDocumentFileExists(doc);
+                        await LibraryPersistenceService.Instance.SaveDocumentMetaAsync(doc);
+
+                        // 重新刷新显示
+                        if (_currentDoc == doc)
+                        {
+                            DisplayDocument(doc);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"重新定位文件失败: {ex.Message}");
+                }
+            }
+        }
+
+        // 导出本地文档库与会话备份 ZIP 包
+        private async void btnExportBackup_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var savePicker = new FileSavePicker
+                {
+                    SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+                    SuggestedFileName = $"DataAnalysis_Library_Backup_{DateTime.Now:yyyyMMdd_HHmm}"
+                };
+                savePicker.FileTypeChoices.Add("数据分析库备份包 (*.zip)", new List<string> { ".zip" });
+                savePicker.DefaultFileExtension = ".zip";
+
+                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+                WinRT.Interop.InitializeWithWindow.Initialize(savePicker, hwnd);
+
+                var targetFile = await savePicker.PickSaveFileAsync();
+                if (targetFile != null)
+                {
+                    bool ok = await LibraryPersistenceService.Instance.ExportBackupAsync(targetFile.Path);
+                    if (ok)
+                    {
+                        await ShowMessageDialogAsync("备份导出成功", $"已成功将文档元数据、文档组、历史会话与 Schema 缓存打包归档至：\n{targetFile.Path}");
+                    }
+                    else
+                    {
+                        await ShowMessageDialogAsync("导出失败", "导出备份压缩包过程中发生异常，请检查磁盘空间及写入权限。");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"btnExportBackup_Click 异常: {ex.Message}");
+                await ShowMessageDialogAsync("导出异常", $"导出失败: {ex.Message}");
+            }
+        }
+
+        // 导入恢复本地文档库与会话备份 ZIP 包
+        private async void btnImportBackup_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var openPicker = new FileOpenPicker
+                {
+                    ViewMode = PickerViewMode.List,
+                    SuggestedStartLocation = PickerLocationId.DocumentsLibrary
+                };
+                openPicker.FileTypeFilter.Add(".zip");
+
+                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+                WinRT.Interop.InitializeWithWindow.Initialize(openPicker, hwnd);
+
+                var file = await openPicker.PickSingleFileAsync();
+                if (file != null)
+                {
+                    int restoredCount = await LibraryPersistenceService.Instance.ImportBackupAsync(file.Path);
+                    if (restoredCount > 0)
+                    {
+                        // 重新载入内存与刷新 UI 列表
+                        await LoadPersistedLibraryDataAsync();
+                        await ShowMessageDialogAsync("备份恢复成功", $"已成功从备份包中导入并合并 {restoredCount} 个持久化条目，文档库与历史会话已同步更新。");
+                    }
+                    else
+                    {
+                        await ShowMessageDialogAsync("恢复未生效", "未能从该压缩包中读取到有效的数据分析库条目，请确认所选文件是否为有效的备份包。");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"btnImportBackup_Click 异常: {ex.Message}");
+                await ShowMessageDialogAsync("恢复异常", $"导入备份失败: {ex.Message}");
             }
         }
 
@@ -1745,10 +1953,16 @@ fig.tight_layout()
 
         private void UpdateDocCountDisplay()
         {
-            tbDocCount.Text = $"{Documents.Count} 个文件";
-            tbRailDocBadge.Text = Documents.Count.ToString();
-            railDocBadge.Visibility = Documents.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-            spEmptyDocs.Visibility = Documents.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            int groupCount = DocumentGroups.Count;
+            int docCount = Documents.Count;
+            tbDocCount.Text = groupCount > 0 ? $"{groupCount} 个组 · {docCount} 个文件" : $"{docCount} 个文件";
+            tbRailDocBadge.Text = (groupCount > 0 ? groupCount : docCount).ToString();
+            railDocBadge.Visibility = (groupCount > 0 || docCount > 0) ? Visibility.Visible : Visibility.Collapsed;
+            spEmptyDocs.Visibility = docCount == 0 ? Visibility.Visible : Visibility.Collapsed;
+            if (spEmptyGroups != null)
+            {
+                spEmptyGroups.Visibility = groupCount == 0 ? Visibility.Visible : Visibility.Collapsed;
+            }
         }
 
         private void tbSearchDoc_TextChanged(object sender, TextChangedEventArgs e)
@@ -1921,6 +2135,9 @@ def analyze_document_metrics(file_path: str):
 
             tbQuestion.Text = string.Empty;
 
+            // 关键节点 A: 用户提问即刻写盘（防止未完成推理时退出丢失提问）
+            _ = PersistCurrentSessionAsync(force: true);
+
             // 2. 界面状态切换为“停止”生成模式
             _isChatGenerating = true;
             _chatCts = new CancellationTokenSource();
@@ -2067,6 +2284,9 @@ def analyze_document_metrics(file_path: str):
                     }
 
                     svChatList.ChangeView(null, svChatList.ScrollableHeight, null);
+
+                    // 关键节点 B: Agent 步级进度更新，防抖节流安全写盘（沉淀已产生思考与产物图表）
+                    _ = PersistCurrentSessionAsync(force: false);
                 });
             });
 
@@ -2203,6 +2423,9 @@ def analyze_document_metrics(file_path: str):
                     tbQuestion.Focus(FocusState.Programmatic);
                     svChatList.ChangeView(null, svChatList.ScrollableHeight, null);
                 });
+
+                // 关键节点 C: Agent 最终执行完成、手动停止或异常中断，强制终态异步安全落盘
+                await PersistCurrentSessionAsync(force: true);
             }
         }
 
@@ -2210,6 +2433,68 @@ def analyze_document_metrics(file_path: str):
         {
             ChatMessages.Clear();
             InitializeWelcomeChatMessage();
+            _ = PersistCurrentSessionAsync(force: true);
+        }
+
+        /// <summary>
+        /// 将当前活跃会话状态、完整消息流与图表资产增量持久化至磁盘 (Debounce 保护)
+        /// </summary>
+        private async Task PersistCurrentSessionAsync(bool force = false)
+        {
+            if (_currentSession == null) return;
+
+            // 节流机制：非强制落盘时至少间隔 1.5 秒，确保流式输出极致流畅
+            if (!force)
+            {
+                var now = DateTime.Now;
+                if ((now - _lastDebouncePersistTime).TotalSeconds < 1.5)
+                {
+                    return;
+                }
+                _lastDebouncePersistTime = now;
+            }
+
+            await _persistLock.WaitAsync();
+            try
+            {
+                // 过滤开篇演示欢迎消息，仅收容真实用户问答与产物
+                var realMessages = ChatMessages.Where(m => !m.Content.Contains("欢迎使用 AI 数据分析与文档伴读看板")).ToList();
+                _currentSession.Messages = realMessages;
+                _currentSession.LastActiveAt = DateTime.Now;
+
+                // 若当前绑定了文档组，同步保持组关联
+                if (_currentGroup != null)
+                {
+                    _currentSession.BindGroupId = _currentGroup.GroupId;
+                    _currentSession.BindGroupName = _currentGroup.GroupName;
+                }
+
+                // 首轮提问自动提取前缀，生成生动具体的会话标题
+                if (realMessages.Count > 0 &&
+                    (_currentSession.Title.StartsWith("新建对话") || _currentSession.Title.StartsWith("新对话") || _currentSession.Title.StartsWith("默认")))
+                {
+                    var firstUserMsg = realMessages.FirstOrDefault(m => m.IsUser);
+                    if (firstUserMsg != null && !string.IsNullOrWhiteSpace(firstUserMsg.Content))
+                    {
+                        string cleanTitle = firstUserMsg.Content.Trim().Replace("\r", " ").Replace("\n", " ");
+                        if (cleanTitle.Length > 16)
+                        {
+                            cleanTitle = cleanTitle.Substring(0, 16) + "...";
+                        }
+                        _currentSession.Title = cleanTitle;
+                    }
+                }
+
+                await LibraryPersistenceService.Instance.SaveSessionAsync(_currentSession);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"PersistCurrentSessionAsync 写入异常: {ex.Message}");
+            }
+            finally
+            {
+                _persistLock.Release();
+            }
         }
 
         #region 研报导出与内容操作 (Word / Markdown)
@@ -2339,6 +2624,166 @@ def analyze_document_metrics(file_path: str):
 
         #endregion
 
+        #region 文档库双重视角切换与文档组管理
+
+        private void btnViewDocGroups_Click(object sender, RoutedEventArgs e)
+        {
+            gridDocGroupView.Visibility = Visibility.Visible;
+            gridAllDocsView.Visibility = Visibility.Collapsed;
+
+            btnViewDocGroups.Background = BrushCardBg;
+            btnViewDocGroups.Foreground = BrushTextPrimary;
+            btnViewDocGroups.FontWeight = FontWeights.SemiBold;
+
+            btnViewAllDocs.Background = BrushTransparent;
+            btnViewAllDocs.Foreground = BrushTextSecondary;
+            btnViewAllDocs.FontWeight = FontWeights.Normal;
+        }
+
+        private void btnViewAllDocs_Click(object sender, RoutedEventArgs e)
+        {
+            gridDocGroupView.Visibility = Visibility.Collapsed;
+            gridAllDocsView.Visibility = Visibility.Visible;
+
+            btnViewAllDocs.Background = BrushCardBg;
+            btnViewAllDocs.Foreground = BrushTextPrimary;
+            btnViewAllDocs.FontWeight = FontWeights.SemiBold;
+
+            btnViewDocGroups.Background = BrushTransparent;
+            btnViewDocGroups.Foreground = BrushTextSecondary;
+            btnViewDocGroups.FontWeight = FontWeights.Normal;
+        }
+
+        // 新建文档组
+        private async void btnCreateNewGroup_Click(object sender, RoutedEventArgs e)
+        {
+            string? name = await ShowInputTextDialogAsync("新建文档组", $"文档组_{DateTime.Now:MMdd_HHmm}", "请输入文档组名称（例如：财务复盘组）");
+            if (string.IsNullOrWhiteSpace(name)) return;
+
+            var group = await LibraryPersistenceService.Instance.CreateGroupAsync(name);
+            DocumentGroups.Insert(0, group);
+            lvDocumentGroups.SelectedItem = group;
+            UpdateDocCountDisplay();
+        }
+
+        // 将当前工作区所有文档打包为新组
+        private async void btnPackCurrentDocsToGroup_Click(object sender, RoutedEventArgs e)
+        {
+            if (Documents.Count == 0)
+            {
+                await ShowMessageDialogAsync("提示", "当前工作区尚未导入任何文档，请先在右侧或切换至【工作区文档】选择本地文档。");
+                return;
+            }
+
+            string defaultName = Documents.Count == 1 ? $"{Path.GetFileNameWithoutExtension(Documents[0].Name)} 分析组" : $"数据组_{DateTime.Now:MMdd_HHmm}";
+            string? name = await ShowInputTextDialogAsync("打包为新文档组", defaultName, "请输入新文档组名称");
+            if (string.IsNullOrWhiteSpace(name)) return;
+
+            var docIds = Documents.Select(d => d.DocId).ToList();
+            var group = await LibraryPersistenceService.Instance.CreateGroupAsync(name, docIds);
+            DocumentGroups.Insert(0, group);
+            _currentGroup = group;
+            lvDocumentGroups.SelectedItem = group;
+
+            // 同步绑定至当前活跃会话
+            if (_currentSession != null)
+            {
+                _currentSession.BindGroupId = group.GroupId;
+                _currentSession.BindGroupName = group.GroupName;
+                _currentSession.LastActiveAt = DateTime.Now;
+                await LibraryPersistenceService.Instance.SaveSessionAsync(_currentSession);
+            }
+
+            UpdateDocCountDisplay();
+        }
+
+        // 选中文档组加载组内文件
+        private async void lvDocumentGroups_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (lvDocumentGroups.SelectedItem is DocumentGroup group)
+            {
+                _currentGroup = group;
+                foreach (var g in DocumentGroups)
+                {
+                    g.IsSelected = (g == group);
+                }
+
+                // 加载该组内的所有文档
+                Documents.Clear();
+                foreach (var docId in group.DocumentIds)
+                {
+                    var doc = await LibraryPersistenceService.Instance.LoadDocumentMetaAsync(docId);
+                    if (doc != null)
+                    {
+                        Documents.Add(doc);
+                    }
+                }
+
+                // 绑定至当前激活会话
+                if (_currentSession != null)
+                {
+                    _currentSession.BindGroupId = group.GroupId;
+                    _currentSession.BindGroupName = group.GroupName;
+                    _currentSession.LastActiveAt = DateTime.Now;
+                    await LibraryPersistenceService.Instance.SaveSessionAsync(_currentSession);
+                }
+
+                UpdateDocCountDisplay();
+
+                // 默认预览组内首个文档
+                _currentDoc = Documents.FirstOrDefault();
+                if (_currentDoc != null)
+                {
+                    lvDocuments.SelectedItem = _currentDoc;
+                    DisplayDocument(_currentDoc);
+                }
+            }
+        }
+
+        // 重命名文档组
+        private async void btnRenameGroup_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Tag is DocumentGroup group)
+            {
+                string? newName = await ShowInputTextDialogAsync("重命名文档组", group.GroupName, "请输入新名称");
+                if (!string.IsNullOrWhiteSpace(newName) && newName != group.GroupName)
+                {
+                    group.GroupName = newName;
+                    group.LastActiveAt = DateTime.Now;
+                    await LibraryPersistenceService.Instance.SaveGroupAsync(group);
+
+                    // 若当前会话绑定了此组，同步更新标题徽标
+                    foreach (var session in ChatSessions.Where(s => s.BindGroupId == group.GroupId))
+                    {
+                        session.BindGroupName = newName;
+                        await LibraryPersistenceService.Instance.SaveSessionAsync(session);
+                    }
+                }
+            }
+        }
+
+        // 删除文档组
+        private async void btnDeleteGroup_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Tag is DocumentGroup group)
+            {
+                bool confirm = await ShowConfirmDialogAsync("删除文档组", $"确定要删除文档组【{group.GroupName}】吗？\n（注：仅删除组定义，不会删除本地原始文件与文档元数据）");
+                if (confirm)
+                {
+                    await LibraryPersistenceService.Instance.DeleteGroupAsync(group.GroupId);
+                    DocumentGroups.Remove(group);
+                    if (_currentGroup == group)
+                    {
+                        _currentGroup = DocumentGroups.FirstOrDefault();
+                        lvDocumentGroups.SelectedItem = _currentGroup;
+                    }
+                    UpdateDocCountDisplay();
+                }
+            }
+        }
+
+        #endregion
+
         #region 历史会话管理 (左侧弹出抽屉)
 
         private void UpdateHistoryCountDisplay()
@@ -2347,12 +2792,15 @@ def analyze_document_metrics(file_path: str):
             spEmptyHistory.Visibility = ChatSessions.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
 
-        private void btnNewChat_Click(object sender, RoutedEventArgs e)
+        private async void btnNewChat_Click(object sender, RoutedEventArgs e)
         {
             var newSession = new ChatSessionItem
             {
                 Title = $"新对话 {DateTime.Now:MM-dd HH:mm}",
                 CreatedAt = DateTime.Now,
+                LastActiveAt = DateTime.Now,
+                BindGroupId = _currentGroup?.GroupId,
+                BindGroupName = _currentGroup?.GroupName,
                 IsSelected = true
             };
 
@@ -2362,7 +2810,12 @@ def analyze_document_metrics(file_path: str):
             }
 
             ChatSessions.Insert(0, newSession);
+            _currentSession = newSession;
             lvHistorySessions.SelectedItem = newSession;
+
+            // 持久化新会话
+            await LibraryPersistenceService.Instance.SaveSessionAsync(newSession);
+
             UpdateHistoryCountDisplay();
 
             // 清空并初始化欢迎消息
@@ -2374,6 +2827,7 @@ def analyze_document_metrics(file_path: str):
         {
             if (lvHistorySessions.SelectedItem is ChatSessionItem session)
             {
+                _currentSession = session;
                 foreach (var s in ChatSessions)
                 {
                     s.IsSelected = (s == session);
@@ -2384,21 +2838,100 @@ def analyze_document_metrics(file_path: str):
             }
         }
 
-        private void LoadSessionChat(ChatSessionItem session)
+        private async void LoadSessionChat(ChatSessionItem session)
         {
+            if (session == null) return;
+
+            _currentSession = session;
+
+            // 1. 从磁盘读取最新持久化的完整会话记录（包含 messages 与图表）
+            var persisted = await LibraryPersistenceService.Instance.LoadSessionAsync(session.Id);
+            var messagesToLoad = persisted?.Messages ?? session.Messages;
+
+            // 2. 清空界面并复原消息流与图表画廊
             ChatMessages.Clear();
-            ChatMessages.Add(new ChatMessageItem
+            PlotGallery.Clear();
+
+            if (messagesToLoad != null && messagesToLoad.Count > 0)
             {
-                Sender = "User",
-                Content = $"已切换至历史会话：【{session.Title}】",
-                Timestamp = session.CreatedAt
-            });
-            ChatMessages.Add(new ChatMessageItem
+                foreach (var msg in messagesToLoad)
+                {
+                    ChatMessages.Add(msg);
+
+                    // 深度复原画廊中的图表
+                    if (msg.GeneratedPlots != null && msg.GeneratedPlots.Count > 0)
+                    {
+                        foreach (var plot in msg.GeneratedPlots)
+                        {
+                            AddPlotToGallery(plot, switchToVis: false);
+                        }
+                    }
+                }
+            }
+            else
             {
-                Sender = "Assistant",
-                Content = $"已成功载入 **【{session.Title}】** 的上下文环境。\n\n- 会话创建时间：`{session.FormattedDate}`\n- 当前关联文档：{(_currentDoc != null ? $"**{_currentDoc.Name}** ({_currentDoc.FormattedSize})" : "暂未关联特定文档")}\n\n您可以随时在此会话中继续提问或上传新文档进行深入数据分析！",
-                Timestamp = DateTime.Now
-            });
+                // 若为空对话，初始化首屏引导
+                InitializeWelcomeChatMessage();
+            }
+
+            // 3. 自动匹配并秒级挂载关联文档组
+            if (!string.IsNullOrEmpty(session.BindGroupId))
+            {
+                var group = DocumentGroups.FirstOrDefault(g => g.GroupId == session.BindGroupId);
+                if (group == null)
+                {
+                    group = await LibraryPersistenceService.Instance.LoadGroupAsync(session.BindGroupId);
+                    if (group != null)
+                    {
+                        DocumentGroups.Add(group);
+                    }
+                }
+
+                if (group != null)
+                {
+                    _currentGroup = group;
+                    foreach (var g in DocumentGroups)
+                    {
+                        g.IsSelected = (g == group);
+                    }
+                    if (lvDocumentGroups != null)
+                    {
+                        lvDocumentGroups.SelectedItem = group;
+                    }
+
+                    // 极速加载组内所有文档元数据及 SchemaProfile（直接命中磁盘缓存）
+                    Documents.Clear();
+                    foreach (var docId in group.DocumentIds)
+                    {
+                        var doc = await LibraryPersistenceService.Instance.LoadDocumentMetaAsync(docId);
+                        if (doc != null)
+                        {
+                            Documents.Add(doc);
+                        }
+                    }
+
+                    // 选定首个文档预览
+                    _currentDoc = Documents.FirstOrDefault();
+                    if (_currentDoc != null)
+                    {
+                        if (lvDocuments != null) lvDocuments.SelectedItem = _currentDoc;
+                        DisplayDocument(_currentDoc);
+                    }
+                }
+            }
+            else
+            {
+                _currentGroup = null;
+                foreach (var g in DocumentGroups)
+                {
+                    g.IsSelected = false;
+                }
+            }
+
+            UpdateDocCountDisplay();
+
+            // 滚动至最新消息
+            svChatList?.ChangeView(null, svChatList.ScrollableHeight, null);
         }
 
         private void tbSearchHistory_TextChanged(object sender, TextChangedEventArgs e)
@@ -2414,12 +2947,120 @@ def analyze_document_metrics(file_path: str):
             }
         }
 
-        private void btnDeleteSession_Click(object sender, RoutedEventArgs e)
+        private async void btnRenameSession_Click(object sender, RoutedEventArgs e)
         {
             if (sender is Button btn && btn.Tag is ChatSessionItem session)
             {
-                ChatSessions.Remove(session);
-                UpdateHistoryCountDisplay();
+                string? newTitle = await ShowInputTextDialogAsync("重命名会话", session.Title, "请输入新的会话标题");
+                if (!string.IsNullOrWhiteSpace(newTitle) && newTitle != session.Title)
+                {
+                    session.Title = newTitle;
+                    session.LastActiveAt = DateTime.Now;
+                    await LibraryPersistenceService.Instance.SaveSessionAsync(session);
+                }
+            }
+        }
+
+        private async void btnDeleteSession_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Tag is ChatSessionItem session)
+            {
+                bool confirm = await ShowConfirmDialogAsync("删除会话", $"确定要删除会话【{session.Title}】吗？删除后不可恢复。");
+                if (confirm)
+                {
+                    await LibraryPersistenceService.Instance.DeleteSessionAsync(session.Id);
+                    ChatSessions.Remove(session);
+                    UpdateHistoryCountDisplay();
+
+                    if (_currentSession == session)
+                    {
+                        _currentSession = ChatSessions.FirstOrDefault();
+                        if (_currentSession != null)
+                        {
+                            lvHistorySessions.SelectedItem = _currentSession;
+                        }
+                        else
+                        {
+                            btnNewChat_Click(this, new RoutedEventArgs());
+                        }
+                    }
+                }
+            }
+        }
+
+        #endregion
+
+        #region 通用轻量原生弹窗辅助封装
+
+        private async Task<string?> ShowInputTextDialogAsync(string title, string defaultText, string placeholder = "")
+        {
+            try
+            {
+                var tb = new TextBox
+                {
+                    Text = defaultText,
+                    PlaceholderText = placeholder,
+                    Margin = new Thickness(0, 10, 0, 0),
+                    Width = 320
+                };
+                var dialog = new ContentDialog
+                {
+                    Title = title,
+                    Content = tb,
+                    PrimaryButtonText = "确定",
+                    CloseButtonText = "取消",
+                    DefaultButton = ContentDialogButton.Primary,
+                    XamlRoot = this.Content.XamlRoot
+                };
+
+                var res = await dialog.ShowAsync();
+                return res == ContentDialogResult.Primary ? tb.Text.Trim() : null;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ShowInputTextDialogAsync 异常: {ex.Message}");
+                return null;
+            }
+        }
+
+        private async Task<bool> ShowConfirmDialogAsync(string title, string content)
+        {
+            try
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = title,
+                    Content = new TextBlock { Text = content, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0) },
+                    PrimaryButtonText = "确定删除",
+                    CloseButtonText = "取消",
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = this.Content.XamlRoot
+                };
+                return await dialog.ShowAsync() == ContentDialogResult.Primary;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ShowConfirmDialogAsync 异常: {ex.Message}");
+                return false;
+            }
+        }
+
+        private async Task ShowMessageDialogAsync(string title, string content)
+        {
+            try
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = title,
+                    Content = new TextBlock { Text = content, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0) },
+                    CloseButtonText = "知道了",
+                    XamlRoot = this.Content.XamlRoot
+                };
+                await dialog.ShowAsync();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ShowMessageDialogAsync 异常: {ex.Message}");
             }
         }
 

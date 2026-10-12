@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using DataAnalysis_Assistant.Models;
 using DataAnalysis_Assistant.Services.Data;
+using DataAnalysis_Assistant.Services.Persistence;
 using OfficeOpenXml;
 using UglyToad.PdfPig;
 using Xceed.Words.NET;
@@ -92,7 +93,25 @@ namespace DataAnalysis_Assistant.Services.Tools
             string? resolvedPath = ResolveFilePath(filePath);
             if (string.IsNullOrEmpty(resolvedPath) || !File.Exists(resolvedPath))
             {
-                return ToolExecutionResult.Failed($"找不到指定文档：'{filePath}'。请确认文件路径是否正确。");
+                // 物理文件失效防御：尝试从本地持久化文档库寻找元数据缓存
+                var allDocs = await LibraryPersistenceService.Instance.ListAllDocumentsAsync();
+                string inputFileName = Path.GetFileName(filePath);
+                var matched = allDocs.FirstOrDefault(d =>
+                    string.Equals(d.Path, filePath, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(d.Name, filePath, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(Path.GetFileName(d.Path), inputFileName, StringComparison.OrdinalIgnoreCase) ||
+                    (!string.IsNullOrEmpty(d.Path) && !string.IsNullOrEmpty(filePath) &&
+                     string.Equals(Path.GetFullPath(d.Path), Path.GetFullPath(filePath), StringComparison.OrdinalIgnoreCase)));
+
+                if (matched != null && !string.IsNullOrWhiteSpace(matched.ExtractedText))
+                {
+                    return ToolExecutionResult.Ok(
+                        $"⚠️【缓存降级模式】：源物理文件已移动或未找到（路径: '{filePath}'）。系统已自动从本地持久化文档库调取历史提取文本缓存以保障分析连续性：\n\n" +
+                        $"【缓存文档: {matched.Name}】\n{matched.ExtractedText}\n\n" +
+                        $"> 建议：若需重新定位该文件的最新物理路径，可在左侧【文档库】中点击【🔄 重新定位】。");
+                }
+
+                return ToolExecutionResult.Failed($"找不到指定文档：'{filePath}'。物理文件不存在且本地无可用缓存。");
             }
 
             try

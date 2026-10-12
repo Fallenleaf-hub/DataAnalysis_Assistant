@@ -1,6 +1,8 @@
 using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Text.Json.Serialization;
+using Microsoft.UI.Xaml;
 
 namespace DataAnalysis_Assistant.Models
 {
@@ -8,8 +10,19 @@ namespace DataAnalysis_Assistant.Models
     {
         private string _status = "待解析";
         private string _extractedText = string.Empty;
+        private bool _isMissing;
 
         public string Id { get; set; } = Guid.NewGuid().ToString();
+
+        /// <summary>
+        /// 兼容持久化主键别名 (与 Id 等价)
+        /// </summary>
+        public string DocId
+        {
+            get => Id;
+            set => Id = value;
+        }
+
         public string Name { get; set; } = string.Empty;
         public string Path { get; set; } = string.Empty;
         public string Extension { get; set; } = string.Empty;
@@ -32,7 +45,10 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
+        [JsonIgnore]
         public int CharacterCount => ExtractedText?.Length ?? 0;
+
+        [JsonIgnore]
         public int EstimatedTokens => (int)Math.Ceiling(CharacterCount / 4.0);
 
         public string Status
@@ -48,6 +64,35 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
+        /// <summary>
+        /// 物理文件是否缺失（本地原文件被删除或移动）
+        /// </summary>
+        [JsonIgnore]
+        public bool IsMissing
+        {
+            get => _isMissing;
+            set
+            {
+                if (_isMissing != value)
+                {
+                    _isMissing = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(FileStatusBadge));
+                    OnPropertyChanged(nameof(FileStatusColor));
+                }
+            }
+        }
+
+        [JsonIgnore]
+        public string FileStatusBadge => _isMissing ? "⚠️ 原始文件丢失" : "✅ 正常就绪";
+
+        [JsonIgnore]
+        public string FileStatusColor => _isMissing ? "#D97706" : "#059669";
+
+        [JsonIgnore]
+        public Microsoft.UI.Xaml.Visibility MissingBadgeVisibility => _isMissing ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
+        [JsonIgnore]
         public string BadgeBackground => Extension.ToLowerInvariant() switch
         {
             ".pdf" => "#E05345",
@@ -57,12 +102,14 @@ namespace DataAnalysis_Assistant.Models
             _ => "#607D8B"
         };
 
+        [JsonIgnore]
         public string ExtensionLabel => Extension.TrimStart('.').ToUpperInvariant();
         private DataSchemaProfile? _schemaProfile;
 
         /// <summary>
         /// 是否属于结构化大表格（CSV/Excel）
         /// </summary>
+        [JsonIgnore]
         public bool IsTabularData => Extension.ToLowerInvariant() switch
         {
             ".csv" or ".tsv" or ".xlsx" or ".xls" => true,
@@ -86,10 +133,12 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
+        [JsonIgnore]
         public string TableSummary => _schemaProfile != null
             ? $"{_schemaProfile.TotalRows:N0} 行 × {_schemaProfile.TotalColumns} 列"
             : string.Empty;
 
+        [JsonIgnore]
         public string SummaryText => IsTabularData && _schemaProfile != null
             ? $"{FormattedSize} · {TableSummary}"
             : $"{FormattedSize} · {Status}";

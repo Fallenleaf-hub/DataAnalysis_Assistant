@@ -257,24 +257,47 @@ namespace DataAnalysis_Assistant.Services.Python
 
         private static string LocateOrInitScratchDirectory(string baseDir)
         {
-            // 向上查找到包含 .git 或 .slnx 的工程根目录
-            var current = new DirectoryInfo(baseDir);
-            while (current != null && current.Parent != null)
+            // 1. 尝试从当前工作目录或 baseDir 向上查找到包含 .git 或 .slnx 的工程根目录
+            string[] searchRoots = new[] { Directory.GetCurrentDirectory(), baseDir };
+            foreach (var root in searchRoots)
             {
-                if (Directory.Exists(Path.Combine(current.FullName, ".git")) ||
-                    File.Exists(Path.Combine(current.FullName, "DataAnalysis_Assistant.slnx")))
+                if (string.IsNullOrWhiteSpace(root)) continue;
+                try
                 {
-                    string targetScratch = Path.Combine(current.FullName, "scratch");
-                    Directory.CreateDirectory(targetScratch);
-                    return targetScratch;
+                    var current = new DirectoryInfo(root);
+                    while (current != null)
+                    {
+                        if (Directory.Exists(Path.Combine(current.FullName, ".git")) ||
+                            File.Exists(Path.Combine(current.FullName, "DataAnalysis_Assistant.slnx")) ||
+                            File.Exists(Path.Combine(current.FullName, "DataAnalysis_Assistant.sln")))
+                        {
+                            string targetScratch = Path.Combine(current.FullName, "scratch");
+                            Directory.CreateDirectory(targetScratch);
+                            return targetScratch;
+                        }
+                        current = current.Parent;
+                    }
                 }
-                current = current.Parent;
+                catch
+                {
+                    // 忽略无权限向上遍历的目录
+                }
             }
 
-            // 备用 fallback: 当前目录下的 scratch
-            string fallback = Path.Combine(baseDir, "scratch");
-            Directory.CreateDirectory(fallback);
-            return fallback;
+            // 2. 备用 fallback: AppData/DataAnalysis_Assistant/scratch (保证用户目录始终具有读写权限)
+            try
+            {
+                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                string appScratch = Path.Combine(appData, "DataAnalysis_Assistant", "scratch");
+                Directory.CreateDirectory(appScratch);
+                return appScratch;
+            }
+            catch
+            {
+                string tempScratch = Path.Combine(Path.GetTempPath(), "DataAnalysis_Assistant", "scratch");
+                Directory.CreateDirectory(tempScratch);
+                return tempScratch;
+            }
         }
 
         /// <summary>

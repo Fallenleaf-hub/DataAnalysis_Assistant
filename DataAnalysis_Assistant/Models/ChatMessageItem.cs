@@ -1,7 +1,9 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Text.Json.Serialization;
 using Microsoft.UI.Xaml;
 
 namespace DataAnalysis_Assistant.Models
@@ -14,31 +16,65 @@ namespace DataAnalysis_Assistant.Models
         private bool _isThinking = false;
         private double _thinkingSeconds = 0;
         private bool _isStopped = false;
+        private ObservableCollection<ChartArtifactItem> _generatedPlots = new();
 
         public ChatMessageItem()
         {
-            GeneratedPlots.CollectionChanged += (s, e) =>
-            {
-                OnPropertyChanged(nameof(HasPlots));
-                OnPropertyChanged(nameof(HasPlotsVisibility));
-            };
+            _generatedPlots.CollectionChanged += OnGeneratedPlotsChanged;
+        }
+
+        private void OnGeneratedPlotsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            OnPropertyChanged(nameof(HasPlots));
+            OnPropertyChanged(nameof(HasPlotsVisibility));
         }
 
         public string Id { get; set; } = Guid.NewGuid().ToString();
         public string Sender { get; set; } = "Assistant"; // "User" or "Assistant"
+
+        [JsonIgnore]
         public string SenderName => Sender == "User" ? "我 (用户)" : "AI 助手";
+
+        [JsonIgnore]
         public bool IsUser => Sender == "User";
+
+        [JsonIgnore]
         public bool IsAssistant => !IsUser;
 
+        [JsonIgnore]
         public Visibility UserBubbleVisibility => IsUser ? Visibility.Visible : Visibility.Collapsed;
+
+        [JsonIgnore]
         public Visibility AssistantBubbleVisibility => IsAssistant ? Visibility.Visible : Visibility.Collapsed;
 
         /// <summary>
         /// 本轮对话或代码执行生成的图表资产列表
         /// </summary>
-        public ObservableCollection<ChartArtifactItem> GeneratedPlots { get; } = new();
+        [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
+        public ObservableCollection<ChartArtifactItem> GeneratedPlots
+        {
+            get => _generatedPlots;
+            set
+            {
+                if (_generatedPlots != value)
+                {
+                    if (_generatedPlots != null)
+                    {
+                        _generatedPlots.CollectionChanged -= OnGeneratedPlotsChanged;
+                    }
+                    _generatedPlots = value ?? new();
+                    _generatedPlots.CollectionChanged += OnGeneratedPlotsChanged;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(HasPlots));
+                    OnPropertyChanged(nameof(HasPlotsVisibility));
+                }
+            }
+        }
 
+        [JsonIgnore]
         public bool HasPlots => GeneratedPlots.Count > 0;
+
+        [JsonIgnore]
         public Visibility HasPlotsVisibility => HasPlots ? Visibility.Visible : Visibility.Collapsed;
 
         public string Content
@@ -73,9 +109,13 @@ namespace DataAnalysis_Assistant.Models
         }
 
         // 只要处于思考状态或者已有思考内容，均视为有思考过程，立即展示思考卡片
+        [JsonIgnore]
         public bool HasReasoning => !string.IsNullOrWhiteSpace(_reasoningContent) || _isThinking;
+
+        [JsonIgnore]
         public Visibility HasReasoningVisibility => HasReasoning ? Visibility.Visible : Visibility.Collapsed;
 
+        [JsonIgnore]
         public string ReasoningDisplayText
         {
             get
@@ -104,7 +144,10 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
+        [JsonIgnore]
         public Visibility ReasoningBodyVisibility => (HasReasoning && _isReasoningExpanded) ? Visibility.Visible : Visibility.Collapsed;
+
+        [JsonIgnore]
         public string ReasoningToggleText => _isReasoningExpanded ? "收起" : "展开";
 
         // 思考状态与耗时
@@ -127,6 +170,7 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
+        [JsonIgnore]
         public Visibility ThinkingIndicatorVisibility => _isThinking ? Visibility.Visible : Visibility.Collapsed;
 
         public double ThinkingSeconds
@@ -143,6 +187,7 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
+        [JsonIgnore]
         public string ThinkingStatusText
         {
             get
@@ -170,9 +215,12 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
+        [JsonIgnore]
         public Visibility StoppedNoticeVisibility => _isStopped ? Visibility.Visible : Visibility.Collapsed;
 
         public DateTime Timestamp { get; set; } = DateTime.Now;
+
+        [JsonIgnore]
         public string FormattedTime => Timestamp.ToString("HH:mm:ss");
 
         public event PropertyChangedEventHandler? PropertyChanged;

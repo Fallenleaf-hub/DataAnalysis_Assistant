@@ -104,7 +104,19 @@ namespace DataAnalysis_Assistant.Services.Tools
                 TimeoutSeconds = settings.PythonTimeoutSeconds > 0 ? settings.PythonTimeoutSeconds : 30
             };
 
-            return await _execService.ExecuteCodeAsync(code, settings.PythonPath, options, cancellationToken);
+            var result = await _execService.ExecuteCodeAsync(code, settings.PythonPath, options, cancellationToken);
+            if (!result.Success)
+            {
+                bool isFileNotFound = (result.ErrorMessage != null && result.ErrorMessage.Contains("FileNotFoundError")) ||
+                                      (result.Output != null && result.Output.Contains("FileNotFoundError"));
+                if (isFileNotFound)
+                {
+                    string hint = "\n\n⚠️【物理文件缺失拦截与恢复提示】：Python 执行时触发了 FileNotFoundError，表明引用的源文件在本地磁盘路径上不存在或已被移动/重命名。请提醒用户在左侧【本地文档库】中点击对应文档的【重新定位 🔄】按钮更新文件路径；若无需重新读取物理文件，请改用已由 DocumentReader 缓存的文本或由模型提供推导分析，切勿盲目重复生成相同读取代码。";
+                    result.ErrorMessage = (result.ErrorMessage ?? "") + hint;
+                }
+            }
+
+            return result;
         }
     }
 }

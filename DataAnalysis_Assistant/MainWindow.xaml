@@ -584,7 +584,7 @@
                     <Border x:Name="drawerBackdrop" Background="#26000000" Visibility="Collapsed" PointerPressed="drawerBackdrop_PointerPressed"/>
 
                     <!-- ==================== 左侧弹出抽屉面板 (支持文档库与历史会话直接秒切) ==================== -->
-                    <Border x:Name="borderDrawerPane" HorizontalAlignment="Left" Width="340" Margin="10,10,4,12" Background="{StaticResource SidebarBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" CornerRadius="14" Visibility="Collapsed">
+                    <Border x:Name="borderDrawerPane" HorizontalAlignment="Left" Width="360" Margin="10,10,4,12" Background="{StaticResource SidebarBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" CornerRadius="14" Visibility="Collapsed">
                             <Grid>
                                 <!-- ==================== 抽屉内容 1: 本地文档库 ==================== -->
                                 <Grid x:Name="paneDocLibrary" Margin="12,14,12,12" Visibility="Visible">
@@ -596,72 +596,199 @@
                                     </Grid.RowDefinitions>
 
                                     <!-- 抽屉标题与关闭按钮 -->
-                                    <StackPanel Grid.Row="0" Spacing="8">
-                                        <Grid>
-                                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                                <TextBlock Text="本地文档库" FontWeight="SemiBold" FontSize="14" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                                <TextBlock x:Name="tbDocCount" Text="0 个文件" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
-                                            </StackPanel>
-                                            <!-- 关闭抽屉按钮 -->
-                                            <Button Click="btnCloseDocPane_Click" HorizontalAlignment="Right" Content="✕" Padding="6,3" Background="Transparent" BorderThickness="0" CornerRadius="6" Foreground="{StaticResource TextSecondaryBrush}" ToolTipService.ToolTip="收起文档库"/>
-                                        </Grid>
-
-                                        <!-- 选择文件按钮 -->
-                                        <Button x:Name="btnSelectFile" Click="btnSelectFile_Click" HorizontalAlignment="Stretch" Padding="0,9" Background="{StaticResource AccentWarmBrush}" Foreground="White" CornerRadius="10">
-                                            <TextBlock Text="选择本地文档 (多选)" FontWeight="Medium" FontSize="13" HorizontalAlignment="Center"/>
-                                        </Button>
-                                        <TextBlock Text="支持格式：PDF、Word、Excel、TXT、CSV、MD" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap"/>
-                                    </StackPanel>
-
-                                    <!-- 搜索过滤框 -->
-                                    <TextBox x:Name="tbSearchDoc" Grid.Row="1" Margin="0,10,0,8" PlaceholderText="搜索已选文档..." TextChanged="tbSearchDoc_TextChanged" CornerRadius="10" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}"/>
-
-                                    <!-- 文档列表 -->
-                                    <Grid Grid.Row="2">
-                                        <!-- 空状态提示 -->
-                                        <StackPanel x:Name="spEmptyDocs" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8" Visibility="Visible">
-                                            <TextBlock Text="暂无导入文档" FontWeight="Medium" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="点击上方按钮添加本地文件" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Center"/>
+                                    <Grid Grid.Row="0">
+                                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <TextBlock Text="本地文档库" FontWeight="SemiBold" FontSize="14" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                            <TextBlock x:Name="tbDocCount" Text="0 个文件" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                                         </StackPanel>
-
-                                        <!-- 列表视图 -->
-                                        <ListView x:Name="lvDocuments" SelectionChanged="lvDocuments_SelectionChanged" SelectionMode="Single">
-                                            <ListView.ItemTemplate>
-                                                <DataTemplate x:DataType="models:DocumentItem">
-                                                    <Border Margin="0,3" Padding="10,8" Background="{StaticResource CardBgBrush}" CornerRadius="10" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1">
-                                                        <Grid ColumnSpacing="8">
-                                                            <Grid.ColumnDefinitions>
-                                                                <ColumnDefinition Width="Auto"/>
-                                                                <ColumnDefinition Width="*"/>
-                                                                <ColumnDefinition Width="Auto"/>
-                                                            </Grid.ColumnDefinitions>
-
-                                                             <!-- 扩展名徽标 -->
-                                                            <Border Grid.Column="0" CornerRadius="6" Padding="6,3" VerticalAlignment="Center" Background="#D5CBB8">
-                                                                <TextBlock Text="{x:Bind ExtensionLabel, Mode=OneWay}" FontSize="10" FontWeight="Bold" Foreground="#382E24"/>
-                                                            </Border>
-
-                                                            <!-- 文件信息 -->
-                                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                                                                <TextBlock Text="{x:Bind Name, Mode=OneWay}" FontWeight="Medium" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
-                                                                <TextBlock Text="{x:Bind SummaryText, Mode=OneWay}" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}"/>
-                                                            </StackPanel>
-
-                                                            <!-- 删除按钮 -->
-                                                            <Button Grid.Column="2" Click="btnRemoveDoc_Click" Tag="{x:Bind}" Padding="6,4" Background="Transparent" BorderThickness="0" CornerRadius="6" VerticalAlignment="Center" ToolTipService.ToolTip="移除此文档">
-                                                                <TextBlock Text="✕" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
-                                                            </Button>
-                                                        </Grid>
-                                                    </Border>
-                                                </DataTemplate>
-                                            </ListView.ItemTemplate>
-                                        </ListView>
+                                        <!-- 关闭抽屉按钮 -->
+                                        <Button Click="btnCloseDocPane_Click" HorizontalAlignment="Right" Content="✕" Padding="6,3" Background="Transparent" BorderThickness="0" CornerRadius="6" Foreground="{StaticResource TextSecondaryBrush}" ToolTipService.ToolTip="收起文档库"/>
                                     </Grid>
 
-                                    <!-- 抽屉底部提示 -->
-                                    <Border Grid.Row="3" Margin="0,8,0,0" Padding="8,6" Background="{StaticResource CardBgBrush}" CornerRadius="8" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1">
-                                        <TextBlock Text="选中文档后右侧将同步刷新预览与分析看板" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Center"/>
+                                    <!-- 视角切换分段栏：【📚 文档组】 / 【📄 工作区文档】 -->
+                                    <Border Grid.Row="1" Margin="0,10,0,10" Background="#E8E2D5" CornerRadius="8" Padding="3">
+                                        <Grid ColumnSpacing="4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Button x:Name="btnViewDocGroups" Click="btnViewDocGroups_Click" Grid.Column="0" Content="📚 文档组管理" HorizontalAlignment="Stretch" Padding="0,5" Background="{StaticResource CardBgBrush}" CornerRadius="6" BorderThickness="0" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                            <Button x:Name="btnViewAllDocs" Click="btnViewAllDocs_Click" Grid.Column="1" Content="📄 工作区文档" HorizontalAlignment="Stretch" Padding="0,5" Background="Transparent" CornerRadius="6" BorderThickness="0" FontSize="11" FontWeight="Normal" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                        </Grid>
                                     </Border>
+
+                                    <!-- 主列表展示区域 -->
+                                    <Grid Grid.Row="2">
+                                        <!-- 视角 A: 文档组管理视图 -->
+                                        <Grid x:Name="gridDocGroupView" Visibility="Visible">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="*"/>
+                                            </Grid.RowDefinitions>
+
+                                            <!-- 操作栏：新建组 + 打包当前 -->
+                                            <Grid Grid.Row="0" Margin="0,0,0,10" ColumnSpacing="6">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Button x:Name="btnCreateNewGroup" Click="btnCreateNewGroup_Click" Grid.Column="0" HorizontalAlignment="Stretch" Padding="0,7" Background="{StaticResource AccentWarmBrush}" Foreground="White" CornerRadius="8">
+                                                    <TextBlock Text="＋ 新建文档组" FontSize="12" FontWeight="Medium" HorizontalAlignment="Center"/>
+                                                </Button>
+                                                <Button x:Name="btnPackCurrentDocsToGroup" Click="btnPackCurrentDocsToGroup_Click" Grid.Column="1" HorizontalAlignment="Stretch" Padding="0,7" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" CornerRadius="8" ToolTipService.ToolTip="将当前已载入工作区的文件打包为新组">
+                                                    <TextBlock Text="📦 打包当前文件" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" HorizontalAlignment="Center"/>
+                                                </Button>
+                                            </Grid>
+
+                                            <!-- 文档组空状态 -->
+                                            <StackPanel x:Name="spEmptyGroups" Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8" Visibility="Collapsed">
+                                                <TextBlock Text="暂无文档组" FontWeight="Medium" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="点击上方【新建文档组】开始批量管理" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Center"/>
+                                            </StackPanel>
+
+                                            <!-- 文档组列表 -->
+                                            <ListView Grid.Row="1" x:Name="lvDocumentGroups" SelectionChanged="lvDocumentGroups_SelectionChanged" SelectionMode="Single">
+                                                <ListView.ItemTemplate>
+                                                    <DataTemplate x:DataType="models:DocumentGroup">
+                                                        <Border Margin="0,3" Padding="10,8" Background="{StaticResource CardBgBrush}" CornerRadius="10" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1">
+                                                            <Grid ColumnSpacing="8">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                </Grid.ColumnDefinitions>
+
+                                                                <!-- 图标徽章 -->
+                                                                <Border Grid.Column="0" CornerRadius="6" Padding="6,4" VerticalAlignment="Center" Background="#D8CDBD">
+                                                                    <TextBlock Text="📁" FontSize="11"/>
+                                                                </Border>
+
+                                                                <!-- 组信息 -->
+                                                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                                                    <TextBlock Text="{x:Bind GroupName, Mode=OneWay}" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                        <Border Background="#EAE5D9" CornerRadius="4" Padding="4,1">
+                                                                            <TextBlock Text="{x:Bind DocCountBadge, Mode=OneWay}" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                                        </Border>
+                                                                        <TextBlock Text="{x:Bind FormattedLastActive, Mode=OneWay}" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                                                                    </StackPanel>
+                                                                </StackPanel>
+
+                                                                <!-- 操作按钮栏 -->
+                                                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                                                                    <Button Click="btnRenameGroup_Click" Tag="{x:Bind}" Padding="5,3" Background="Transparent" BorderThickness="0" CornerRadius="5" ToolTipService.ToolTip="重命名文档组">
+                                                                        <TextBlock Text="✏️" FontSize="10"/>
+                                                                    </Button>
+                                                                    <Button Click="btnDeleteGroup_Click" Tag="{x:Bind}" Padding="5,3" Background="Transparent" BorderThickness="0" CornerRadius="5" ToolTipService.ToolTip="删除文档组">
+                                                                        <TextBlock Text="✕" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                                    </Button>
+                                                                </StackPanel>
+                                                            </Grid>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ListView.ItemTemplate>
+                                            </ListView>
+                                        </Grid>
+
+                                        <!-- 视角 B: 工作区/全部文档视图 -->
+                                        <Grid x:Name="gridAllDocsView" Visibility="Collapsed">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="*"/>
+                                            </Grid.RowDefinitions>
+
+                                            <!-- 选择文件按钮 -->
+                                            <StackPanel Grid.Row="0" Spacing="6">
+                                                <Button x:Name="btnSelectFile" Click="btnSelectFile_Click" HorizontalAlignment="Stretch" Padding="0,9" Background="{StaticResource AccentWarmBrush}" Foreground="White" CornerRadius="10">
+                                                    <TextBlock Text="选择本地文档 (多选导入)" FontWeight="Medium" FontSize="13" HorizontalAlignment="Center"/>
+                                                </Button>
+                                                <TextBlock Text="支持格式：PDF、Word、Excel、TXT、CSV、MD" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+                                            </StackPanel>
+
+                                            <!-- 搜索过滤框 -->
+                                            <TextBox x:Name="tbSearchDoc" Grid.Row="1" Margin="0,8,0,8" PlaceholderText="搜索已载入文档..." TextChanged="tbSearchDoc_TextChanged" CornerRadius="10" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}"/>
+
+                                            <!-- 文档列表 -->
+                                            <Grid Grid.Row="2">
+                                                <!-- 空状态提示 -->
+                                                <StackPanel x:Name="spEmptyDocs" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8" Visibility="Visible">
+                                                    <TextBlock Text="暂无导入文档" FontWeight="Medium" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}" HorizontalAlignment="Center"/>
+                                                    <TextBlock Text="点击上方按钮添加本地文件" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Center"/>
+                                                </StackPanel>
+
+                                                <!-- 列表视图 -->
+                                                <ListView x:Name="lvDocuments" SelectionChanged="lvDocuments_SelectionChanged" SelectionMode="Single">
+                                                    <ListView.ItemTemplate>
+                                                        <DataTemplate x:DataType="models:DocumentItem">
+                                                            <Border Margin="0,3" Padding="10,8" Background="{StaticResource CardBgBrush}" CornerRadius="10" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1">
+                                                                <Grid ColumnSpacing="8">
+                                                                    <Grid.ColumnDefinitions>
+                                                                        <ColumnDefinition Width="Auto"/>
+                                                                        <ColumnDefinition Width="*"/>
+                                                                        <ColumnDefinition Width="Auto"/>
+                                                                    </Grid.ColumnDefinitions>
+
+                                                                    <!-- 扩展名徽标 -->
+                                                                    <Border Grid.Column="0" CornerRadius="6" Padding="6,3" VerticalAlignment="Center" Background="#D5CBB8">
+                                                                        <TextBlock Text="{x:Bind ExtensionLabel, Mode=OneWay}" FontSize="10" FontWeight="Bold" Foreground="#382E24"/>
+                                                                    </Border>
+
+                                                                    <!-- 文件信息与状态 -->
+                                                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                                                        <TextBlock Text="{x:Bind Name, Mode=OneWay}" FontWeight="Medium" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                            <TextBlock Text="{x:Bind SummaryText, Mode=OneWay}" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                                            <!-- 丢失警告徽标 -->
+                                                                            <Border Visibility="{x:Bind MissingBadgeVisibility, Mode=OneWay}" Background="#FEF3C7" CornerRadius="4" Padding="4,1">
+                                                                                <TextBlock Text="⚠️ 文件丢失" FontSize="9" Foreground="#92400E" FontWeight="SemiBold"/>
+                                                                            </Border>
+                                                                        </StackPanel>
+                                                                    </StackPanel>
+
+                                                                    <!-- 操作按钮栏：定位 + 移除 -->
+                                                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                                                                        <!-- 仅丢失时显现的重新定位按钮 -->
+                                                                        <Button Visibility="{x:Bind MissingBadgeVisibility, Mode=OneWay}" Click="btnRelocateDoc_Click" Tag="{x:Bind}" Padding="4,2" Background="Transparent" BorderThickness="0" CornerRadius="5" ToolTipService.ToolTip="源文件已移动，点击重新定位">
+                                                                            <TextBlock Text="🔄" FontSize="10"/>
+                                                                        </Button>
+                                                                        <Button Click="btnRemoveDoc_Click" Tag="{x:Bind}" Padding="5,4" Background="Transparent" BorderThickness="0" CornerRadius="6" ToolTipService.ToolTip="从工作区移除">
+                                                                            <TextBlock Text="✕" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                                        </Button>
+                                                                    </StackPanel>
+                                                                </Grid>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ListView.ItemTemplate>
+                                                </ListView>
+                                            </Grid>
+                                        </Grid>
+                                    </Grid>
+
+                                    <!-- 抽屉底部工具栏与备份迁移入口 -->
+                                    <StackPanel Grid.Row="3" Margin="0,8,0,0" Spacing="6">
+                                        <Grid ColumnSpacing="6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Button x:Name="btnExportBackup" Click="btnExportBackup_Click" Grid.Column="0" HorizontalAlignment="Stretch" Padding="6,6" CornerRadius="8" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" ToolTipService.ToolTip="将文档元数据、文档组与会话历史完整导出为 ZIP 备份包">
+                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="4">
+                                                    <TextBlock Text="📤" FontSize="11"/>
+                                                    <TextBlock Text="导出备份" FontSize="11" Foreground="{StaticResource TextPrimaryBrush}" FontWeight="Medium"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button x:Name="btnImportBackup" Click="btnImportBackup_Click" Grid.Column="1" HorizontalAlignment="Stretch" Padding="6,6" CornerRadius="8" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" ToolTipService.ToolTip="从 ZIP 备份包恢复文档库与历史会话">
+                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="4">
+                                                    <TextBlock Text="📥" FontSize="11"/>
+                                                    <TextBlock Text="导入恢复" FontSize="11" Foreground="{StaticResource TextPrimaryBrush}" FontWeight="Medium"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </Grid>
+                                        <Border Padding="8,5" Background="{StaticResource CardBgBrush}" CornerRadius="8" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1">
+                                            <TextBlock Text="选中文档组或文件后右侧将同步刷新预览与分析看板" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Center"/>
+                                        </Border>
+                                    </StackPanel>
                                 </Grid>
 
                                 <!-- ==================== 抽屉内容 2: 历史会话记录 (同样弹出模式) ==================== -->
@@ -678,7 +805,7 @@
                                         <Grid>
                                             <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                                 <TextBlock Text="历史对话记录" FontWeight="SemiBold" FontSize="14" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                                <TextBlock x:Name="tbHistoryCount" Text="10 个会话" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                                                <TextBlock x:Name="tbHistoryCount" Text="0 个会话" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                                             </StackPanel>
                                             <!-- 关闭抽屉按钮 -->
                                             <Button Click="btnCloseDocPane_Click" HorizontalAlignment="Right" Content="✕" Padding="6,3" Background="Transparent" BorderThickness="0" CornerRadius="6" Foreground="{StaticResource TextSecondaryBrush}" ToolTipService.ToolTip="收起面板"/>
@@ -713,21 +840,26 @@
                                                                 <ColumnDefinition Width="Auto"/>
                                                             </Grid.ColumnDefinitions>
 
-                                                            <!-- 会话文字徽章 -->
-                                                            <Border Grid.Column="0" CornerRadius="6" Padding="6,2" VerticalAlignment="Center" Background="#E5DEC9">
-                                                                <TextBlock Text="会话" FontSize="10" FontWeight="SemiBold" Foreground="#382E24"/>
+                                                            <!-- 会话绑定组徽标 (独立会话 vs 绑定组) -->
+                                                            <Border Grid.Column="0" CornerRadius="6" Padding="6,3" VerticalAlignment="Center" Background="#EBE5D8">
+                                                                <TextBlock Text="{x:Bind GroupBadgeText, Mode=OneWay}" FontSize="9" FontWeight="SemiBold" Foreground="#4A3F35" MaxWidth="64" TextTrimming="CharacterEllipsis"/>
                                                             </Border>
 
                                                             <!-- 会话标题与时间 -->
                                                             <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
                                                                 <TextBlock Text="{x:Bind Title, Mode=OneWay}" FontWeight="Medium" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
-                                                                <TextBlock Text="{x:Bind FormattedDate, Mode=OneWay}" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                                <TextBlock Text="{x:Bind FormattedLastActive, Mode=OneWay}" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}"/>
                                                             </StackPanel>
 
-                                                            <!-- 删除会话按钮 -->
-                                                            <Button Grid.Column="2" Click="btnDeleteSession_Click" Tag="{x:Bind}" Padding="6,4" Background="Transparent" BorderThickness="0" CornerRadius="6" VerticalAlignment="Center" ToolTipService.ToolTip="删除该会话">
-                                                                <TextBlock Text="✕" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
-                                                            </Button>
+                                                            <!-- 操作按钮：重命名 + 删除 -->
+                                                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                                                                <Button Click="btnRenameSession_Click" Tag="{x:Bind}" Padding="5,3" Background="Transparent" BorderThickness="0" CornerRadius="5" ToolTipService.ToolTip="重命名会话">
+                                                                    <TextBlock Text="✏️" FontSize="10"/>
+                                                                </Button>
+                                                                <Button Click="btnDeleteSession_Click" Tag="{x:Bind}" Padding="5,4" Background="Transparent" BorderThickness="0" CornerRadius="6" ToolTipService.ToolTip="删除该会话">
+                                                                    <TextBlock Text="✕" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                                </Button>
+                                                            </StackPanel>
                                                         </Grid>
                                                     </Border>
                                                 </DataTemplate>

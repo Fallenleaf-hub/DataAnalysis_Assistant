@@ -2,6 +2,7 @@ using System;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Text.Json.Serialization;
 using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace DataAnalysis_Assistant.Models
@@ -44,6 +45,7 @@ namespace DataAnalysis_Assistant.Models
         /// <summary>
         /// 文件名称
         /// </summary>
+        [JsonIgnore]
         public string FileName => string.IsNullOrEmpty(_filePath) ? string.Empty : Path.GetFileName(_filePath);
 
         /// <summary>
@@ -70,11 +72,13 @@ namespace DataAnalysis_Assistant.Models
         /// <summary>
         /// 格式化时间
         /// </summary>
+        [JsonIgnore]
         public string FormattedTime => CreatedAt.ToString("HH:mm:ss");
 
         /// <summary>
         /// 文件大小（字节）
         /// </summary>
+        [JsonIgnore]
         public long FileSize
         {
             get
@@ -94,6 +98,7 @@ namespace DataAnalysis_Assistant.Models
         /// <summary>
         /// 人类可读格式化文件大小
         /// </summary>
+        [JsonIgnore]
         public string FormattedSize
         {
             get
@@ -108,6 +113,7 @@ namespace DataAnalysis_Assistant.Models
         /// <summary>
         /// 用于 XAML 图片绑定的绝对文件 Uri
         /// </summary>
+        [JsonIgnore]
         public Uri? ImageUri
         {
             get
@@ -127,6 +133,7 @@ namespace DataAnalysis_Assistant.Models
         /// <summary>
         /// 内存缓存的 BitmapImage，加速 WinUI 3 渲染
         /// </summary>
+        [JsonIgnore]
         public BitmapImage? Bitmap
         {
             get
@@ -169,6 +176,7 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
+        [JsonIgnore]
         public string PinButtonTooltip => _isPinnedToDashboard ? "已在可视化看板中" : "推送到可视化看板";
 
         protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
