@@ -58,7 +58,41 @@ namespace DataAnalysis_Assistant.Models
         };
 
         public string ExtensionLabel => Extension.TrimStart('.').ToUpperInvariant();
-        public string SummaryText => $"{FormattedSize} · {Status}";
+        private DataSchemaProfile? _schemaProfile;
+
+        /// <summary>
+        /// 是否属于结构化大表格（CSV/Excel）
+        /// </summary>
+        public bool IsTabularData => Extension.ToLowerInvariant() switch
+        {
+            ".csv" or ".tsv" or ".xlsx" or ".xls" => true,
+            _ => false
+        };
+
+        /// <summary>
+        /// 表格元数据骨架（践行计算下推规范）
+        /// </summary>
+        public DataSchemaProfile? SchemaProfile
+        {
+            get => _schemaProfile;
+            set
+            {
+                if (_schemaProfile != value)
+                {
+                    _schemaProfile = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(TableSummary));
+                }
+            }
+        }
+
+        public string TableSummary => _schemaProfile != null
+            ? $"{_schemaProfile.TotalRows:N0} 行 × {_schemaProfile.TotalColumns} 列"
+            : string.Empty;
+
+        public string SummaryText => IsTabularData && _schemaProfile != null
+            ? $"{FormattedSize} · {TableSummary}"
+            : $"{FormattedSize} · {Status}";
 
         public event PropertyChangedEventHandler? PropertyChanged;
 

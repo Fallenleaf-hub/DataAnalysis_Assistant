@@ -1,4 +1,5 @@
 using System;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using Microsoft.UI.Xaml;
@@ -14,6 +15,15 @@ namespace DataAnalysis_Assistant.Models
         private double _thinkingSeconds = 0;
         private bool _isStopped = false;
 
+        public ChatMessageItem()
+        {
+            GeneratedPlots.CollectionChanged += (s, e) =>
+            {
+                OnPropertyChanged(nameof(HasPlots));
+                OnPropertyChanged(nameof(HasPlotsVisibility));
+            };
+        }
+
         public string Id { get; set; } = Guid.NewGuid().ToString();
         public string Sender { get; set; } = "Assistant"; // "User" or "Assistant"
         public string SenderName => Sender == "User" ? "我 (用户)" : "AI 助手";
@@ -22,6 +32,14 @@ namespace DataAnalysis_Assistant.Models
 
         public Visibility UserBubbleVisibility => IsUser ? Visibility.Visible : Visibility.Collapsed;
         public Visibility AssistantBubbleVisibility => IsAssistant ? Visibility.Visible : Visibility.Collapsed;
+
+        /// <summary>
+        /// 本轮对话或代码执行生成的图表资产列表
+        /// </summary>
+        public ObservableCollection<ChartArtifactItem> GeneratedPlots { get; } = new();
+
+        public bool HasPlots => GeneratedPlots.Count > 0;
+        public Visibility HasPlotsVisibility => HasPlots ? Visibility.Visible : Visibility.Collapsed;
 
         public string Content
         {
