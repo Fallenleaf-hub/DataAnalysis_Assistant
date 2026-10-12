@@ -3,7 +3,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using Microsoft.UI.Xaml;
 
-namespace Data_Analysis.Models
+namespace DataAnalysis_Assistant.Models
 {
     public class ChatSessionItem : INotifyPropertyChanged
     {

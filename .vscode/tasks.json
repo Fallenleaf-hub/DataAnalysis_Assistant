@@ -7,7 +7,7 @@
             "type": "process",
             "args": [
                 "build",
-                "${workspaceFolder}/Data_Analysis/Data_Analysis.csproj",
+                "${workspaceFolder}/DataAnalysis_Assistant/DataAnalysis_Assistant.csproj",
                 "/property:GenerateFullPaths=true",
                 "/consoleloggerparameters:NoSummary;ForceNoAlign"
             ],
@@ -19,7 +19,7 @@
             "type": "process",
             "args": [
                 "publish",
-                "${workspaceFolder}/Data_Analysis/Data_Analysis.csproj",
+                "${workspaceFolder}/DataAnalysis_Assistant/DataAnalysis_Assistant.csproj",
                 "/property:GenerateFullPaths=true",
                 "/consoleloggerparameters:NoSummary;ForceNoAlign"
             ],
@@ -33,7 +33,7 @@
                 "watch",
                 "run",
                 "--project",
-                "${workspaceFolder}/Data_Analysis/Data_Analysis.csproj"
+                "${workspaceFolder}/DataAnalysis_Assistant/DataAnalysis_Assistant.csproj"
             ],
             "problemMatcher": "$msCompile"
         }

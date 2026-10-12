@@ -7,9 +7,9 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Data_Analysis.Models;
+using DataAnalysis_Assistant.Models;
 
-namespace Data_Analysis.Services
+namespace DataAnalysis_Assistant.Services
 {
     /// <summary>
     /// 对话轮次模型 (用于组装 LLM messages 历史)
@@ -19,6 +19,20 @@ namespace Data_Analysis.Services
         public string Role { get; set; } = string.Empty; // "system", "user", "assistant"
         public string Content { get; set; } = string.Empty;
     }
+
+    /// <summary>
+    /// 流式分块类型 (思考过程 vs 正式回答)
+    /// </summary>
+    public enum StreamChunkType
+    {
+        Reasoning,
+        Content
+    }
+
+    /// <summary>
+    /// 流式分块数据包
+    /// </summary>
+    public record StreamChunk(StreamChunkType Type, string Text);
 
     /// <summary>
     /// OpenAI 兼容 LLM SSE 流式对话服务
@@ -33,9 +47,9 @@ namespace Data_Analysis.Services
         };
 
         /// <summary>
-        /// 发起兼容 OpenAI SSE 标准的流式对话补全
+        /// 发起兼容 OpenAI SSE 标准的流式对话补全（支持思考流与正文流双通道）
         /// </summary>
-        public async IAsyncEnumerable<string> StreamChatCompletionAsync(
+        public async IAsyncEnumerable<StreamChunk> StreamChatCompletionAsync(
             AppSettings settings,
             List<ChatTurn> history,
             string documentContext,
@@ -118,6 +132,8 @@ namespace Data_Analysis.Services
             }
 
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+            request.Headers.TryAddWithoutValidation("X-Accel-Buffering", "no");
+            request.Headers.TryAddWithoutValidation("Cache-Control", "no-cache");
 
             HttpResponseMessage response;
             try
@@ -159,7 +175,9 @@ namespace Data_Analysis.Services
             using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
             using var reader = new StreamReader(stream, Encoding.UTF8);
 
-            while (!reader.EndOfStream)
+            bool inThinkTag = false;
+
+            while (true)
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
@@ -167,6 +185,12 @@ namespace Data_Analysis.Services
                 }
 
                 string? line = await reader.ReadLineAsync(cancellationToken);
+                if (line == null)
+                {
+                    // 流已自然结束
+                    break;
+                }
+
                 if (string.IsNullOrWhiteSpace(line))
                 {
                     continue;
@@ -185,6 +209,7 @@ namespace Data_Analysis.Services
                         yield break;
                     }
 
+                    string? reasoningDelta = null;
                     string? contentDelta = null;
                     try
                     {
@@ -194,11 +219,26 @@ namespace Data_Analysis.Services
                         if (root.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0)
                         {
                             var firstChoice = choices[0];
-                            if (firstChoice.TryGetProperty("delta", out var delta) &&
-                                delta.TryGetProperty("content", out var contentElem) &&
-                                contentElem.ValueKind == JsonValueKind.String)
+                            if (firstChoice.TryGetProperty("delta", out var delta))
                             {
-                                contentDelta = contentElem.GetString();
+                                // 1. 优先提取推理思考字段 (兼容 reasoning_content 与 reasoning)
+                                if (delta.TryGetProperty("reasoning_content", out var rElem) &&
+                                    rElem.ValueKind == JsonValueKind.String)
+                                {
+                                    reasoningDelta = rElem.GetString();
+                                }
+                                else if (delta.TryGetProperty("reasoning", out var rElem2) &&
+                                         rElem2.ValueKind == JsonValueKind.String)
+                                {
+                                    reasoningDelta = rElem2.GetString();
+                                }
+
+                                // 2. 提取正式回答字段
+                                if (delta.TryGetProperty("content", out var contentElem) &&
+                                    contentElem.ValueKind == JsonValueKind.String)
+                                {
+                                    contentDelta = contentElem.GetString();
+                                }
                             }
                         }
                     }
@@ -207,9 +247,82 @@ namespace Data_Analysis.Services
                         // 忽略格式不规范的 SSE 中间数据帧
                     }
 
+                    // 1. 若有独立字段的思考增量，直接分流到 Reasoning 通道
+                    if (!string.IsNullOrEmpty(reasoningDelta))
+                    {
+                        yield return new StreamChunk(StreamChunkType.Reasoning, reasoningDelta);
+                    }
+
+                    // 2. 若有正文增量，同时检测并兼容本地/部分模型内嵌的 <think> ... </think> 标签
                     if (!string.IsNullOrEmpty(contentDelta))
                     {
-                        yield return contentDelta;
+                        if (!inThinkTag)
+                        {
+                            int thinkStart = contentDelta.IndexOf("<think>", StringComparison.OrdinalIgnoreCase);
+                            if (thinkStart >= 0)
+                            {
+                                string beforeThink = contentDelta.Substring(0, thinkStart);
+                                if (!string.IsNullOrEmpty(beforeThink))
+                                {
+                                    yield return new StreamChunk(StreamChunkType.Content, beforeThink);
+                                }
+
+                                string afterThink = contentDelta.Substring(thinkStart + 7);
+                                inThinkTag = true;
+
+                                int thinkEnd = afterThink.IndexOf("</think>", StringComparison.OrdinalIgnoreCase);
+                                if (thinkEnd >= 0)
+                                {
+                                    string thinkText = afterThink.Substring(0, thinkEnd);
+                                    if (!string.IsNullOrEmpty(thinkText))
+                                    {
+                                        yield return new StreamChunk(StreamChunkType.Reasoning, thinkText);
+                                    }
+                                    inThinkTag = false;
+
+                                    string afterEnd = afterThink.Substring(thinkEnd + 8);
+                                    if (!string.IsNullOrEmpty(afterEnd))
+                                    {
+                                        yield return new StreamChunk(StreamChunkType.Content, afterEnd);
+                                    }
+                                }
+                                else
+                                {
+                                    if (!string.IsNullOrEmpty(afterThink))
+                                    {
+                                        yield return new StreamChunk(StreamChunkType.Reasoning, afterThink);
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                yield return new StreamChunk(StreamChunkType.Content, contentDelta);
+                            }
+                        }
+                        else
+                        {
+                            // 当前正处于 <think> 标签内，检测闭合 </think>
+                            int thinkEnd = contentDelta.IndexOf("</think>", StringComparison.OrdinalIgnoreCase);
+                            if (thinkEnd >= 0)
+                            {
+                                string thinkText = contentDelta.Substring(0, thinkEnd);
+                                if (!string.IsNullOrEmpty(thinkText))
+                                {
+                                    yield return new StreamChunk(StreamChunkType.Reasoning, thinkText);
+                                }
+                                inThinkTag = false;
+
+                                string afterEnd = contentDelta.Substring(thinkEnd + 8);
+                                if (!string.IsNullOrEmpty(afterEnd))
+                                {
+                                    yield return new StreamChunk(StreamChunkType.Content, afterEnd);
+                                }
+                            }
+                            else
+                            {
+                                yield return new StreamChunk(StreamChunkType.Reasoning, contentDelta);
+                            }
+                        }
                     }
                 }
             }

@@ -10,9 +10,9 @@
             "request": "launch",
             "preLaunchTask": "build",
             // 如果已更改目标框架，请确保更新程序路径。
-            "program": "${workspaceFolder}/Data_Analysis/bin/Debug/net8.0-windows10.0.19041.0/Data_Analysis.dll",
+            "program": "${workspaceFolder}/DataAnalysis_Assistant/bin/Debug/net8.0-windows10.0.19041.0/DataAnalysis_Assistant.dll",
             "args": [],
-            "cwd": "${workspaceFolder}/Data_Analysis",
+            "cwd": "${workspaceFolder}/DataAnalysis_Assistant",
             // 有关“控制台”字段的详细信息，请参阅 https://aka.ms/VSCode-CS-LaunchJson-Console
             "console": "internalConsole",
             "stopAtEntry": false

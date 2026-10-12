@@ -25,20 +25,20 @@ jobs:
       - name: Publish WinUI 3 App (win-x64 Unpackaged)
         shell: pwsh
         run: |
-          dotnet publish Data_Analysis/Data_Analysis.csproj `
+          dotnet publish DataAnalysis_Assistant/DataAnalysis_Assistant.csproj `
             /p:PublishProfile=win-x64 `
             -p:PublishTrimmed=false `
             -p:PublishReadyToRun=false `
             -p:WindowsPackageType=None `
             -p:WindowsAppSDKSelfContained=true `
-            -o ./publish/Data_Analysis
+            -o ./publish/DataAnalysis_Assistant
 
       - name: Compress Release Package
         shell: pwsh
         run: |
           $tag = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "latest" }
-          $zipName = "Data_Analysis-$tag-win-x64.zip"
-          Compress-Archive -Path ./publish/Data_Analysis/* -DestinationPath "./$zipName"
+          $zipName = "DataAnalysis_Assistant-$tag-win-x64.zip"
+          Compress-Archive -Path ./publish/DataAnalysis_Assistant/* -DestinationPath "./$zipName"
           echo "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
 
       - name: Upload to GitHub Releases

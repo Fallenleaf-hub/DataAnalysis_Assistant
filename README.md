@@ -1,7 +1,7 @@
 # Data Analysis Assistant (AI 数据分析助手)
 
 <p align="center">
-  <img src="Data_Analysis/Assets/Square150x150Logo.scale-200.png" alt="Logo" width="100" height="100"/>
+  <img src="DataAnalysis_Assistant/Assets/Square150x150Logo.scale-200.png" alt="Logo" width="100" height="100"/>
 </p>
 
 <p align="center">
@@ -49,7 +49,7 @@
 
 ### 4. 🔒 隐私保护与免安装绿色架构
 - **未打包独立部署 (Unpackaged Win32)**：摆脱 Windows UWP/MSIX 沙盒约束，支持单可执行文件独立自包含运行；
-- **密钥本地绝对隔离**：API Key 等敏感配置持久化于系统本地 `%APPDATA%\Data_Analysis\settings.json`，**绝不上云、绝不包含在 Git 仓库中**。
+- **密钥本地绝对隔离**：API Key 等敏感配置持久化于系统本地 `%APPDATA%\DataAnalysis_Assistant\settings.json`，**绝不上云、绝不包含在 Git 仓库中**。
 
 ---
 
@@ -70,8 +70,8 @@
 
 ### 方式一：直接下载免安装绿色版（推荐）
 1. 前往项目 [Releases 页面](https://github.com/Fallenleaf-hub/Data_Analysis_Assistant/releases)；
-2. 下载最新版本的 `Data_Analysis-vX.Y.Z-win-x64.zip`；
-3. 解压到任意文件夹，双击运行 **`Data_Analysis.exe`** 即可使用（已自包含运行库，无需预先安装 .NET 运行时）。
+2. 下载最新版本的 `DataAnalysis_Assistant-vX.Y.Z-win-x64.zip`；
+3. 解压到任意文件夹，双击运行 **`DataAnalysis_Assistant.exe`** 即可使用（已自包含运行库，无需预先安装 .NET 运行时）。
 
 ### 方式二：从源码编译调试
 
@@ -93,7 +93,7 @@ dotnet restore
 # 3. 编译未打包 x64 版本
 dotnet build -p:Platform=x64
 ```
-在 Visual Studio 中打开 `Data_Analysis.slnx`，确保顶部启动项选择 **`Data_Analysis (Unpackaged)`**，按 `F5` 即可开始调试。
+在 Visual Studio 中打开 `DataAnalysis_Assistant.slnx`，确保顶部启动项选择 **`DataAnalysis_Assistant (Unpackaged)`**，按 `F5` 即可开始调试。
 
 ---
 

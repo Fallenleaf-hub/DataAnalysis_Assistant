@@ -1,21 +1,26 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using XamlPath = Microsoft.UI.Xaml.Shapes.Path;
+using XamlShape = Microsoft.UI.Xaml.Shapes.Shape;
 using Microsoft.UI.Text;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
 using Windows.Storage.Pickers;
-using Data_Analysis.Models;
-using Data_Analysis.Services;
+using DataAnalysis_Assistant.Models;
+using DataAnalysis_Assistant.Services;
 
-namespace Data_Analysis
+namespace DataAnalysis_Assistant
 {
     public partial class MainWindow : Window
     {
@@ -26,10 +31,17 @@ namespace Data_Analysis
         private AppSettings _settings = new();
         private DocumentItem? _currentDoc;
 
+        // 界面状态画刷
         private static readonly SolidColorBrush BrushCardBg = new(Microsoft.UI.Colors.White);
         private static readonly SolidColorBrush BrushTransparent = new(Microsoft.UI.Colors.Transparent);
         private static readonly SolidColorBrush BrushTextPrimary = new(Windows.UI.Color.FromArgb(255, 0x2E, 0x28, 0x22));
         private static readonly SolidColorBrush BrushTextSecondary = new(Windows.UI.Color.FromArgb(255, 0x7D, 0x74, 0x6A));
+        private static readonly SolidColorBrush BrushAccentWarm = new(Windows.UI.Color.FromArgb(255, 0x8C, 0x58, 0x35));
+        private static readonly SolidColorBrush BrushStopAction = new(Windows.UI.Color.FromArgb(255, 0xA8, 0x48, 0x36));
+
+        // 对话运行状态与中断控制
+        private CancellationTokenSource? _chatCts;
+        private bool _isChatGenerating = false;
 
         public MainWindow()
         {
@@ -95,13 +107,25 @@ namespace Data_Analysis
         {
             gridMainWorkspace.Visibility = Visibility.Visible;
             gridSettingsPage.Visibility = Visibility.Collapsed;
-            CloseDrawer();
+            CloseDrawer(highlightHome: false);
+            btnTabDocPreview_Click(sender, e);
+            HighlightNavButton(btnNavHome);
+        }
+
+        // 切换至可视化界面
+        private void btnNavVis_Click(object sender, RoutedEventArgs e)
+        {
+            gridMainWorkspace.Visibility = Visibility.Visible;
+            gridSettingsPage.Visibility = Visibility.Collapsed;
+            CloseDrawer(highlightHome: false);
+            btnTabVisualization_Click(sender, e);
+            HighlightNavButton(btnNavVis);
         }
 
         // 文档库按钮（带数字角标）：点击直接呼出/秒切文档库抽屉
         private void btnNavDocLibrary_Click(object sender, RoutedEventArgs e)
         {
-            // 如果抽屉已经打开且当前正是文档库，再次点击则收起抽屉回到看板
+            // 如果抽屉已经打开且当前正是文档库，再次点击则收起抽屉回到主视图
             if (IsDrawerOpen && paneDocLibrary.Visibility == Visibility.Visible)
             {
                 CloseDrawer();
@@ -109,13 +133,13 @@ namespace Data_Analysis
             }
 
             // 无论之前是关闭状态还是正处于历史会话，直接无缝秒切至文档库！
-            OpenDrawer(paneDocLibrary, btnNavDocLibrary, tbNavDocText);
+            OpenDrawer(paneDocLibrary, btnNavDocLibrary);
         }
 
         // 历史会话按钮：点击直接呼出/秒切历史会话抽屉（与文档库同样模式）
         private void btnNavHistory_Click(object sender, RoutedEventArgs e)
         {
-            // 如果抽屉已经打开且当前正是历史记录，再次点击则收起抽屉回到看板
+            // 如果抽屉已经打开且当前正是历史记录，再次点击则收起抽屉回到主视图
             if (IsDrawerOpen && paneHistorySessions.Visibility == Visibility.Visible)
             {
                 CloseDrawer();
@@ -123,11 +147,21 @@ namespace Data_Analysis
             }
 
             // 无论之前是关闭状态还是正处于文档库，直接无缝秒切至历史会话！
-            OpenDrawer(paneHistorySessions, btnNavHistory, tbNavHistoryText);
+            OpenDrawer(paneHistorySessions, btnNavHistory);
+        }
+
+        // AI 对话快捷聚焦按钮
+        private void btnNavChat_Click(object sender, RoutedEventArgs e)
+        {
+            gridMainWorkspace.Visibility = Visibility.Visible;
+            gridSettingsPage.Visibility = Visibility.Collapsed;
+            CloseDrawer(highlightHome: false);
+            HighlightNavButton(btnNavChat);
+            tbQuestion?.Focus(FocusState.Programmatic);
         }
 
         // 打开抽屉并切换至指定内容面板
-        private void OpenDrawer(FrameworkElement paneToShow, Button navBtn, TextBlock navText)
+        private void OpenDrawer(FrameworkElement paneToShow, Button navBtn)
         {
             gridMainWorkspace.Visibility = Visibility.Visible;
             gridSettingsPage.Visibility = Visibility.Collapsed;
@@ -138,7 +172,7 @@ namespace Data_Analysis
             borderDrawerPane.Visibility = Visibility.Visible;
             drawerBackdrop.Visibility = Visibility.Visible;
 
-            HighlightNavButton(navBtn, navText);
+            HighlightNavButton(navBtn);
         }
 
         // 收起抽屉
@@ -149,11 +183,11 @@ namespace Data_Analysis
 
             if (highlightHome)
             {
-                HighlightNavButton(btnNavHome, tbNavHomeText);
+                HighlightNavButton(btnNavHome);
             }
         }
 
-        // 左下角齿轮：进入设置二级界面
+        // 左下角设置与更多：进入设置二级界面
         private void btnNavSettings_Click(object sender, RoutedEventArgs e)
         {
             gridMainWorkspace.Visibility = Visibility.Collapsed;
@@ -168,28 +202,58 @@ namespace Data_Analysis
             // 默认聚焦在“LLM配置”目录项
             SwitchSettingsView(viewSettingsLlm, btnSettingsNavLlm, tbSettingsNavLlmText);
 
-            HighlightNavButton(btnNavSettings, tbNavSettingsText);
+            HighlightNavButton(btnNavSettings);
         }
 
-        private void HighlightNavButton(Button activeBtn, TextBlock activeText)
+        private void HighlightNavButton(Button activeBtn)
         {
-            btnNavHome.Background = BrushTransparent;
-            btnNavDocLibrary.Background = BrushTransparent;
-            btnNavHistory.Background = BrushTransparent;
-            btnNavSettings.Background = BrushTransparent;
+            SetNavButtonState(btnNavHome, activeBtn == btnNavHome, pathNavHome);
+            SetNavButtonState(btnNavVis, activeBtn == btnNavVis, pathNavVisBack, pathNavVisFront, pathNavVisInner);
+            SetNavShapeState(pathNavVisDot, activeBtn == btnNavVis);
+            SetNavButtonState(btnNavHistory, activeBtn == btnNavHistory, pathNavHistoryCircle, pathNavHistoryHands);
+            SetNavButtonState(btnNavDocLibrary, activeBtn == btnNavDocLibrary, pathNavDoc1, pathNavDoc2, pathNavDoc3);
+            SetNavButtonState(btnNavChat, activeBtn == btnNavChat, pathNavChatOuter);
+            SetNavButtonState(btnNavSettings, activeBtn == btnNavSettings);
+            SetNavShapeState(pathNavSettingsDot1, activeBtn == btnNavSettings);
+            SetNavShapeState(pathNavSettingsDot2, activeBtn == btnNavSettings);
+            SetNavShapeState(pathNavSettingsDot3, activeBtn == btnNavSettings);
+        }
 
-            tbNavHomeText.Foreground = BrushTextSecondary;
-            tbNavHomeText.FontWeight = FontWeights.Normal;
-            tbNavDocText.Foreground = BrushTextSecondary;
-            tbNavDocText.FontWeight = FontWeights.Normal;
-            tbNavHistoryText.Foreground = BrushTextSecondary;
-            tbNavHistoryText.FontWeight = FontWeights.Normal;
-            tbNavSettingsText.Foreground = BrushTextSecondary;
-            tbNavSettingsText.FontWeight = FontWeights.Normal;
+        private void SetNavButtonState(Button btn, bool isActive, params XamlPath[] paths)
+        {
+            btn.Background = isActive ? BrushCardBg : BrushTransparent;
+            btn.BorderThickness = isActive ? new Thickness(1) : new Thickness(0);
+            SolidColorBrush color = isActive ? BrushTextPrimary : BrushTextSecondary;
+            foreach (var p in paths)
+            {
+                if (p != null)
+                {
+                    if (p.Fill != null && p.Fill != BrushTransparent)
+                    {
+                        p.Fill = color;
+                    }
+                    if (p.Stroke != null && p.Stroke != BrushTransparent)
+                    {
+                        p.Stroke = color;
+                    }
+                }
+            }
+        }
 
-            activeBtn.Background = BrushCardBg;
-            activeText.Foreground = BrushTextPrimary;
-            activeText.FontWeight = FontWeights.SemiBold;
+        private void SetNavShapeState(XamlShape shape, bool isActive)
+        {
+            if (shape != null)
+            {
+                SolidColorBrush color = isActive ? BrushTextPrimary : BrushTextSecondary;
+                if (shape.Fill != null && shape.Fill != BrushTransparent)
+                {
+                    shape.Fill = color;
+                }
+                if (shape.Stroke != null && shape.Stroke != BrushTransparent)
+                {
+                    shape.Stroke = color;
+                }
+            }
         }
 
         // 半透明遮罩层点击：收起抽屉并复位导航高亮
@@ -907,11 +971,11 @@ namespace Data_Analysis
         private void InitializeWelcomeChatMessage()
         {
             string welcomeMarkdown =
-@"### 欢迎使用 AI 数据分析与文档伴读看板 👋
+@"### 欢迎使用 AI 数据分析与文档伴读看板
 
 已按照最新规范重构界面：
-1. **左侧导航栏（窄）**：包含 **主页面看板**、**文档库（带数字角标）**、**可滚动最近对话历史**，以及 **左下角设置齿轮**；
-2. **中间板块顶部两个窄选项卡**：可在 **【📄 文档预览板块】** 与 **【📊 可视化界面（图表分析）】** 之间自由切换；
+1. **左侧导航栏（窄）**：纯图标极简风格，包含 **主页面看板**、**可视化**、**历史记录**、**文档库（带数字角标）**、**AI 助手**，以及 **底部设置与更多**；
+2. **中间板块顶部两个窄选项卡**：可在 **【文档预览】** 与 **【可视化】** 之间自由切换；
 3. **模型选择**：已从顶部移至右下角 **发送按钮左侧**，方便提问时即时选择调用模型。
 
 ---
@@ -954,7 +1018,17 @@ def analyze_document_metrics(file_path: str):
             }
         }
 
-        private void tbQuestion_KeyDown(object sender, KeyRoutedEventArgs e)
+        // 展开 / 折叠思考过程卡片
+        private void btnToggleReasoning_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Tag is ChatMessageItem item)
+            {
+                item.IsReasoningExpanded = !item.IsReasoningExpanded;
+            }
+        }
+
+        // 拦截输入框按键：Enter 发送，Shift+Enter 换行 (使用 PreviewKeyDown 确保优先于 TextBox 内部插入换行符)
+        private void tbQuestion_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
         {
             if (e.Key == Windows.System.VirtualKey.Enter)
             {
@@ -963,7 +1037,14 @@ def analyze_document_metrics(file_path: str):
 
                 if (!isShiftPressed)
                 {
-                    e.Handled = true;
+                    e.Handled = true; // 拦截 Enter 默认换行行为
+
+                    if (_isChatGenerating)
+                    {
+                        // 正在生成中，不重复提交
+                        return;
+                    }
+
                     SendMessage();
                 }
             }
@@ -971,7 +1052,23 @@ def analyze_document_metrics(file_path: str):
 
         private void btnSend_Click(object sender, RoutedEventArgs e)
         {
-            SendMessage();
+            if (_isChatGenerating)
+            {
+                StopGenerating();
+            }
+            else
+            {
+                SendMessage();
+            }
+        }
+
+        private void StopGenerating()
+        {
+            if (_isChatGenerating && _chatCts != null && !_chatCts.IsCancellationRequested)
+            {
+                _chatCts.Cancel();
+                tbChatRunStatus.Text = "正在中断...";
+            }
         }
 
         private async void SendMessage()
@@ -992,15 +1089,25 @@ def analyze_document_metrics(file_path: str):
 
             tbQuestion.Text = string.Empty;
 
-            // 2. 界面状态锁定：防止重复提交
-            btnSend.IsEnabled = false;
-            tbQuestion.IsEnabled = false;
+            // 2. 界面状态切换为“停止”生成模式
+            _isChatGenerating = true;
+            _chatCts = new CancellationTokenSource();
+            var cancellationToken = _chatCts.Token;
 
-            // 3. 预先添加 AI 助手空消息气泡，作为流式接收容器
+            btnSend.Content = "停止";
+            btnSend.Background = BrushStopAction;
+            tbQuestion.IsEnabled = false;
+            tbChatRunStatus.Text = "正在深度思考...";
+
+            // 3. 预先添加 AI 助手空消息气泡，作为流式接收容器 (思考卡片即刻处于展示态)
             var assistantMessage = new ChatMessageItem
             {
                 Sender = "Assistant",
-                Content = "▌", // 初始打字光标
+                Content = string.Empty,
+                ReasoningContent = string.Empty,
+                IsThinking = true,
+                IsReasoningExpanded = true, // 思考阶段初始即刻展开
+                ThinkingSeconds = 0,
                 Timestamp = DateTime.Now
             };
             ChatMessages.Add(assistantMessage);
@@ -1054,50 +1161,154 @@ def analyze_document_metrics(file_path: str):
                 }
             }
 
-            // 6. 异步流式处理与 DispatcherQueue UI 线程刷新
+            // 6. 异步流式处理与 DispatcherQueue UI 线程平滑刷新
             var chatService = new LlmChatService();
-            var accumulatedText = new StringBuilder();
+            var accumulatedReasoning = new StringBuilder();
+            var accumulatedContent = new StringBuilder();
+            var thinkingWatch = new Stopwatch();
+            bool hasStartedContent = false;
+            long lastScrollTime = Environment.TickCount64;
 
             try
             {
-                await foreach (var chunk in chatService.StreamChatCompletionAsync(currentSettings, historyTurns, documentContext, question))
-                {
-                    accumulatedText.Append(chunk);
-                    string streamContent = accumulatedText.ToString();
+                thinkingWatch.Start();
 
-                    // 确保在 WinUI UI 线程安全更新 ObservableCollection 绑定的实体
+                await foreach (var chunk in chatService.StreamChatCompletionAsync(currentSettings, historyTurns, documentContext, question, cancellationToken))
+                {
+                    if (chunk.Type == StreamChunkType.Reasoning)
+                    {
+                        accumulatedReasoning.Append(chunk.Text);
+                        string reasoningText = accumulatedReasoning.ToString();
+                        double elapsedSeconds = thinkingWatch.Elapsed.TotalSeconds;
+
+                        DispatcherQueue.TryEnqueue(() =>
+                        {
+                            assistantMessage.ReasoningContent = reasoningText;
+                            assistantMessage.IsThinking = true;
+                            assistantMessage.ThinkingSeconds = elapsedSeconds;
+                            tbChatRunStatus.Text = $"正在思考... ({elapsedSeconds:0.#}s)";
+
+                            // 节流平滑滚动，避免阻塞 UI 线程消息泵导致卡顿滞后
+                            long now = Environment.TickCount64;
+                            if (now - lastScrollTime > 70)
+                            {
+                                lastScrollTime = now;
+                                svChatList.ChangeView(null, svChatList.ScrollableHeight, null);
+                            }
+                        });
+                    }
+                    else if (chunk.Type == StreamChunkType.Content)
+                    {
+                        if (!hasStartedContent)
+                        {
+                            // 首次收到正式回答正文：思考阶段结束
+                            hasStartedContent = true;
+                            thinkingWatch.Stop();
+                            double totalThinkingTime = thinkingWatch.Elapsed.TotalSeconds;
+
+                            DispatcherQueue.TryEnqueue(() =>
+                            {
+                                assistantMessage.IsThinking = false;
+                                if (accumulatedReasoning.Length > 0)
+                                {
+                                    assistantMessage.ThinkingSeconds = totalThinkingTime;
+                                    // 思考中展开，输出正文后自动折叠
+                                    assistantMessage.IsReasoningExpanded = false;
+                                }
+                                tbChatRunStatus.Text = "正在输出回答...";
+                            });
+                        }
+
+                        accumulatedContent.Append(chunk.Text);
+                        string streamContent = accumulatedContent.ToString();
+
+                        DispatcherQueue.TryEnqueue(() =>
+                        {
+                            assistantMessage.Content = streamContent;
+
+                            long now = Environment.TickCount64;
+                            if (now - lastScrollTime > 70)
+                            {
+                                lastScrollTime = now;
+                                svChatList.ChangeView(null, svChatList.ScrollableHeight, null);
+                            }
+                        });
+                    }
+                }
+
+                // 思考秒表停止并结算（若全是思考流或未触发 Content 结束）
+                if (thinkingWatch.IsRunning)
+                {
+                    thinkingWatch.Stop();
+                    double totalThinkingTime = thinkingWatch.Elapsed.TotalSeconds;
                     DispatcherQueue.TryEnqueue(() =>
                     {
-                        assistantMessage.Content = streamContent;
-                        svChatList.ChangeView(null, svChatList.ScrollableHeight, null);
+                        assistantMessage.IsThinking = false;
+                        if (accumulatedReasoning.Length > 0)
+                        {
+                            assistantMessage.ThinkingSeconds = totalThinkingTime;
+                        }
                     });
                 }
 
                 // 若接口未返回任何有效文本内容
-                if (accumulatedText.Length == 0)
+                if (accumulatedContent.Length == 0 && accumulatedReasoning.Length == 0)
                 {
                     DispatcherQueue.TryEnqueue(() =>
                     {
-                        assistantMessage.Content = "（模型未返回任何文本，请检查接口服务或模型名称是否正确。）";
+                        assistantMessage.Content = "（模型未返回任何文本，请检查接口服务或模型配置。）";
                     });
                 }
             }
-            catch (Exception ex)
+            catch (OperationCanceledException)
             {
-                // 统一捕获异常并反馈在对话气泡中
+                // 用户手动中断生成
                 DispatcherQueue.TryEnqueue(() =>
                 {
-                    assistantMessage.Content = $"⚠️ **对话请求失败**\n\n```text\n{ex.Message}\n```\n\n> **排查建议**：请点击左下角【⚙️ 设置】检查 API Key、Base URL 及网络是否可达。如果是 Ollama 本地模型，请确保后台已运行 `ollama serve`。";
-                    svChatList.ChangeView(null, svChatList.ScrollableHeight, null);
+                    assistantMessage.IsThinking = false;
+                    assistantMessage.IsStopped = true;
+                    if (string.IsNullOrEmpty(assistantMessage.Content))
+                    {
+                        assistantMessage.Content = "*(已手动中止生成)*";
+                    }
+                    tbChatRunStatus.Text = "已停止";
                 });
+            }
+            catch (Exception ex)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    DispatcherQueue.TryEnqueue(() =>
+                    {
+                        assistantMessage.IsThinking = false;
+                        assistantMessage.IsStopped = true;
+                        tbChatRunStatus.Text = "已停止";
+                    });
+                }
+                else
+                {
+                    DispatcherQueue.TryEnqueue(() =>
+                    {
+                        assistantMessage.IsThinking = false;
+                        assistantMessage.Content = $"**对话请求失败**\n\n```text\n{ex.Message}\n```\n\n> **排查建议**：请点击左下角【设置】检查 API Key、Base URL 及网络是否可达。如果是 Ollama 本地模型，请确保后台已运行 `ollama serve`。";
+                        svChatList.ChangeView(null, svChatList.ScrollableHeight, null);
+                    });
+                }
             }
             finally
             {
-                // 7. 恢复发送按钮与输入框状态，焦点重置
+                // 7. 恢复发送按钮与输入框状态，清理取消令牌
+                _isChatGenerating = false;
+                _chatCts?.Dispose();
+                _chatCts = null;
+
                 DispatcherQueue.TryEnqueue(() =>
                 {
+                    btnSend.Content = "发送";
+                    btnSend.Background = BrushAccentWarm;
                     btnSend.IsEnabled = true;
                     tbQuestion.IsEnabled = true;
+                    tbChatRunStatus.Text = string.Empty;
                     tbQuestion.Focus(FocusState.Programmatic);
                     svChatList.ChangeView(null, svChatList.ScrollableHeight, null);
                 });

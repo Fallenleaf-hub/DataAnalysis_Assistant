@@ -1,4 +1,4 @@
-namespace Data_Analysis.Models
+namespace DataAnalysis_Assistant.Models
 {
     public class AppSettings
     {

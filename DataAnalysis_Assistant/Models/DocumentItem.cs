@@ -2,7 +2,7 @@ using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
-namespace Data_Analysis.Models
+namespace DataAnalysis_Assistant.Models
 {
     public class DocumentItem : INotifyPropertyChanged
     {

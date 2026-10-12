@@ -1,13 +1,19 @@
 using System;
 using System.IO;
 using System.Text.Json;
-using Data_Analysis.Models;
+using DataAnalysis_Assistant.Models;
 
-namespace Data_Analysis.Services
+namespace DataAnalysis_Assistant.Services
 {
     public class SettingsService
     {
         private static readonly string SettingsFilePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "DataAnalysis_Assistant",
+            "settings.json"
+        );
+
+        private static readonly string LegacySettingsFilePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "Data_Analysis",
             "settings.json"
@@ -23,6 +29,16 @@ namespace Data_Analysis.Services
                     var settings = JsonSerializer.Deserialize<AppSettings>(json);
                     if (settings != null)
                     {
+                        return settings;
+                    }
+                }
+                else if (File.Exists(LegacySettingsFilePath))
+                {
+                    string json = File.ReadAllText(LegacySettingsFilePath);
+                    var settings = JsonSerializer.Deserialize<AppSettings>(json);
+                    if (settings != null)
+                    {
+                        SaveSettings(settings);
                         return settings;
                     }
                 }

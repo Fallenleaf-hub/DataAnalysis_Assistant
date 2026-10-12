@@ -1,9 +1,9 @@
 {
   "profiles": {
-    "Data_Analysis (Unpackaged)": {
+    "DataAnalysis_Assistant (Unpackaged)": {
       "commandName": "Project"
     },
-    "Data_Analysis (Package)": {
+    "DataAnalysis_Assistant (Package)": {
       "commandName": "MsixPackage"
     }
   }
