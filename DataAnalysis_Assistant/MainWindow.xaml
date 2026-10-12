@@ -1075,11 +1075,11 @@
                                             </Grid.ColumnDefinitions>
                                             <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
                                                 <TextBlock Text="当前软件版本" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                                <TextBlock Text="通道版本：Preview 2026.10" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                <TextBlock Text="正式发布版本：v1.0.2 (2026.10)" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
                                             </StackPanel>
                                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                                                 <Border Background="#E8E2D5" CornerRadius="6" Padding="8,3">
-                                                    <TextBlock Text="v1.0.0 (Preview)" FontWeight="Bold" FontSize="11" Foreground="#382E24"/>
+                                                    <TextBlock Text="v1.0.2" FontWeight="Bold" FontSize="11" Foreground="#382E24"/>
                                                 </Border>
                                                 <Button Content="检查更新" Padding="12,5" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11"/>
                                             </StackPanel>
