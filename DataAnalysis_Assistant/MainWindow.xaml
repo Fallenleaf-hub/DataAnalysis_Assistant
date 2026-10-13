@@ -948,9 +948,9 @@
                 <!-- 分割线 -->
                 <Border Grid.Column="1" Background="{StaticResource BorderMutedBrush}"/>
 
-                <!-- ==================== 右侧具体显示区 ==================== -->
-                <ScrollViewer Grid.Column="2" Padding="36,28,40,32" VerticalScrollBarVisibility="Auto">
-                    <Grid HorizontalAlignment="Stretch" MaxWidth="960">
+                <!-- ==================== 右侧具体显示区 (对称居中布局，自适应各屏幕尺寸) ==================== -->
+                <ScrollViewer Grid.Column="2" Padding="32,28,32,32" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" HorizontalContentAlignment="Center">
+                    <Grid HorizontalAlignment="Center" Width="880" MaxWidth="880">
 
                         <!-- ========== 1. LLM配置 具体显示 ========== -->
                         <StackPanel x:Name="viewSettingsLlm" Visibility="Visible" Spacing="22">
@@ -1048,21 +1048,21 @@
                                 <TextBlock Text="推理与上下文超参数" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" Margin="2,0,0,0"/>
                                 <Border Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="20,16">
                                     <StackPanel Spacing="16">
-                                        <!-- 条目 1: 上下文长度 -->
+                                        <!-- 条目 1: 单次最大生成长度 -->
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
                                                 <ColumnDefinition Width="360"/>
                                             </Grid.ColumnDefinitions>
                                             <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,16,0">
-                                                <TextBlock Text="最大上下文长度 (Max Context)" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                                <TextBlock Text="处理大文件（如超长 PDF、深度财务报表）建议调大此值" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+                                                <TextBlock Text="单次最大生成长度 (Max Output Tokens)" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                <TextBlock Text="控制大模型单次回答的最大生成 Token 限制，主流大模型（如 GPT-4o、DeepSeek）通常支持 4,096 ~ 8,192" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap"/>
                                             </StackPanel>
                                             <StackPanel Grid.Column="1" Spacing="4">
                                                 <Border Background="{StaticResource SidebarBgBrush}" CornerRadius="6" Padding="6,2" HorizontalAlignment="Right">
-                                                    <TextBlock x:Name="tbContextLengthValue" Text="8,192 tokens" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource AccentWarmBrush}"/>
+                                                    <TextBlock x:Name="tbContextLengthValue" Text="4,096 tokens" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource AccentWarmBrush}"/>
                                                 </Border>
-                                                <Slider x:Name="sliderContextLength" Minimum="2048" Maximum="65536" StepFrequency="2048" Value="8192" ValueChanged="sliderContextLength_ValueChanged"/>
+                                                <Slider x:Name="sliderContextLength" Minimum="1024" Maximum="8192" StepFrequency="1024" Value="4096" ValueChanged="sliderContextLength_ValueChanged"/>
                                             </StackPanel>
                                         </Grid>
 
@@ -1084,21 +1084,6 @@
                                                 </Border>
                                                 <Slider x:Name="sliderTemperature" Minimum="0" Maximum="1.5" StepFrequency="0.1" Value="0.7" ValueChanged="sliderTemperature_ValueChanged"/>
                                             </StackPanel>
-                                        </Grid>
-
-                                        <Border Height="1" Background="#EDE8DD"/>
-
-                                        <!-- 条目 3: 流式打字传输 -->
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="360"/>
-                                            </Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,16,0">
-                                                <TextBlock Text="流式打字输出 (Stream Mode)" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                                <TextBlock Text="在生成数据分析回答时逐字流式渲染，体验更加自然即时" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
-                                            </StackPanel>
-                                            <ToggleSwitch Grid.Column="1" HorizontalAlignment="Right" IsOn="True" MinWidth="0" OnContent="" OffContent="" VerticalAlignment="Center"/>
                                         </Grid>
                                     </StackPanel>
                                 </Border>
@@ -1337,101 +1322,139 @@
 
                         <!-- ========== 3. 关于我们 具体显示 ========== -->
                         <StackPanel x:Name="viewSettingsAbout" Visibility="Collapsed" Spacing="22">
-                            <!-- 页面大标题 -->
+                            <!-- 页面大标题与品牌标语 -->
                             <StackPanel Spacing="4">
                                 <TextBlock Text="关于我们" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                <TextBlock Text="AI 数据分析与文档伴读桌面客户端产品信息" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                <TextBlock Text="AI 数据分析与文档伴读桌面客户端产品信息与架构说明" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
                             </StackPanel>
 
-                            <!-- 分组 1: 客户端产品信息 -->
+                            <!-- 品牌形象 Hero 卡片 -->
+                            <Border Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="20,18">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- 软件专属品牌徽标 -->
+                                    <Border Grid.Column="0" Width="48" Height="48" CornerRadius="12" Background="#F5F0E6" Margin="0,0,16,0" VerticalAlignment="Center" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1">
+                                        <Image x:Name="imgAboutLogo" Width="40" Height="40" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+
+                                    <!-- 产品名称与定位 -->
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="4">
+                                        <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                            <TextBlock Text="DataAnalysis Assistant" FontSize="16" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                            <Border Background="#E8E2D5" CornerRadius="6" Padding="8,2" VerticalAlignment="Center">
+                                                <TextBlock Text="正式发布版" FontSize="10" FontWeight="SemiBold" Foreground="#382E24"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <TextBlock Text="面向本地多文档解析与 LLM 智能数据推演的 Windows 伴读看板" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                    </StackPanel>
+
+                                    <!-- 顶部快速操作组 -->
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <Button x:Name="btnCheckUpdate" Click="btnCheckUpdate_Click" Content="检查更新" Padding="14,6" CornerRadius="8" Background="{StaticResource AccentWarmBrush}" Foreground="White" FontSize="11" FontWeight="Medium" ToolTipService.ToolTip="检查当前客户端版本发布状态"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+
+                            <!-- 分组 1: 产品规格与环境信息 -->
                             <StackPanel Spacing="8">
-                                <TextBlock Text="产品规格" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" Margin="2,0,0,0"/>
-                                <Border Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="18,14">
+                                <TextBlock Text="产品规格与运行架构" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" Margin="2,0,0,0"/>
+                                <Border Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="20,16">
                                     <StackPanel Spacing="14">
-                                        <!-- 条目 1 -->
+                                        <!-- 条目 1: 客户端版本 -->
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
-                                                <TextBlock Text="客户端产品" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                                <TextBlock Text="面向本地文档解析与 LLM 智能数据分析的 Windows 伴读看板" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
-                                            </StackPanel>
-                                            <TextBlock Grid.Column="1" Text="AI 数据分析助手" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource AccentWarmBrush}" VerticalAlignment="Center"/>
-                                        </Grid>
-
-                                        <Border Height="1" Background="#EDE8DD"/>
-
-                                        <!-- 条目 2 -->
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,16,0">
                                                 <TextBlock Text="当前软件版本" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                                <TextBlock Text="正式发布版本：v1.1.0 (2026.10)" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                <TextBlock Text="正式生产发布版本号及构建发行基线" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
                                             </StackPanel>
-                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                                                <Border Background="#E8E2D5" CornerRadius="6" Padding="8,3">
-                                                    <TextBlock Text="v1.1.0" FontWeight="Bold" FontSize="11" Foreground="#382E24"/>
-                                                </Border>
-                                                <Button Content="检查更新" Padding="12,5" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11"/>
-                                            </StackPanel>
+                                            <Border Grid.Column="1" Background="#E8E2D5" CornerRadius="6" Padding="8,3" VerticalAlignment="Center">
+                                                <TextBlock Text="v1.3.0 (2026.10)" FontWeight="Bold" FontSize="11" Foreground="#382E24"/>
+                                            </Border>
                                         </Grid>
 
                                         <Border Height="1" Background="#EDE8DD"/>
 
-                                        <!-- 条目 3 -->
+                                        <!-- 条目 2: 底层运行时架构 -->
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,16,0">
                                                 <TextBlock Text="底层运行时架构" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                                <TextBlock Text="基于微软 Windows App SDK 与 WinUI 3 现代界面技术栈" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                <TextBlock Text="基于微软 Windows App SDK 与 WinUI 3 现代化原生技术栈构建" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
                                             </StackPanel>
                                             <TextBlock Grid.Column="1" Text=".NET 8.0 / WinUI 3 (x64)" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                                        </Grid>
+
+                                        <Border Height="1" Background="#EDE8DD"/>
+
+                                        <!-- 条目 3: 核心执行范式与沙盒 -->
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,16,0">
+                                                <TextBlock Text="Agentic 执行范式与安全" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                <TextBlock Text="支持 ReAct / CodeAct 双模自主推演调度，并受 Safety Gate 强约束沙盒保护" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                            </StackPanel>
+                                            <Border Grid.Column="1" Background="#FEF3C7" CornerRadius="6" Padding="8,3" VerticalAlignment="Center">
+                                                <TextBlock Text="CodeAct 沙盒已就绪" FontSize="11" FontWeight="SemiBold" Foreground="#92400E"/>
+                                            </Border>
                                         </Grid>
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
 
-                            <!-- 分组 2: 团队与协议 -->
+                            <!-- 分组 2: 团队与开源许可 -->
                             <StackPanel Spacing="8">
                                 <TextBlock Text="团队与许可协议" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" Margin="2,0,0,0"/>
-                                <Border Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="18,14">
+                                <Border Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="20,16">
                                     <StackPanel Spacing="14">
+                                        <!-- 条目 1: 开发者与团队 -->
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,16,0">
                                                 <TextBlock Text="开发者与维护团队" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                                <TextBlock Text="© 2026 Data Analysis Assistant Team. All rights reserved." FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                <TextBlock Text="© 2026 Data Analysis Assistant Team. 保留所有权利。" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
                                             </StackPanel>
                                             <TextBlock Grid.Column="1" Text="Data Analysis Team" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                                         </Grid>
 
                                         <Border Height="1" Background="#EDE8DD"/>
 
+                                        <!-- 条目 2: 开源协议 -->
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,16,0">
                                                 <TextBlock Text="开源许可协议" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                                <TextBlock Text="遵循 MIT 宽松开放源代码许可证" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                <TextBlock Text="遵循 MIT 宽松开放源代码许可证，支持自由代码审计与生态集成" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
                                             </StackPanel>
-                                            <TextBlock Grid.Column="1" Text="MIT License" FontWeight="Medium" FontSize="12" Foreground="{StaticResource AccentWarmBrush}" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1" Text="MIT License" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource AccentWarmBrush}" VerticalAlignment="Center"/>
                                         </Grid>
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
+
+                            <!-- 底部系统诊断与快速操作栏 -->
+                            <Grid Margin="0,4,0,0">
+                                <Button x:Name="btnCopyDiagnosticInfo" Click="btnCopyDiagnosticInfo_Click" Content="📋 复制系统诊断信息" Background="Transparent" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" CornerRadius="8" Padding="16,7" FontSize="12" ToolTipService.ToolTip="复制当前软件版本、系统环境与运行时配置到剪贴板，方便故障反馈"/>
+                            </Grid>
                         </StackPanel>
                     </Grid>
                 </ScrollViewer>

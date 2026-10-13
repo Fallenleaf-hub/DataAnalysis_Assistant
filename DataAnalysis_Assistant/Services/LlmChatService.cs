@@ -199,7 +199,7 @@ namespace DataAnalysis_Assistant.Services
                 ["model"] = string.IsNullOrWhiteSpace(settings.ModelName) ? "gpt-4o" : settings.ModelName,
                 ["messages"] = messages,
                 ["temperature"] = settings.Temperature,
-                ["max_tokens"] = settings.MaxContextLength > 0 ? settings.MaxContextLength : 4096,
+                ["max_tokens"] = Math.Clamp(settings.MaxContextLength > 0 ? settings.MaxContextLength : 4096, 1024, 8192),
                 ["stream"] = false
             };
 
@@ -350,9 +350,9 @@ namespace DataAnalysis_Assistant.Services
         /// </summary>
         public async IAsyncEnumerable<StreamChunk> StreamChatCompletionAsync(
             AppSettings settings,
-            List<ChatTurn> history,
-            string documentContext,
-            string userQuestion,
+            List<ChatTurn>? history,
+            string? documentContext,
+            string? userQuestion,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             await foreach (var chunk in StreamChatCompletionWithToolsAsync(settings, history, documentContext, userQuestion, null, cancellationToken))
@@ -366,9 +366,9 @@ namespace DataAnalysis_Assistant.Services
         /// </summary>
         public async IAsyncEnumerable<StreamChunk> StreamChatCompletionWithToolsAsync(
             AppSettings settings,
-            List<ChatTurn> history,
-            string documentContext,
-            string userQuestion,
+            List<ChatTurn>? history,
+            string? documentContext,
+            string? userQuestion,
             IEnumerable<ToolDefinition>? tools = null,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
@@ -390,7 +390,7 @@ namespace DataAnalysis_Assistant.Services
                 ["model"] = string.IsNullOrWhiteSpace(settings.ModelName) ? "gpt-4o" : settings.ModelName,
                 ["messages"] = messages,
                 ["temperature"] = settings.Temperature,
-                ["max_tokens"] = settings.MaxContextLength > 0 ? settings.MaxContextLength : 4096,
+                ["max_tokens"] = Math.Clamp(settings.MaxContextLength > 0 ? settings.MaxContextLength : 4096, 1024, 8192),
                 ["stream"] = true
             };
 
@@ -661,6 +661,22 @@ namespace DataAnalysis_Assistant.Services
                         }
                     }
                 }
+            }
+
+            // 流式自然结束兜底：若流已关闭但未显式收到 [DONE]，补齐产出累积的 tool_calls
+            foreach (var kvp in accumulatedToolCalls.OrderBy(k => k.Key))
+            {
+                var item = new ToolCallItem
+                {
+                    Id = kvp.Value.id,
+                    Type = kvp.Value.type,
+                    Function = new ToolCallFunction
+                    {
+                        Name = kvp.Value.name.ToString(),
+                        Arguments = kvp.Value.args.ToString()
+                    }
+                };
+                yield return new StreamChunk(StreamChunkType.ToolCall, item.FunctionName, item);
             }
         }
     }

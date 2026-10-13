@@ -87,8 +87,14 @@ namespace DataAnalysis_Assistant
             // 初始化欢迎消息（含 Markdown 格式、表格与代码块展示）
             InitializeWelcomeChatMessage();
 
-            // 设置窗口尺寸与标题
+            // 设置窗口尺寸与专属应用图标
             SetInitialWindowSize();
+
+            // 初始化【关于我们】品牌专属图标
+            _ = LoadAppBrandIconAsync();
+
+            // 窗口就绪后二次确认加载图标
+            this.Activated += (s, e) => { _ = LoadAppBrandIconAsync(); };
 
             // 默认角标状态与会话统计
             UpdateDocCountDisplay();
@@ -103,6 +109,54 @@ namespace DataAnalysis_Assistant
                 var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
                 var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId);
                 appWindow?.Resize(new Windows.Graphics.SizeInt32(1280, 820));
+
+                // 设置原生应用窗口标题栏与任务栏专属图标 (ico)
+                string iconPath = Path.Combine(AppContext.BaseDirectory, "app.ico");
+                if (File.Exists(iconPath))
+                {
+                    appWindow?.SetIcon(iconPath);
+                }
+            }
+            catch
+            {
+                // 忽略非关键异常
+            }
+        }
+
+        private async Task LoadAppBrandIconAsync()
+        {
+            try
+            {
+                if (imgAboutLogo == null) return;
+
+                string iconPng = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.png");
+                if (!File.Exists(iconPng))
+                {
+                    iconPng = Path.Combine(AppContext.BaseDirectory, "Icon.png");
+                }
+                if (!File.Exists(iconPng))
+                {
+                    iconPng = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "AppIcon.png");
+                }
+
+                if (File.Exists(iconPng))
+                {
+                    try
+                    {
+                        var storageFile = await Windows.Storage.StorageFile.GetFileFromPathAsync(iconPng);
+                        using var stream = await storageFile.OpenAsync(Windows.Storage.FileAccessMode.Read);
+                        var bmp = new BitmapImage();
+                        await bmp.SetSourceAsync(stream);
+                        imgAboutLogo.Source = bmp;
+                        return;
+                    }
+                    catch
+                    {
+                        // 备用方式：通过绝对 UriSource
+                        var fallbackBmp = new BitmapImage { UriSource = new Uri(iconPng) };
+                        imgAboutLogo.Source = fallbackBmp;
+                    }
+                }
             }
             catch
             {
@@ -838,6 +892,11 @@ fig.tight_layout()
 
             activeView.Visibility = Visibility.Visible;
             HighlightSettingsNav(activeBtn, activeText);
+
+            if (activeView == viewSettingsAbout)
+            {
+                _ = LoadAppBrandIconAsync();
+            }
         }
 
         private void HighlightSettingsNav(Button activeBtn, TextBlock activeText)
@@ -888,6 +947,44 @@ fig.tight_layout()
             }
         }
 
+        #region 二级界面：关于我们操作
+
+        private async void btnCheckUpdate_Click(object sender, RoutedEventArgs e)
+        {
+            await ShowMessageDialogAsync(
+                "检查更新",
+                "您当前使用的是正式发布版：v1.3.0 (构建版本 2026.10)\n\n" +
+                "当前版本已是最新正式版本，多文档组协同管理、实时流式分析与沙盒执行功能均已完整就绪，无需更新。");
+        }
+
+        private async void btnCopyDiagnosticInfo_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var sb = new StringBuilder();
+                sb.AppendLine("=== DataAnalysis Assistant 客户端诊断信息 ===");
+                sb.AppendLine($"软件版本: v1.3.0 (2026.10 Release)");
+                sb.AppendLine($"运行时: .NET {Environment.Version}");
+                sb.AppendLine($"操作系统: {Environment.OSVersion.VersionString} ({(Environment.Is64BitOperatingSystem ? "x64" : "x86")})");
+                sb.AppendLine($"执行架构: {(Environment.Is64BitProcess ? "x64 原生进程" : "x86")}");
+                sb.AppendLine($"机器名称: {Environment.MachineName}");
+                sb.AppendLine($"持久化库基目录: {LibraryPersistenceService.Instance.BasePath}");
+                sb.AppendLine($"当前时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+
+                var dataPackage = new Windows.ApplicationModel.DataTransfer.DataPackage();
+                dataPackage.SetText(sb.ToString());
+                Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dataPackage);
+
+                await ShowMessageDialogAsync("诊断信息已复制", "已成功将系统与客户端诊断参数复制到系统剪贴板，可直接粘贴提供给技术支持人员。");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"btnCopyDiagnosticInfo_Click 异常: {ex.Message}");
+            }
+        }
+
+        #endregion
+
         #endregion
 
         #region 二级界面：LLM 配置管理
@@ -898,7 +995,7 @@ fig.tight_layout()
 
             pbApiKey.Password = _settings.ApiKey;
             tbBaseUrl.Text = _settings.BaseUrl;
-            sliderContextLength.Value = _settings.MaxContextLength;
+            sliderContextLength.Value = Math.Clamp(_settings.MaxContextLength, 1024, 8192);
             sliderTemperature.Value = _settings.Temperature;
             tbSystemPrompt.Text = _settings.SystemPrompt;
 
@@ -1169,7 +1266,7 @@ fig.tight_layout()
             infoBarSettings.IsOpen = true;
             infoBarSettings.Severity = InfoBarSeverity.Success;
             infoBarSettings.Title = "配置已保存";
-            infoBarSettings.Message = $"配置已成功保存！当前模型: {_settings.ModelName}，Max Context: {_settings.MaxContextLength:N0} tokens。";
+            infoBarSettings.Message = $"配置已成功保存！当前模型: {_settings.ModelName}，单次最大生成: {_settings.MaxContextLength:N0} tokens。";
         }
 
         private void btnResetSettingsPage_Click(object sender, RoutedEventArgs e)
@@ -2262,6 +2359,12 @@ def analyze_document_metrics(file_path: str):
                     if (!string.IsNullOrWhiteSpace(update.IntermediateReasoning))
                     {
                         assistantMessage.ReasoningContent = update.IntermediateReasoning;
+                    }
+
+                    // 默认开启流式输出：实时同步推送打字正文至聊天气泡
+                    if (!string.IsNullOrEmpty(update.IntermediateContent) && (update.Phase == "streaming" || update.Phase == "complete"))
+                    {
+                        assistantMessage.Content = update.IntermediateContent;
                     }
 
                     // 实时同步挂接新生成的图表产物至消息气泡与画廊

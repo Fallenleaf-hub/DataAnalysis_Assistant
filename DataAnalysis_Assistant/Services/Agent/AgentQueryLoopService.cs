@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using DataAnalysis_Assistant.Models;
+using DataAnalysis_Assistant.Services;
 using DataAnalysis_Assistant.Services.Tools;
 
 namespace DataAnalysis_Assistant.Services.Agent
@@ -106,18 +107,22 @@ namespace DataAnalysis_Assistant.Services.Agent
                     GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts)
                 });
 
-                // 2. 调用大模型发起 Tools 请求
+                // 2. 调用大模型发起 Tools 请求（默认开启流式推流，支持思考过程与正文实时逐字打字渲染）
                 ChatToolResponse response;
                 try
                 {
-                    response = await _chatService.SendChatWithToolsAsync(
+                    response = await RequestChatTurnAsync(
                         settings,
                         loopHistory,
                         documentContext,
                         userQuestion,
                         toolDefs,
-                        toolChoice: "auto",
-                        cancellationToken: cancellationToken);
+                        iteration,
+                        maxIterations,
+                        allGeneratedArtifacts,
+                        accumulatedReasoning,
+                        progress,
+                        cancellationToken);
                 }
                 catch (Exception ex)
                 {
@@ -306,6 +311,116 @@ namespace DataAnalysis_Assistant.Services.Agent
                 GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
                 CompleteTurnHistory = loopHistory
             };
+        }
+
+        /// <summary>
+        /// 执行单轮大模型请求：默认开启 SSE 流式推流并实时上报打字与思考，同时具备向阻塞式请求的静默降级兜底能力
+        /// </summary>
+        private async Task<ChatToolResponse> RequestChatTurnAsync(
+            AppSettings settings,
+            List<ChatTurn> loopHistory,
+            string? documentContext,
+            string? userQuestion,
+            IEnumerable<ToolDefinition> toolDefs,
+            int iteration,
+            int maxIterations,
+            List<string> allGeneratedArtifacts,
+            StringBuilder accumulatedReasoning,
+            IProgress<AgentProgressUpdate>? progress,
+            CancellationToken cancellationToken)
+        {
+            var curTurnContent = new StringBuilder();
+            var curTurnReasoning = new StringBuilder();
+            var toolCalls = new List<ToolCallItem>();
+            bool streamSucceeded = false;
+
+            try
+            {
+                await foreach (var chunk in _chatService.StreamChatCompletionWithToolsAsync(
+                    settings,
+                    loopHistory,
+                    documentContext,
+                    userQuestion,
+                    toolDefs,
+                    cancellationToken))
+                {
+                    if (chunk.Type == StreamChunkType.Reasoning)
+                    {
+                        curTurnReasoning.Append(chunk.Text);
+
+                        string combinedReasoning = accumulatedReasoning.ToString();
+                        if (curTurnReasoning.Length > 0)
+                        {
+                            combinedReasoning += (combinedReasoning.Length > 0 ? "\n" : "") + curTurnReasoning.ToString();
+                        }
+
+                        progress?.Report(new AgentProgressUpdate
+                        {
+                            CurrentIteration = iteration,
+                            MaxIterations = maxIterations,
+                            Phase = "thinking",
+                            StatusMessage = iteration == 1
+                                ? "正在拆解任务并规划分析路径..."
+                                : $"第 {iteration}/{maxIterations} 轮：正在评估工具执行结果并推导下一步...",
+                            IntermediateReasoning = combinedReasoning,
+                            IntermediateContent = curTurnContent.ToString(),
+                            GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts)
+                        });
+                    }
+                    else if (chunk.Type == StreamChunkType.Content)
+                    {
+                        curTurnContent.Append(chunk.Text);
+
+                        string combinedReasoning = accumulatedReasoning.ToString();
+                        if (curTurnReasoning.Length > 0)
+                        {
+                            combinedReasoning += (combinedReasoning.Length > 0 ? "\n" : "") + curTurnReasoning.ToString();
+                        }
+
+                        progress?.Report(new AgentProgressUpdate
+                        {
+                            CurrentIteration = iteration,
+                            MaxIterations = maxIterations,
+                            Phase = "streaming",
+                            StatusMessage = "正在生成回答与数据洞察...",
+                            IntermediateReasoning = combinedReasoning,
+                            IntermediateContent = curTurnContent.ToString(),
+                            GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts)
+                        });
+                    }
+                    else if (chunk.Type == StreamChunkType.ToolCall && chunk.ToolCall != null)
+                    {
+                        toolCalls.Add(chunk.ToolCall);
+                    }
+                }
+
+                streamSucceeded = true;
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                // 若流式接口在部分特殊代理或本地模型上遇阻，静默降级回退至非流式请求保障可用性
+                streamSucceeded = false;
+            }
+
+            if (streamSucceeded)
+            {
+                return new ChatToolResponse
+                {
+                    Content = curTurnContent.ToString(),
+                    ReasoningContent = curTurnReasoning.Length > 0 ? curTurnReasoning.ToString() : string.Empty,
+                    ToolCalls = toolCalls
+                };
+            }
+
+            // 兜底降级至标准非流式请求
+            return await _chatService.SendChatWithToolsAsync(
+                settings,
+                loopHistory,
+                documentContext,
+                userQuestion,
+                toolDefs,
+                toolChoice: "auto",
+                cancellationToken: cancellationToken);
         }
     }
 }
