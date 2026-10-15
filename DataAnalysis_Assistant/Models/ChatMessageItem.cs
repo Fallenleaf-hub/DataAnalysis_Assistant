@@ -12,7 +12,7 @@ namespace DataAnalysis_Assistant.Models
     {
         private string _content = string.Empty;
         private string _reasoningContent = string.Empty;
-        private bool _isReasoningExpanded = true;
+        private bool _isReasoningExpanded = false;
         private bool _isThinking = false;
         private double _thinkingSeconds = 0;
         private bool _isStopped = false;
@@ -148,9 +148,10 @@ namespace DataAnalysis_Assistant.Models
         public Visibility ReasoningBodyVisibility => (HasReasoning && _isReasoningExpanded) ? Visibility.Visible : Visibility.Collapsed;
 
         [JsonIgnore]
-        public string ReasoningToggleText => _isReasoningExpanded ? "收起" : "展开";
+        public string ReasoningToggleText => _isReasoningExpanded ? "收起思考 ⌃" : "展开思考 ⌄";
 
-        // 思考状态与耗时
+        // 思考状态与耗时 (标记 [JsonIgnore]，严禁序列化到磁盘历史，杜绝重启后空转思考状态)
+        [JsonIgnore]
         public bool IsThinking
         {
             get => _isThinking;
@@ -196,7 +197,7 @@ namespace DataAnalysis_Assistant.Models
                 {
                     return _thinkingSeconds > 0 ? $"正在思考... ({_thinkingSeconds:0.#}s)" : "正在思考...";
                 }
-                return _thinkingSeconds > 0 ? $"已完成思考 (耗时 {_thinkingSeconds:0.#}s)" : "已完成思考";
+                return _thinkingSeconds > 0 ? $"已完成深度思考 (耗时 {_thinkingSeconds:0.#}s)" : "已完成深度思考";
             }
         }
 

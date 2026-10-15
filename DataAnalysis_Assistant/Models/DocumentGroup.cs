@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
+using Microsoft.UI.Xaml;
 
 namespace DataAnalysis_Assistant.Models
 {
@@ -13,7 +15,49 @@ namespace DataAnalysis_Assistant.Models
     {
         private string _groupName = "未命名文档组";
         private bool _isSelected = false;
+        private bool _isExpanded = true;
         private DateTime _lastActiveAt = DateTime.Now;
+
+        /// <summary>
+        /// 折叠/展开状态（默认展开）
+        /// </summary>
+        [JsonIgnore]
+        public bool IsExpanded
+        {
+            get => _isExpanded;
+            set
+            {
+                if (_isExpanded != value)
+                {
+                    _isExpanded = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(SessionsVisibility));
+                    OnPropertyChanged(nameof(ExpandChevronGlyph));
+                    OnPropertyChanged(nameof(ChevronPathData));
+                }
+            }
+        }
+
+        [JsonIgnore]
+        public Visibility SessionsVisibility => _isExpanded ? Visibility.Visible : Visibility.Collapsed;
+
+        /// <summary>
+        /// 下拉折叠箭头图标（展开状态显示 ⌃，折叠状态显示 ⌄）
+        /// </summary>
+        [JsonIgnore]
+        public string ExpandChevronGlyph => _isExpanded ? "⌃" : "⌄";
+
+        /// <summary>
+        /// 平滑圆角下拉折叠箭头 Path 数据（折叠时朝下，展开时朝上，圆润平滑）
+        /// </summary>
+        [JsonIgnore]
+        public string ChevronPathData => _isExpanded ? "M 2.5 7.5 L 6 4 L 9.5 7.5" : "M 2.5 4.5 L 6 8 L 9.5 4.5";
+
+        /// <summary>
+        /// 属于当前文档组的关联历史会话集合
+        /// </summary>
+        [JsonIgnore]
+        public ObservableCollection<ChatSessionItem> AssociatedSessions { get; } = new();
 
         /// <summary>
         /// 文档组全局唯一标识符 (GUID)

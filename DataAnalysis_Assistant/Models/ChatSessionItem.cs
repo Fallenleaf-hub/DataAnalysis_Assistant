@@ -96,12 +96,42 @@ namespace DataAnalysis_Assistant.Models
                     _lastActiveAt = value;
                     OnPropertyChanged();
                     OnPropertyChanged(nameof(FormattedLastActive));
+                    OnPropertyChanged(nameof(FriendlyRelativeTime));
                 }
             }
         }
 
         [JsonIgnore]
         public string FormattedLastActive => LastActiveAt.ToString("MM-dd HH:mm");
+
+        /// <summary>
+        /// 友好相对时间显示（如：6m, 2h, 1d，对应界面简写样式）
+        /// </summary>
+        [JsonIgnore]
+        public string FriendlyRelativeTime
+        {
+            get
+            {
+                var diff = DateTime.Now - LastActiveAt;
+                if (diff.TotalMinutes < 1)
+                {
+                    return "刚刚";
+                }
+                if (diff.TotalMinutes < 60)
+                {
+                    return $"{(int)diff.TotalMinutes}m";
+                }
+                if (diff.TotalHours < 24)
+                {
+                    return $"{(int)diff.TotalHours}h";
+                }
+                if (diff.TotalDays < 7)
+                {
+                    return $"{(int)diff.TotalDays}d";
+                }
+                return LastActiveAt.ToString("MM-dd");
+            }
+        }
 
         [JsonIgnore]
         public bool HasBoundGroup => !string.IsNullOrWhiteSpace(_bindGroupId);
@@ -130,15 +160,21 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
+        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush BrushActiveBg = new(Windows.UI.Color.FromArgb(255, 0xFF, 0xFF, 0xFF));
+        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush BrushTransparent = new(Microsoft.UI.Colors.Transparent);
+        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush BrushActiveFg = new(Windows.UI.Color.FromArgb(255, 0x2E, 0x28, 0x22));
+        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush BrushInactiveFg = new(Windows.UI.Color.FromArgb(255, 0x7D, 0x74, 0x6A));
+        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush BrushActiveBorder = new(Windows.UI.Color.FromArgb(255, 0xE2, 0xDD, 0xD0));
+
         // 选中高亮与非选中浅底色/灰色样式辅助属性
         [JsonIgnore]
-        public string BackgroundBrush => IsSelected ? "#FFFFFF" : "Transparent";
+        public Microsoft.UI.Xaml.Media.Brush BackgroundBrush => IsSelected ? BrushActiveBg : BrushTransparent;
 
         [JsonIgnore]
-        public string ForegroundBrush => IsSelected ? "#2E2822" : "#7D746A";
+        public Microsoft.UI.Xaml.Media.Brush ForegroundBrush => IsSelected ? BrushActiveFg : BrushInactiveFg;
 
         [JsonIgnore]
-        public string BorderBrush => IsSelected ? "#E2DDD0" : "Transparent";
+        public Microsoft.UI.Xaml.Media.Brush BorderBrush => IsSelected ? BrushActiveBorder : BrushTransparent;
 
         [JsonIgnore]
         public Thickness BorderThicknessValue => IsSelected ? new Thickness(1) : new Thickness(0);
