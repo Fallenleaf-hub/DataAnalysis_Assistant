@@ -29,7 +29,7 @@ namespace DataAnalysis_Assistant.Services.Tools
 
         public string Name => "run_python";
 
-        public string Description => "在本地受控沙盒中执行 Python 数据分析与绘图代码。支持 pandas、numpy、matplotlib 等常用数据科学库。通过 print(...) 打印聚合指标结论，通过 plt.savefig(...) 生成可视化图表。";
+        public string Description => "在本地受控沙盒中执行 Python 数据分析与绘图代码。支持 pandas、numpy、matplotlib 等常用数据科学库。通过 print(...) 打印聚合指标结论，绘图请直接调用 plt.savefig('xxx.png')（系统已挂载全局自动捕获代理，严禁拼接外部复杂绝对路径）。";
 
         public ToolDefinition Definition => ToolDefinition.CreateFunction(
             Name,
@@ -43,6 +43,11 @@ namespace DataAnalysis_Assistant.Services.Tools
                     {
                         type = "string",
                         description = "要在本地执行的完整 Python 代码。必须自包含 import 语句，并使用 print() 输出计算结果。"
+                    },
+                    heavy_work = new
+                    {
+                        type = "boolean",
+                        description = "可选。若代码涉及多文件批量读取（如多个大 Excel/CSV）或高密度绘图（10,000+ 数据点）预计耗时较长，请设为 true 以申请扩展超时执行窗口。"
                     }
                 },
                 required = new[] { "code" }
@@ -70,12 +75,17 @@ namespace DataAnalysis_Assistant.Services.Tools
         public async Task<ToolExecutionResult> ExecuteAsync(string argumentsJson, CancellationToken cancellationToken = default)
         {
             string code = string.Empty;
+            bool isHeavyWork = false;
             try
             {
                 using var doc = JsonDocument.Parse(argumentsJson);
                 if (doc.RootElement.TryGetProperty("code", out var codeElem))
                 {
                     code = codeElem.GetString() ?? string.Empty;
+                }
+                if (doc.RootElement.TryGetProperty("heavy_work", out var heavyElem) && heavyElem.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                {
+                    isHeavyWork = heavyElem.GetBoolean();
                 }
             }
             catch (Exception ex)
@@ -98,10 +108,14 @@ namespace DataAnalysis_Assistant.Services.Tools
                 // (后续在 AgentRuntime 主循环中可在此处挂起并触发 UI 审批弹窗)
             }
 
-            // 2. 调用受控执行引擎执行
+            // 2. 调用受控执行引擎执行（支持 heavy_work 扩展超时，硬上限锁死 120s）
+            int baseTimeout = settings.PythonTimeoutSeconds > 0 ? settings.PythonTimeoutSeconds : 60;
+            int effectiveTimeout = isHeavyWork ? Math.Min(120, Math.Max(baseTimeout, 90)) : baseTimeout;
+
             var options = new PythonExecutionOptions
             {
-                TimeoutSeconds = settings.PythonTimeoutSeconds > 0 ? settings.PythonTimeoutSeconds : 30
+                TimeoutSeconds = effectiveTimeout,
+                IsHeavyWork = isHeavyWork
             };
 
             var result = await _execService.ExecuteCodeAsync(code, settings.PythonPath, options, cancellationToken);

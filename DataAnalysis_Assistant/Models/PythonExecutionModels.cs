@@ -61,11 +61,12 @@ namespace DataAnalysis_Assistant.Models
     /// </summary>
     public class PythonExecutionOptions
     {
-        public int TimeoutSeconds { get; set; } = 30;
+        public int TimeoutSeconds { get; set; } = 60;
         public int MaxOutputChars { get; set; } = 4000;
         public int MaxOutputLines { get; set; } = 60;
         public string WorkingDirectory { get; set; } = string.Empty;
         public string OutputArtifactsDirectory { get; set; } = string.Empty;
+        public bool IsHeavyWork { get; set; } = false;
     }
 }
 

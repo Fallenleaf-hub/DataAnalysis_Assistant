@@ -110,11 +110,11 @@
                 <Grid x:Name="gridMainContentColumns" Margin="10,10,12,12">
                         <Grid.ColumnDefinitions>
                             <!-- 中间板块（文档预览 + 可视化界面） -->
-                            <ColumnDefinition x:Name="colMiddle" Width="*" MinWidth="360"/>
+                            <ColumnDefinition x:Name="colMiddle" Width="*" MinWidth="300"/>
                             <!-- 分割拖拽手柄列 -->
                             <ColumnDefinition Width="Auto"/>
                             <!-- 右侧对话板块 (支持自由拖动拉伸) -->
-                            <ColumnDefinition x:Name="colRight" Width="460" MinWidth="320"/>
+                            <ColumnDefinition x:Name="colRight" Width="420" MinWidth="280"/>
                         </Grid.ColumnDefinitions>
 
                         <!-- ==================== 中间板块 ==================== -->
@@ -158,13 +158,17 @@
                                         </Border>
                                     </StackPanel>
 
-                                    <!-- 标题与状态提示 -->
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="14,0,0,0" VerticalAlignment="Center">
-                                        <TextBlock x:Name="tbPreviewDocTitle" Text="未选中文档" FontWeight="SemiBold" FontSize="14" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
-                                        <Border x:Name="borderDocBadge" Background="#D5CBB8" CornerRadius="6" Padding="6,2" VerticalAlignment="Center" Visibility="Collapsed">
+                                    <!-- 标题与状态提示 (网格自适应截断，防止超长文件名撑破布局) -->
+                                    <Grid Grid.Column="1" Margin="14,0,8,0" VerticalAlignment="Center">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="tbPreviewDocTitle" Grid.Column="0" Text="未选中文档" FontWeight="SemiBold" FontSize="14" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" ToolTipService.ToolTip="{x:Bind tbPreviewDocTitle.Text, Mode=OneWay}"/>
+                                        <Border x:Name="borderDocBadge" Grid.Column="1" Margin="6,0,0,0" Background="#D5CBB8" CornerRadius="6" Padding="6,2" VerticalAlignment="Center" Visibility="Collapsed">
                                             <TextBlock x:Name="tbDocBadgeText" Text="TXT" FontSize="10" FontWeight="Bold" Foreground="#382E24"/>
                                         </Border>
-                                    </StackPanel>
+                                    </Grid>
 
                                     <!-- 快速操作按钮 -->
                                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
@@ -263,7 +267,7 @@
                                         <Border Grid.Column="1" Background="{StaticResource CardBgBrush}" CornerRadius="12" Padding="12,10" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1">
                                             <StackPanel Spacing="3">
                                                 <TextBlock Text="当前激活看板图表" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
-                                                <TextBlock x:Name="tbVisActivePlotTitle" Text="暂无激活图表" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock x:Name="tbVisActivePlotTitle" Text="暂无激活图表" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
                                             </StackPanel>
                                         </Border>
 
@@ -304,16 +308,28 @@
 
                                                 <!-- 标题与操作栏 -->
                                                 <Grid Grid.Row="0" Margin="0,0,0,10">
-                                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                                        <TextBlock x:Name="tbActivePlotHeader" Text="数据可视化大屏展示" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                                        <Border Background="#EAE5DA" CornerRadius="6" Padding="6,2">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <!-- 左侧标题与格式标签 (星号列自适应缩略，不撑大父级容器) -->
+                                                    <Grid Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,0">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto" MaxWidth="320"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock x:Name="tbActivePlotHeader" Grid.Column="0" Text="数据可视化大屏展示" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" ToolTipService.ToolTip="{x:Bind tbActivePlotHeader.Text, Mode=OneWay}"/>
+                                                        <Border Grid.Column="1" Background="#EAE5DA" CornerRadius="6" Padding="6,2" Margin="6,0,0,0" VerticalAlignment="Center">
                                                             <TextBlock x:Name="tbActivePlotMeta" Text="高清 PNG" FontSize="10" Foreground="{StaticResource AccentWarmBrush}" FontWeight="Medium"/>
                                                         </Border>
-                                                    </StackPanel>
-                                                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-                                                        <Button Click="btnExportDashboardReport_Click" Content="📄 导出研报" Padding="10,4" CornerRadius="6" Background="{StaticResource AccentWarmBrush}" Foreground="White" FontSize="11" ToolTipService.ToolTip="将当前看板激活图表与数据结论导出为专业 Word 或 Markdown 研报"/>
-                                                        <Button Click="btnActivePlotCopy_Click" Content="📋 复制" Padding="10,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11" ToolTipService.ToolTip="复制当前图表到剪贴板"/>
-                                                        <Button Click="btnActivePlotSave_Click" Content="💾 另存为" Padding="10,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11" ToolTipService.ToolTip="将当前图表另存为本地文件"/>
+                                                    </Grid>
+
+                                                    <!-- 右侧操作栏 (紧凑右对齐，绝不覆盖左侧文字) -->
+                                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                                        <Button Click="btnExportDashboardReport_Click" Content="📄 导出研报" Padding="8,4" CornerRadius="6" Background="{StaticResource AccentWarmBrush}" Foreground="White" FontSize="11" ToolTipService.ToolTip="将当前看板激活图表与数据结论导出为专业 Word 或 Markdown 研报"/>
+                                                        <Button Click="btnActivePlotCopy_Click" Content="📋 复制" Padding="8,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11" ToolTipService.ToolTip="复制当前图表到剪贴板"/>
+                                                        <Button Click="btnActivePlotSave_Click" Content="💾 另存为" Padding="8,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11" ToolTipService.ToolTip="将当前图表另存为本地文件"/>
                                                     </StackPanel>
                                                 </Grid>
 
@@ -1052,7 +1068,48 @@
                                 </Border>
                             </StackPanel>
 
-                            <!-- 分组 3: 系统角色与提示词定制 -->
+                            <!-- 分组 3: Agent 自主决策与推演调度 (CodeAct / ReAct) -->
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Agent 自主决策与推演调度 (CodeAct / ReAct)" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" Margin="2,0,0,0"/>
+                                <Border Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="20,16">
+                                    <StackPanel Spacing="16">
+                                        <!-- 条目 1: 最大决策轮次 -->
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="360"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,16,0">
+                                                <TextBlock Text="最大决策轮次上限 (Max Iterations)" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                <TextBlock Text="单次任务中 Agent 工具调用、反思与调试的最大轮数（推荐 10~15 轮，防止死循环耗尽配额）" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Spacing="4">
+                                                <Border Background="{StaticResource SidebarBgBrush}" CornerRadius="6" Padding="6,2" HorizontalAlignment="Right">
+                                                    <TextBlock x:Name="tbMaxIterationsValue" Text="12 轮" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource AccentWarmBrush}"/>
+                                                </Border>
+                                                <Slider x:Name="sliderMaxIterations" Minimum="6" Maximum="20" StepFrequency="1" Value="12" ValueChanged="sliderMaxIterations_ValueChanged"/>
+                                            </StackPanel>
+                                        </Grid>
+
+                                        <Border Height="1" Background="#EDE8DD"/>
+
+                                        <!-- 条目 2: 终轮强制收敛 -->
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="360"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,16,0">
+                                                <TextBlock Text="终轮强制收敛 (Forced Synthesis)" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                <TextBlock Text="当达到轮次上限或遭遇连续异常时，强制大模型汇聚阶段性成果输出完整综合研报与图表引用" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                            <ToggleSwitch Grid.Column="1" x:Name="toggleAutoFinalSynthesis" IsOn="True" OnContent="开启" OffContent="关闭" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+
+                            <!-- 分组 4: 系统角色与提示词定制 -->
                             <StackPanel Spacing="8">
                                 <TextBlock Text="系统角色提示词 (System Prompt)" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" Margin="2,0,0,0"/>
                                 <Border Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="20,16">
@@ -1270,6 +1327,26 @@
                                                     <Button x:Name="btnResetPythonPath" Click="btnResetPythonPath_Click" Content="重置默认" Padding="12,5" CornerRadius="6" Background="Transparent" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11"/>
                                                     <Button x:Name="btnApplyPythonPath" Click="btnApplyPythonPath_Click" Content="确定应用" Padding="16,5" CornerRadius="6" Background="{StaticResource AccentWarmBrush}" Foreground="White" FontSize="11" FontWeight="Medium"/>
                                                 </StackPanel>
+                                            </StackPanel>
+                                        </Grid>
+
+                                        <Border Height="1" Background="#EDE8DD"/>
+
+                                        <!-- 条目 5: 单次执行基础超时限制 (Timeout) -->
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="380"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,16,0">
+                                                <TextBlock Text="基础执行超时限制 (Execution Timeout)" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                <TextBlock Text="单次 Python 脚本运行的基础超时阈值（大数据分析与多子图渲染会自动动态放宽至最高 120 秒）" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Spacing="4">
+                                                <Border Background="{StaticResource SidebarBgBrush}" CornerRadius="6" Padding="6,2" HorizontalAlignment="Right">
+                                                    <TextBlock x:Name="tbPythonTimeoutValue" Text="60 秒" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource AccentWarmBrush}"/>
+                                                </Border>
+                                                <Slider x:Name="sliderPythonTimeout" Minimum="30" Maximum="300" StepFrequency="5" Value="60" ValueChanged="sliderPythonTimeout_ValueChanged"/>
                                             </StackPanel>
                                         </Grid>
                                     </StackPanel>

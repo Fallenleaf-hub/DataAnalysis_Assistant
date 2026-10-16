@@ -304,3 +304,249 @@ public interface IAgentRuntime
 - **代码可溯源**：研报中的每一个关键结论（如“本季度销售总额为 3,842.1 万元，环比下降 4.2%”），必须由系统自动关联到产出该数字的 Python 变量名或执行结果行。
 - **自动一致性核验**：在研报输出前，调度引擎执行自检比对：提取正文中提及的数值，与 Python stdout 中的计算真值进行正则匹配比对，若发现不一致立刻拦截并警示，杜绝任何数据幻觉。
 
+
+---
+
+## 七、 Agent 决策收敛、分级执行与产物闭环专项优化方案 (Session 异常根因治理 · 精化核查版)
+
+> **背景说明**：针对多文件大数据集（如数模竞赛、高频时序数据）分析场景下暴露的“8轮耗尽无总结硬中断、30s超时熔断、绝对路径产物丢失、追问上下文记忆污染”等核心问题，制定本专项深化方案。本方案已通过工程审阅，剔除了过度设计（如脆弱的源码词法分析），补全了边界防御（取消令牌联动、反序列化兼容、stderr告警穿透），严格服从项目既有的 **Code-to-Data 数据保真铁律**。
+
+```mermaid
+flowchart TD
+    subgraph S1 ["1. 调度层：终轮强制收敛与预算解耦"]
+        S1_Cancel{"检测用户是否已点击停止 (CancellationToken)"}
+        S1_Cancel -- 是 --> S1_UserStop["立即终止: TerminationReason = UserCancelled (坚决不发起终轮LLM)"]
+        S1_Cancel -- 否 --> S1_Check{"当前轮次判定"}
+        S1_Check -- 未触顶 --> S1_Normal["正常探索轮次 (Max <= 12)"]
+        S1_Normal -- 工具报错 --> S1_Retry["独立容错配额 (Retry <= 2, 不占主轮次, 仅保留最新错误)"]
+        S1_Check -- 触顶 --> S1_Synthesize["终轮强制合成 (tool_choice: none + 丢弃 tool_calls)"]
+        S1_Synthesize --> S1_Reason["记录 TerminationReason = MaxIterationsReached"]
+    end
+
+    subgraph S2 ["2. 执行层：受控超时与错误分类"]
+        S2_Exec["Python 进程执行 (默认放宽至 60s, UI可调 [30s, 120s])"]
+        S2_Heavy["可选: tool 参数 heavy_work=true 申请扩展超时"]
+        S2_Err["结构化错误解析: [ERR_TYPE:xxx] 区分可/不可重试"]
+    end
+
+    subgraph S3 ["3. 产物捕获：全路径 Hook 与生命周期闭环"]
+        S3_Hook["plt.savefig Monkey-Patch 拦截 (复用外层Agg, 告警推往stderr)"]
+        S3_Rename["时间戳 + UUID 防覆盖重命名"]
+        S3_Snapshot["scratch/ 增量快照双保险 (兼容 PIL/Plotly/表格)"]
+        S3_Link["回填: ToolResult -> Progress -> ChatMessageItem.GeneratedPlots"]
+        S3_Missing["清理容错: 允许一键清理 scratch, 缺失标记 IsMissing 防崩溃"]
+    end
+
+    subgraph S4 ["4. 上下文与实体：批次隔离与保真压缩"]
+        S4_Batch["分配独立 AgentTaskId (仅作上下文过滤, 磁盘JSON 100% 完整保留)"]
+        S4_Sanitize["追问动态净化 (上一批次失败Traceback进可压缩区)"]
+        S4_Compact["联动 ContextCompactionService 保留 Ground-Truth 指标"]
+        S4_Compat["实体向后兼容: 新属性全部可空, 严禁破坏旧会话读取"]
+    end
+
+    S1_Normal --> S2_Exec
+    S1_Retry --> S2_Exec
+    S2_Exec --> S3_Hook
+    S3_Hook --> S3_Link
+    S3_Link --> S4_Batch
+```
+
+---
+
+### 1. AgentQueryLoop 调度状态机重构（终轮强制收敛与异常分类）
+
+#### (1) 取消令牌（CancellationToken）最高优先级硬拦截
+- **铁律**：无论当前处于正常探索还是终轮收敛，一旦检测到 `cancellationToken.IsCancellationRequested == true`，系统**立即跳出主循环，坚决不再发起任何大模型请求**，直接标记 `TerminationReason = UserCancelled`，防止点击停止后大模型仍然继续产生 Token 和计费。
+
+#### (2) 终轮收敛双状态精准识别与双重防御
+- **状态 A（工具刚执行完毕触顶）**：在第 `maxIterations` 轮执行完工具后，**严禁直接跳出循环**，额外保留一次**不可再调用工具的最终合成回合（Final Synthesis Turn）**，让大模型读取已完成工具的最终输出并撰写研报。
+- **状态 B（尚未发起工具即触顶）**：若发起前已达轮次上限，直接进入合成回合。
+- **双重防御机制**：
+  1. **协议层**：发送请求时设置 `tool_choice = "none"` 并清空工具列表；
+  2. **代码层丢弃防御**：针对本地或开源模型忽略参数强行输出 `tool_calls` 的行为，代码层增加硬性拦截：**直接丢弃其 tool_calls**，仅提取纯文本；若纯文本为空，则自动回填系统级兜底总结。
+- **用户预算保护开关**：在【设置】界面增加 `EnableAutoFinalSynthesis` 开关（默认开启）。预算敏感型用户可选择关闭此开关，到达上限后直接按原有轻量提示终止。
+
+#### (3) 轮次预算解耦与重试上下文防膨胀
+- **主循环轮次（`MaxIterations`）**：默认提升为 `12` 轮，UI 开放可调范围 `[6, 20]`，硬锁最大不超过 `20` 轮。
+- **独立容错配额（`PerToolMaxRetry`）**：单工具执行异常允许独立重试最多 `2` 次。**重试只增加局部 `retryCount`，不扣减全局 `iteration` 配额**。
+- **重试上下文防膨胀策略**：同一工具反复重试时，历史中旧的失败 Traceback 自动标记为可丢弃修剪区，组装 Prompt 时**仅保留最新一次重试的错误概要**，避免数轮重复报错把上下文窗口撑爆。
+- **异常结构化分类**：
+  - 不单纯依赖脆弱的英文异常文本匹配；在 Python 运行垫片中注入标准格式化输出（如 `[ERR_TYPE:FileNotFound]`、`[ERR_TYPE:SyntaxError]`）；
+  - **不可重试异常**：直接判定失败，坚决不浪费重试配额；
+  - **可重试异常**：如执行超时（Timeout）、内存暂态抖动等，消耗独立重试配额。
+
+#### (4) 收敛提示词的精简保护
+在终轮合成阶段，如果前序存在失败工具，**严禁将几千字符的完整 Traceback 原样塞入收敛 Prompt**，仅保留前 150 字符的核心错误说明，确保 LLM 聚焦于成功图表与关键数据的解读。
+
+---
+
+### 2. Python 执行引擎分级超时（精简实用设计）
+
+#### (1) 裁剪过度设计：摒弃脆弱的源码词法分析
+- **核查结论**：原方案中“自动扫描 Python 源码中是否存在 `plt.subplots` / `read_excel` 动态切换 30s/90s”过于脆弱，容易因代码变体误判。
+- **实用替代设计**：
+  1. **全局基准超时放宽**：将默认超时从 30s 提升至 `60 秒`，在设置页开放 `[30s, 120s]` 调节（硬上限锁死 120s），直接覆盖 90% 以上的时序大数据解析与绘图场景；
+  2. **显式声明机制**：在 `RunPythonTool` 的参数 Schema 中增加可选字段 `heavy_work: boolean`（提示词引导模型在预期进行多大表全量计算时置为 true），C# 依据该参数放宽至用户配置上限。
+
+#### (2) 演进规划说明
+- 单 Step 多个并行 `run_python` 的时钟防叠加防护放入**二期迭代**，第一阶段先确保单工具稳定受控串行执行。
+
+---
+
+### 3. 产物 100% 捕获与生命周期闭环
+
+#### (1) 增强型 Matplotlib Monkey-Patch（消除注入冲突）
+- **核查修正**：补丁代码中**坚决不重复写入 `matplotlib.use('Agg')`**，完全复用 `PythonExecutionService.PreprocessPythonCode` 已有的顶层 Agg 离线渲染逻辑，消除重复冲突。
+- **拷贝异常向 stderr 透传**：`shutil.copy2` 遇到权限或路径异常时，将警告输出至 `sys.stderr`，由 C# 捕获并记录在 `ToolExecutionResult` 的日志中，在 UI 工具卡片展示告警徽标，不再静默吞掉。
+
+```python
+# === [DataAnalysis_Assistant Universal Plot Interceptor] ===
+try:
+    import matplotlib.pyplot as plt
+    import os, shutil, uuid, time, sys
+
+    _target_scratch = r'{safePlotDir}'
+    os.makedirs(_target_scratch, exist_ok=True)
+    _orig_savefig = plt.savefig
+
+    def _safe_intercept_savefig(fname, *args, **kwargs):
+        res = _orig_savefig(fname, *args, **kwargs)
+        try:
+            # 1. 唯一防覆盖重命名：原文件名_时间戳_短UUID.ext
+            raw_name = os.path.basename(str(fname))
+            stem, ext = os.path.splitext(raw_name)
+            unique_name = f"{stem}_{int(time.time())}_{uuid.uuid4().hex[:6]}{ext}"
+            mirror_path = os.path.join(_target_scratch, unique_name)
+            
+            # 2. 无论写入何处绝对路径，强制镜像一份到系统 scratchDir
+            if os.path.exists(str(fname)):
+                shutil.copy2(str(fname), mirror_path)
+                print(f"[ARTIFACT_CAPTURED]: {mirror_path}")
+        except Exception as e:
+            # 输出到 stderr 确保被 C# 引擎捕获感知
+            sys.stderr.write(f"[ARTIFACT_COPY_WARNING]: 产物镜像失败: {str(e)}\n")
+        return res
+
+    plt.savefig = _safe_intercept_savefig
+except Exception:
+    pass
+```
+
+#### (2) 全局增量快照兜底与穿透回填
+- 脚本执行前后对 `scratchDir` 目录做文件快照比对，兼容非 Matplotlib（如 PIL、Seaborn、导出表格）生成的新文件；
+- 完整回填至 `ToolExecutionResult.GeneratedArtifacts` 并实时挂接到 `ChatMessageItem.GeneratedPlots` 与可视化看板。
+
+#### (3) Scratch 目录生命周期容错（防清理后崩溃）
+- `scratch/` 属于临时目录，允许用户在设置中一键清理；
+- 会话加载与前端画廊绑定时，增加 `File.Exists(plot.FilePath)` 判定：若文件缺失，标记 `plot.IsMissing = true`，前端卡片呈现友好占位提示（“图表缓存已清理”），**严禁出现未处理异常或白屏崩溃**。
+
+---
+
+### 4. 实体持久化与任务批次隔离（数据保真铁律）
+
+#### (1) 核心原则：只做上下文过滤，绝不物理删除持久化数据
+- **铁律**：`AgentTaskId` **纯粹用于逻辑归属标记与组装 LLM Prompt 时的动态修剪，严禁从磁盘会话 JSON 或内存消息列表中物理删除任何历史记录**！
+- 原始会话 JSON 必须 100% 完整保留每一次工具调用的入参、Stdout、报错信息与耗时，保证用户复盘时能够完整查看推演全过程。
+
+#### (2) 数据模型升级与向后兼容性保护
+- 所有新增属性均标记为可空（`?`）并附带默认安全值，**彻底保证旧版本会话 JSON 能够安全反序列化**，绝不破坏历史数据读取；
+- 针对桌面环境反序列化稳定性，内部使用标准泛型列表存储，对外暴露安全的集合视图。
+
+```csharp
+public class ChatMessageItem : INotifyPropertyChanged
+{
+    // ... 原有字段 ...
+
+    /// <summary>
+    /// 归属的 Agent 任务批次 ID（用于区分每一次用户提问开启的独立任务，可空）
+    /// </summary>
+    public string? AgentTaskId { get; set; }
+
+    /// <summary>
+    /// 结构化 Agent 终止原因（默认为 None）
+    /// </summary>
+    public AgentTerminationReason TerminationReason { get; set; } = AgentTerminationReason.None;
+
+    /// <summary>
+    /// 结构化工具调用记录列表（旧会话反序列化为空集合，保证安全加载）
+    /// </summary>
+    public List<ToolCallRecordItem> ToolCalls { get; set; } = new();
+}
+
+public enum AgentTerminationReason
+{
+    None = 0,
+    NormalCompleted = 1,          // 正常完成（大模型输出最终业务研报）
+    MaxIterationsReached = 2,     // 达到最大轮次（经由终轮强制收敛生成总结）
+    UserCancelled = 3,            // 用户手动中止 (CancellationToken)
+    ConsecutiveErrorsTripped = 4  // 触发连续报错安全熔断
+}
+
+public class ToolCallRecordItem
+{
+    public string CallId { get; set; } = string.Empty;
+    public string ToolName { get; set; } = string.Empty;
+    public string Arguments { get; set; } = string.Empty;
+    public string Output { get; set; } = string.Empty;
+    public string? RawOutputPath { get; set; }     // 模型代码尝试写入的原始绝对路径 (便于排查)
+    public string? MirroredPath { get; set; }      // scratch 目录中的实际镜像路径
+    public bool Success { get; set; }
+    public List<string> ArtifactPaths { get; set; } = new();
+    public int RetryCount { get; set; } = 0;
+}
+```
+
+#### (3) 追问时的动态上下文净化（Sanitization）
+- 当用户发起后续追问时，系统组装发往 LLM 的 Prompt：
+  - **修剪区**：上一批次的调试中间代码、多余的临时日志输出及报错 Traceback 动态过滤；
+  - **常驻区**：前序任务的最终 Markdown 研报正文、已生成的图表清单，以及打上 `[GROUND_TRUTH_METRICS]` 的核心统计指标永久保留；
+- **排障逃生门**：在界面预留「保留完整调试日志追问」选项，便于用户专门排查分析异常。
+
+---
+
+### 5. 提示词约束与 CodeAct 规范（软硬协同）
+
+在 `AgentQueryLoopService` 的全局提示词与 `RunPythonTool` 描述中强化以下实践法则：
+1. **优先轻量探查（Schema First）**：严禁在多文件场景下每轮只读一个文件；要求优先使用 `DataSchemaProfiler` 或用单脚本批量读取 `nrows=5` 快速摸清所有表头；
+2. **批量循环出图与适度降采样**：面对 10,000+ 行时序数据，要求编写批量循环脚本一次性生成多张子图，并在散点绘图步骤使用适度降采样（如 `df.iloc[::5]`），确保在单次执行时限内高品质交付；
+3. **杜绝无意义重复重绘**：严禁在图表已成功生成并被捕获后，因微小排版偏好推翻重绘，优先聚焦未完成的数据集；
+4. **标准存储指引**：明确告知绘图直接调用 `plt.savefig('xxx.png')` 即可，系统已挂载全局捕获代理，严禁使用复杂的外部桌面绝对路径。
+
+---
+
+### 6. UI 状态呈现与配置项扩展
+
+1. **设置页面（SettingsPage）配置扩展**：
+   - **Agent 最大自主探索轮次**：Slider 调节，默认 `12`，范围 `[6, 20]`；
+   - **Python 单次代码执行超时**：Slider 调节，默认 `60` 秒，范围 `[30, 120]` 秒；
+   - **自动终轮汇总开关**：ToggleSwitch 开关（默认开），允许用户自由控制 API 预算消耗；
+   - 增加输入上下限硬校验，防止非法值导致异常。
+2. **气泡与状态栏结构化呈现**：
+   - `TerminationReason == MaxIterationsReached`：在气泡底部呈现醒目温和提示（*“💡 本次分析已达到最大探索轮次（12 轮），上方已为您汇聚整理全部阶段性成果”*）；
+   - `TerminationReason == ConsecutiveErrorsTripped`：呈现告警提示（*“⚠️ 代码多次遭遇格式或依赖异常，已自动熔断保护，请参考上方诊断说明”*）；
+   - `TerminationReason == UserCancelled`：呈现中性提示（*“已手动中止生成”*）。
+
+---
+
+### 7. 专项落地分阶段实施表
+
+| 实施阶段 | 核心目标 | 涉及的核心文件 | 交付验证标准 |
+| :--- | :--- | :--- | :--- |
+| **阶段 1：调度与收敛重构** | 终轮双状态机、CancellationToken 硬打断、丢弃 tool_calls 防御、独立重试与错误分类 | `Services/Agent/AgentQueryLoopService.cs` | 第 12 轮若执行工具，必有收敛回合汇总研报；手动停止时绝不发起额外请求 |
+| **阶段 2：执行与捕获闭环** | 60s 基准超时（UI 可调）、增强 Monkey-Patch（去冲突/stderr穿透）、增量快照兜底 | `Services/Python/PythonExecutionService.cs`<br>`Services/Tools/RunPythonTool.cs` | 脚本保存至外部路径也能 100% 镜像至 scratch 并点亮气泡和画廊；支持一键清空缓存 |
+| **阶段 3：实体与批次隔离** | `ChatMessageItem` 结构化扩展（全字段可空向后兼容）、`AgentTaskId` 上下文动态修剪 | `Models/ChatMessageItem.cs`<br>`Services/Context/ContextCompactionService.cs`<br>`MainWindow.xaml.cs` | 旧会话 JSON 100% 兼容读取；追问“结果呢”不再重复探查，磁盘保留完整推演记录 |
+| **阶段 4：配置与界面呈现** | 设置页 Slider 配置、自动汇总开关、气泡结构化终止状态横幅 | `AppSettings.cs`<br>`MainWindow.xaml`<br>`MainWindow.xaml.cs` | 设置中轮次、超时与开关调节即时生效；气泡直观展示任务终止原因横幅 |
+
+---
+
+### 8. 实施风险清单与核心回归验证规范
+
+> **工程实施风险铁律**：
+> 1. **核心回归用例**：`AgentQueryLoopService` 重构完成后，必须使用真实用例【5 组位移时序数据多文件可视化分析】作为核心回归验证 Case，必须通过以下 4 项硬指标：
+>    - 达到轮次上限时能够触发终轮强制合成，完整输出图表研报，绝不弹出冷冰冰的硬编码中断提示；
+>    - 部分工具超时报错时，能够如实汇报已成功项与失败项，而不是反复陷入自愈死循环；
+>    - 产物图片 100% 被镜像捕获并挂接入消息卡片与右侧画廊；
+>    - 追问“结果呢”时，历史调试报错不污染模型，模型能基于已有图表继续深化结论。
+> 2. **向后兼容性**：禁止对旧会话 JSON 结构引入破坏性改动，新增属性全部声明为可空。
+> 3. **数据保真底线**：上下文动态净化仅作用于内存组装，磁盘文件必须 100% 完整留存所有原始执行过程与输出。
+

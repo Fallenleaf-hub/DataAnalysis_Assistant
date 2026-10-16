@@ -37,15 +37,20 @@ namespace DataAnalysis_Assistant.Services.Agent
         public int TotalIterations { get; set; }
         public List<string> GeneratedArtifactPaths { get; set; } = new();
         public List<ChatTurn> CompleteTurnHistory { get; set; } = new();
+        public List<ToolCallRecordItem> ExecutedToolCalls { get; set; } = new();
         public string? ErrorMessage { get; set; }
+        public AgentTerminationReason TerminationReason { get; set; } = AgentTerminationReason.None;
     }
 
     /// <summary>
     /// ReAct / CodeAct 自主 Agent 核心状态机调度服务 (AgentQueryLoop)
-    /// 机制：思考 -> 决策工具 -> 执行工具 -> 评估结果 -> 自主反思自愈 -> 终止交付
+    /// 机制：思考 -> 决策工具 -> 执行工具 -> 评估结果 -> 自主反思自愈 -> 终轮收敛交付
     /// </summary>
     public class AgentQueryLoopService
     {
+        private const int PerToolMaxRetry = 2;
+        private const int MaxConsecutiveFailures = 3;
+
         private readonly LlmChatService _chatService;
         private readonly List<IAgentTool> _tools;
 
@@ -76,7 +81,7 @@ namespace DataAnalysis_Assistant.Services.Agent
             List<ChatTurn> initialHistory,
             string documentContext,
             string userQuestion,
-            int maxIterations = 8,
+            int maxIterations = 12,
             IProgress<AgentProgressUpdate>? progress = null,
             CancellationToken cancellationToken = default)
         {
@@ -85,14 +90,31 @@ namespace DataAnalysis_Assistant.Services.Agent
             var loopHistory = new List<ChatTurn>(initialHistory ?? new());
             var allGeneratedArtifacts = new List<string>();
             var accumulatedReasoning = new StringBuilder();
+            var failedToolSummaries = new List<string>();
+            var executedToolCalls = new List<ToolCallRecordItem>();
 
             var toolDefs = _tools.Select(t => t.Definition).ToList();
 
             int iteration = 0;
             int consecutiveFailures = 0;
 
-            while (iteration < maxIterations && !cancellationToken.IsCancellationRequested)
+            while (iteration < maxIterations)
             {
+                // 最高优先级：用户手动打断检测
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return new AgentLoopResult
+                    {
+                        Success = false,
+                        TerminationReason = AgentTerminationReason.UserCancelled,
+                        ErrorMessage = "任务已由用户手动停止。",
+                        TotalIterations = iteration,
+                        GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
+                        CompleteTurnHistory = loopHistory,
+                        ExecutedToolCalls = executedToolCalls
+                    };
+                }
+
                 iteration++;
 
                 // 1. 阶段汇报：开始规划与决策
@@ -107,7 +129,7 @@ namespace DataAnalysis_Assistant.Services.Agent
                     GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts)
                 });
 
-                // 2. 调用大模型发起 Tools 请求（默认开启流式推流，支持思考过程与正文实时逐字打字渲染）
+                // 2. 调用大模型发起 Tools 请求
                 ChatToolResponse response;
                 try
                 {
@@ -117,6 +139,7 @@ namespace DataAnalysis_Assistant.Services.Agent
                         documentContext,
                         userQuestion,
                         toolDefs,
+                        toolChoice: "auto",
                         iteration,
                         maxIterations,
                         allGeneratedArtifacts,
@@ -131,18 +154,36 @@ namespace DataAnalysis_Assistant.Services.Agent
                         return new AgentLoopResult
                         {
                             Success = false,
+                            TerminationReason = AgentTerminationReason.UserCancelled,
                             ErrorMessage = "任务已由用户手动停止。",
                             TotalIterations = iteration,
-                            GeneratedArtifactPaths = allGeneratedArtifacts
+                            GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
+                            CompleteTurnHistory = loopHistory
                         };
                     }
 
                     return new AgentLoopResult
                     {
                         Success = false,
+                        TerminationReason = AgentTerminationReason.None,
                         ErrorMessage = $"大模型请求失败: {ex.Message}",
                         TotalIterations = iteration,
-                        GeneratedArtifactPaths = allGeneratedArtifacts
+                        GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
+                        CompleteTurnHistory = loopHistory
+                    };
+                }
+
+                // 取消令牌二次探测
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return new AgentLoopResult
+                    {
+                        Success = false,
+                        TerminationReason = AgentTerminationReason.UserCancelled,
+                        ErrorMessage = "任务已由用户手动停止。",
+                        TotalIterations = iteration,
+                        GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
+                        CompleteTurnHistory = loopHistory
                     };
                 }
 
@@ -206,6 +247,8 @@ namespace DataAnalysis_Assistant.Services.Agent
                             execResult = ToolExecutionResult.Failed($"未找到名为 '{fnName}' 的工具。当前支持的工具: {string.Join(", ", _tools.Select(t => t.Name))}");
                         }
 
+                        if (cancellationToken.IsCancellationRequested) break;
+
                         // 收集生成的产物 (图表等)
                         if (execResult.GeneratedArtifacts.Count > 0)
                         {
@@ -221,7 +264,18 @@ namespace DataAnalysis_Assistant.Services.Agent
                         if (!execResult.Success)
                         {
                             anyToolFailed = true;
-                            accumulatedReasoning.AppendLine($"> ⚠️ **[工具执行异常]**：{execResult.ErrorMessage} (触发反思自愈)");
+                            string truncatedErr = TruncateErrorForPrompt(execResult.ErrorMessage);
+                            failedToolSummaries.Add($"[{fnName}] {truncatedErr}");
+
+                            bool isNonRetryable = IsNonRetryableError(execResult.ErrorMessage);
+                            if (isNonRetryable)
+                            {
+                                accumulatedReasoning.AppendLine($"> ⚠️ **[工具执行异常 · 语法/路径硬伤]**：{execResult.ErrorMessage} (不可重试，已记录未决项)");
+                            }
+                            else
+                            {
+                                accumulatedReasoning.AppendLine($"> ⚠️ **[工具执行异常]**：{execResult.ErrorMessage} (触发受控反思自愈)");
+                            }
                         }
                         else
                         {
@@ -240,13 +294,39 @@ namespace DataAnalysis_Assistant.Services.Agent
                             ToolCallId = tc.Id,
                             Content = toolResultContent
                         });
+
+                        // 结构化落盘记录
+                        executedToolCalls.Add(new ToolCallRecordItem
+                        {
+                            CallId = tc.Id,
+                            ToolName = fnName,
+                            Arguments = fnArgs,
+                            Output = execResult.Output,
+                            Success = execResult.Success,
+                            ArtifactPaths = new List<string>(execResult.GeneratedArtifacts),
+                            Timestamp = DateTime.Now
+                        });
                     }
 
-                    // 4. 自主反思与错误自愈机制 (Self-Reflection & Healing)
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return new AgentLoopResult
+                        {
+                            Success = false,
+                            TerminationReason = AgentTerminationReason.UserCancelled,
+                            ErrorMessage = "任务已由用户手动停止。",
+                            TotalIterations = iteration,
+                            GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
+                            CompleteTurnHistory = loopHistory,
+                            ExecutedToolCalls = executedToolCalls
+                        };
+                    }
+
+                    // 4. 自主反思与错误计数
                     if (anyToolFailed)
                     {
                         consecutiveFailures++;
-                        accumulatedReasoning.AppendLine($"> 🔄 **[自主反思中]** 正在调整代码与参数并规划自愈路径 (失败重试 {consecutiveFailures}/3)...");
+                        accumulatedReasoning.AppendLine($"> 🔄 **[自主反思中]** 正在调整代码与参数并规划自愈路径 (失败重试 {consecutiveFailures}/{MaxConsecutiveFailures})...");
 
                         progress?.Report(new AgentProgressUpdate
                         {
@@ -258,19 +338,48 @@ namespace DataAnalysis_Assistant.Services.Agent
                             IntermediateReasoning = accumulatedReasoning.ToString()
                         });
 
-                        if (consecutiveFailures >= 3)
+                        if (consecutiveFailures >= MaxConsecutiveFailures)
                         {
-                            // 达到 3 次连续报错上限，注入硬性刹车提示，引导模型基于已知信息输出结论
-                            loopHistory.Add(new ChatTurn
-                            {
-                                Role = "system",
-                                Content = "【安全刹车熔断】代码或工具已连续 3 次报错。请立即停止工具重试，综合已知数据直接向用户给出分析总结与异常诊断说明。"
-                            });
+                            // 达到连续报错上限，安全熔断，立即触发终轮强制合成！
+                            return await ExecuteFinalSynthesisTurnAsync(
+                                settings,
+                                loopHistory,
+                                documentContext,
+                                userQuestion,
+                                iteration,
+                                maxIterations,
+                                allGeneratedArtifacts,
+                                accumulatedReasoning,
+                                failedToolSummaries,
+                                executedToolCalls,
+                                AgentTerminationReason.ConsecutiveErrorsTripped,
+                                progress,
+                                cancellationToken);
                         }
                     }
                     else
                     {
                         consecutiveFailures = 0;
+                    }
+
+                    // 状态 A：工具刚执行完毕触顶！
+                    // 核心修复：此时已经跑满了 maxIterations，绝对不能跳出返回死字符串，必须给予模型一次终轮总结的机会！
+                    if (iteration >= maxIterations)
+                    {
+                        return await ExecuteFinalSynthesisTurnAsync(
+                            settings,
+                            loopHistory,
+                            documentContext,
+                            userQuestion,
+                            iteration,
+                            maxIterations,
+                            allGeneratedArtifacts,
+                            accumulatedReasoning,
+                            failedToolSummaries,
+                            executedToolCalls,
+                            AgentTerminationReason.MaxIterationsReached,
+                            progress,
+                            cancellationToken);
                     }
 
                     // 继续下一轮迭代决策
@@ -292,25 +401,281 @@ namespace DataAnalysis_Assistant.Services.Agent
                     return new AgentLoopResult
                     {
                         Success = true,
+                        TerminationReason = AgentTerminationReason.NormalCompleted,
                         FinalContent = response.Content,
                         ReasoningContent = accumulatedReasoning.ToString(),
                         TotalIterations = iteration,
                         GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
-                        CompleteTurnHistory = loopHistory
+                        CompleteTurnHistory = loopHistory,
+                        ExecutedToolCalls = executedToolCalls
                     };
                 }
             }
 
-            // 达到最大轮次强制终止
+            // 状态 B：尚未发起工具即触顶（防御兜底）
+            return await ExecuteFinalSynthesisTurnAsync(
+                settings,
+                loopHistory,
+                documentContext,
+                userQuestion,
+                iteration,
+                maxIterations,
+                allGeneratedArtifacts,
+                accumulatedReasoning,
+                failedToolSummaries,
+                executedToolCalls,
+                AgentTerminationReason.MaxIterationsReached,
+                progress,
+                cancellationToken);
+        }
+
+        /// <summary>
+        /// 终轮强制合成：彻底杜绝丢弃已执行工具结果，统一汇聚图表与数据输出专业研报
+        /// </summary>
+        private async Task<AgentLoopResult> ExecuteFinalSynthesisTurnAsync(
+            AppSettings settings,
+            List<ChatTurn> loopHistory,
+            string? documentContext,
+            string? userQuestion,
+            int iteration,
+            int maxIterations,
+            List<string> allGeneratedArtifacts,
+            StringBuilder accumulatedReasoning,
+            List<string> failedToolSummaries,
+            List<ToolCallRecordItem> executedToolCalls,
+            AgentTerminationReason terminationReason,
+            IProgress<AgentProgressUpdate>? progress,
+            CancellationToken cancellationToken)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return new AgentLoopResult
+                {
+                    Success = false,
+                    TerminationReason = AgentTerminationReason.UserCancelled,
+                    ErrorMessage = "任务已由用户手动停止。",
+                    TotalIterations = iteration,
+                    GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
+                    CompleteTurnHistory = loopHistory,
+                    ExecutedToolCalls = executedToolCalls
+                };
+            }
+
+            // 用户预算保护开关判定
+            if (!settings.EnableAutoFinalSynthesis)
+            {
+                string budgetOffMsg = $"已达到最大决策轮次上限（共 {iteration} 轮）。已完成阶段性演算与分析。(终轮自动汇总研报已在设置中关闭)";
+                progress?.Report(new AgentProgressUpdate
+                {
+                    CurrentIteration = iteration,
+                    MaxIterations = maxIterations,
+                    Phase = "complete",
+                    StatusMessage = budgetOffMsg,
+                    IntermediateContent = budgetOffMsg,
+                    GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts)
+                });
+
+                return new AgentLoopResult
+                {
+                    Success = true,
+                    TerminationReason = terminationReason,
+                    FinalContent = budgetOffMsg,
+                    ReasoningContent = accumulatedReasoning.ToString(),
+                    TotalIterations = iteration,
+                    GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
+                    CompleteTurnHistory = loopHistory,
+                    ExecutedToolCalls = executedToolCalls
+                };
+            }
+
+            progress?.Report(new AgentProgressUpdate
+            {
+                CurrentIteration = iteration,
+                MaxIterations = maxIterations,
+                Phase = "thinking",
+                StatusMessage = terminationReason == AgentTerminationReason.ConsecutiveErrorsTripped
+                    ? "触发安全熔断保护，正在汇总已知阶段性数据与图表成果..."
+                    : $"已达决策上限 ({iteration}/{maxIterations} 轮)，正在汇总研报并解读全部图表...",
+                GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts),
+                IntermediateReasoning = accumulatedReasoning.ToString()
+            });
+
+            // 注入终轮强制收敛指令
+            string synthesisPrompt = BuildFinalSynthesisPrompt(failedToolSummaries.Count > 0, failedToolSummaries, allGeneratedArtifacts);
+            loopHistory.Add(new ChatTurn
+            {
+                Role = "system",
+                Content = synthesisPrompt
+            });
+
+            ChatToolResponse finalResponse;
+            try
+            {
+                // 终轮强制设定 toolChoice = "none"，且工具列表置空
+                finalResponse = await RequestChatTurnAsync(
+                    settings,
+                    loopHistory,
+                    documentContext,
+                    userQuestion,
+                    toolDefs: Enumerable.Empty<ToolDefinition>(),
+                    toolChoice: "none",
+                    iteration,
+                    maxIterations,
+                    allGeneratedArtifacts,
+                    accumulatedReasoning,
+                    progress,
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return new AgentLoopResult
+                    {
+                        Success = false,
+                        TerminationReason = AgentTerminationReason.UserCancelled,
+                        ErrorMessage = "任务已由用户手动停止。",
+                        TotalIterations = iteration,
+                        GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
+                        CompleteTurnHistory = loopHistory,
+                        ExecutedToolCalls = executedToolCalls
+                    };
+                }
+
+                // 若终轮大模型请求因网络抖动等原因失败，给出高质量保真兜底
+                string fallbackText = $"### 📊 业务分析与演算成果汇报 (兜底汇总)\n\n本次分析已到达最大规划决策轮次（共 {iteration} 轮）。已成功生成并捕获 **{allGeneratedArtifacts.Count}** 幅分析图表至右侧画廊与消息卡片，请参考上方图表与计算指标展开业务决策。\n\n*(注：终轮合成请求出现暂态网络波动: {ex.Message})*";
+                return new AgentLoopResult
+                {
+                    Success = true,
+                    TerminationReason = terminationReason,
+                    FinalContent = fallbackText,
+                    ReasoningContent = accumulatedReasoning.ToString(),
+                    TotalIterations = iteration,
+                    GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
+                    CompleteTurnHistory = loopHistory,
+                    ExecutedToolCalls = executedToolCalls
+                };
+            }
+
+            // 核心代码层防御：坚决丢弃任何残留的 tool_calls
+            if (finalResponse.HasToolCalls)
+            {
+                finalResponse.ToolCalls.Clear();
+            }
+
+            if (!string.IsNullOrWhiteSpace(finalResponse.ReasoningContent))
+            {
+                if (accumulatedReasoning.Length > 0) accumulatedReasoning.AppendLine("\n--- 终轮收敛推导 ---\n");
+                accumulatedReasoning.Append(finalResponse.ReasoningContent);
+            }
+
+            string finalMarkdown = finalResponse.Content;
+            if (string.IsNullOrWhiteSpace(finalMarkdown))
+            {
+                finalMarkdown = $"### 📊 业务数据分析综合研报\n\n本次多步分析推导已全部完成（共执行 {iteration} 轮 Agent 决策）。\n系统已全量采集并挂接 **{allGeneratedArtifacts.Count}** 组图表成果至右侧画廊与卡片，所有指标与明细已在上方计算完毕，请结合图表展开决策。";
+            }
+
+            progress?.Report(new AgentProgressUpdate
+            {
+                CurrentIteration = iteration,
+                MaxIterations = maxIterations,
+                Phase = "complete",
+                StatusMessage = "分析完毕，已生成综合业务研报。",
+                IntermediateContent = finalMarkdown,
+                GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts)
+            });
+
             return new AgentLoopResult
             {
                 Success = true,
-                FinalContent = "已达到最大决策轮次上限（8 轮）。上述为阶段性分析与演算成果。",
+                TerminationReason = terminationReason,
+                FinalContent = finalMarkdown,
                 ReasoningContent = accumulatedReasoning.ToString(),
-                TotalIterations = maxIterations,
+                TotalIterations = iteration,
                 GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
-                CompleteTurnHistory = loopHistory
+                CompleteTurnHistory = loopHistory,
+                ExecutedToolCalls = executedToolCalls
             };
+        }
+
+        /// <summary>
+        /// 终轮收敛提示词动态组装
+        /// </summary>
+        private static string BuildFinalSynthesisPrompt(bool hasFailedTools, List<string> failedToolSummaries, List<string> generatedArtifacts)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("【系统终轮强制收敛指令 (Final Synthesis)】：");
+            sb.AppendLine("当前任务已到达最终汇报决策轮次。严禁再次调用任何工具或运行代码！");
+
+            if (hasFailedTools && failedToolSummaries.Count > 0)
+            {
+                sb.AppendLine("说明：在探索演算过程中，以下部分步骤遭遇客观异常：");
+                foreach (var err in failedToolSummaries.Take(3))
+                {
+                    sb.AppendLine($"- {err}");
+                }
+                sb.AppendLine("请务必：");
+                sb.AppendLine("1. 严禁再次发起工具调用，直接输出专业完备的 Markdown 业务分析研报；");
+                sb.AppendLine("2. 系统性汇总目前已经成功计算出的全部核心事实数据、统计指标与趋势；");
+                if (generatedArtifacts.Count > 0)
+                {
+                    sb.AppendLine($"3. 结合已成功生成的 {generatedArtifacts.Count} 组图表成果进行深入业务解读与决策建议；");
+                }
+                sb.AppendLine("4. 对上述遇到异常或超时的未决项，如实向用户客观说明困难并给出后续建议。");
+            }
+            else
+            {
+                sb.AppendLine("请务必：");
+                sb.AppendLine("1. 严禁再次发起工具调用，直接输出条理清晰、专业深刻的最终 Markdown 业务研报；");
+                sb.AppendLine("2. 汇总整理全部分析成果，呈现计算出的 Ground-Truth 核心指标；");
+                if (generatedArtifacts.Count > 0)
+                {
+                    sb.AppendLine($"3. 结合已成功生成的全部分析图表进行深入洞察与结论阐述。");
+                }
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 异常硬伤分类识别（区分可重试与不可重试错误）
+        /// </summary>
+        private static bool IsNonRetryableError(string? errorMessage)
+        {
+            if (string.IsNullOrWhiteSpace(errorMessage)) return false;
+
+            // 1. 结构化标记识别
+            if (errorMessage.Contains("[ERR_TYPE:FileNotFound]") ||
+                errorMessage.Contains("[ERR_TYPE:SyntaxError]") ||
+                errorMessage.Contains("[ERR_TYPE:ModuleNotFound]") ||
+                errorMessage.Contains("[ERR_TYPE:KeyError]"))
+            {
+                return true;
+            }
+
+            // 2. 经典 Python/系统硬性错误特征
+            string lower = errorMessage.ToLowerInvariant();
+            return lower.Contains("filenotfounderror") ||
+                   lower.Contains("modulenotfounderror") ||
+                   lower.Contains("syntaxerror") ||
+                   lower.Contains("indentationerror") ||
+                   lower.Contains("未找到名为") ||
+                   lower.Contains("no such file or directory");
+        }
+
+        /// <summary>
+        /// 精简错误摘要（防止超长 Traceback 撑爆收敛 Prompt）
+        /// </summary>
+        private static string TruncateErrorForPrompt(string? errorMessage, int maxChars = 150)
+        {
+            if (string.IsNullOrWhiteSpace(errorMessage)) return "未知错误";
+            string trimmed = errorMessage.Trim();
+            var lines = trimmed.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            string firstLine = lines.Length > 0 ? lines[0] : trimmed;
+            if (firstLine.Length > maxChars)
+            {
+                return firstLine.Substring(0, maxChars) + "...";
+            }
+            return firstLine;
         }
 
         /// <summary>
@@ -322,6 +687,7 @@ namespace DataAnalysis_Assistant.Services.Agent
             string? documentContext,
             string? userQuestion,
             IEnumerable<ToolDefinition> toolDefs,
+            string toolChoice,
             int iteration,
             int maxIterations,
             List<string> allGeneratedArtifacts,
@@ -342,7 +708,8 @@ namespace DataAnalysis_Assistant.Services.Agent
                     documentContext,
                     userQuestion,
                     toolDefs,
-                    cancellationToken))
+                    toolChoice: toolChoice,
+                    cancellationToken: cancellationToken))
                 {
                     if (chunk.Type == StreamChunkType.Reasoning)
                     {
@@ -419,7 +786,7 @@ namespace DataAnalysis_Assistant.Services.Agent
                 documentContext,
                 userQuestion,
                 toolDefs,
-                toolChoice: "auto",
+                toolChoice: toolChoice,
                 cancellationToken: cancellationToken);
         }
     }

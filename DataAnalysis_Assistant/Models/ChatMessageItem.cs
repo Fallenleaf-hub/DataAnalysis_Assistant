@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
@@ -223,6 +224,21 @@ namespace DataAnalysis_Assistant.Models
 
         [JsonIgnore]
         public string FormattedTime => Timestamp.ToString("HH:mm:ss");
+
+        /// <summary>
+        /// 归属的 Agent 任务批次 ID（用于区分每一次用户提问开启的独立任务，可空）
+        /// </summary>
+        public string? AgentTaskId { get; set; }
+
+        /// <summary>
+        /// 结构化 Agent 终止原因（默认为 None）
+        /// </summary>
+        public AgentTerminationReason TerminationReason { get; set; } = AgentTerminationReason.None;
+
+        /// <summary>
+        /// 本回合执行的结构化工具调用明细列表（支持安全序列化落盘，旧版本 JSON 反序列化时自动为空）
+        /// </summary>
+        public List<ToolCallRecordItem> ToolCalls { get; set; } = new();
 
         public event PropertyChangedEventHandler? PropertyChanged;
 

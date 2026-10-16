@@ -60,9 +60,9 @@ namespace DataAnalysis_Assistant.Services.Python
             string scriptFileName = $"agent_exec_{Guid.NewGuid():N}.py";
             string scriptFilePath = Path.Combine(sandboxDir, scriptFileName);
 
-            // 3. 记录执行前 scratch 目录内的已有图表文件，以便精确捕捉新生成的图表资产
+            // 3. 记录执行前 scratch 目录内的已有图表文件，以便精确捕捉新生成的图表资产 (全量路径标准化)
             var existingFiles = new HashSet<string>(
-                Directory.GetFiles(scratchDir, "*.*", SearchOption.AllDirectories),
+                Directory.GetFiles(scratchDir, "*.*", SearchOption.AllDirectories).Select(Path.GetFullPath),
                 StringComparer.OrdinalIgnoreCase);
 
             // 4. 对代码进行智能预处理：注入中文字体补丁、Agg离线渲染后端与图表自动落地保护钩子
@@ -148,8 +148,12 @@ namespace DataAnalysis_Assistant.Services.Python
 
                     if (timedOut)
                     {
+                        string heavyHint = options.IsHeavyWork
+                            ? "已开启 heavy_work 扩展窗口但仍然超时，请尝试在脚本中进行数据降采样（如 df.iloc[::5]）或降低图片 dpi。"
+                            : "若涉及多文件批处理或大数据高密渲染，请在 run_python 参数中声明 heavy_work=true 或在设置中延长超时时间。";
+
                         return ToolExecutionResult.CreateFailure(
-                            $"代码执行超时（超过限制 {options.TimeoutSeconds} 秒）。可能存在死循环或处理耗时过长，进程已终止。",
+                            $"[ERR_TYPE:Timeout] 代码执行超时（超过限制 {options.TimeoutSeconds} 秒）。{heavyHint}",
                             TruncateOutput(stdoutBuilder.ToString(), options));
                     }
 
@@ -171,19 +175,38 @@ namespace DataAnalysis_Assistant.Services.Python
                 }
             }
 
-            // 5. 扫描捕获新生成的图表与资产文件 (.png, .jpg, .svg)
+            // 5. 扫描捕获新生成的图表与资产文件 (.png, .jpg, .jpeg, .svg, .csv, .xlsx, .html)
             var generatedArtifacts = new List<string>();
+            var seenArtifacts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            void TryAddArtifact(string? rawPath)
+            {
+                if (string.IsNullOrWhiteSpace(rawPath)) return;
+                try
+                {
+                    string fullPath = Path.GetFullPath(rawPath);
+                    if (File.Exists(fullPath) && seenArtifacts.Add(fullPath))
+                    {
+                        generatedArtifacts.Add(fullPath);
+                    }
+                }
+                catch
+                {
+                }
+            }
+
             try
             {
                 var currentFiles = Directory.GetFiles(scratchDir, "*.*", SearchOption.AllDirectories);
                 foreach (var file in currentFiles)
                 {
-                    if (!existingFiles.Contains(file))
+                    string fullPath = Path.GetFullPath(file);
+                    if (!existingFiles.Contains(fullPath))
                     {
-                        string ext = Path.GetExtension(file).ToLowerInvariant();
-                        if (ext is ".png" or ".jpg" or ".jpeg" or ".svg" or ".csv" or ".xlsx")
+                        string ext = Path.GetExtension(fullPath).ToLowerInvariant();
+                        if (ext is ".png" or ".jpg" or ".jpeg" or ".svg" or ".csv" or ".xlsx" or ".html")
                         {
-                            generatedArtifacts.Add(file);
+                            TryAddArtifact(fullPath);
                         }
                     }
                 }
@@ -195,12 +218,48 @@ namespace DataAnalysis_Assistant.Services.Python
             string rawStdout = stdoutBuilder.ToString().TrimEnd();
             string rawStderr = stderrBuilder.ToString().TrimEnd();
 
+            // 双保险捕获：解析 stdout 中的 [ARTIFACT_CAPTURED]: <path> 标记 (同样强制标准化与去重)
+            try
+            {
+                var capturedMatches = System.Text.RegularExpressions.Regex.Matches(
+                    rawStdout,
+                    @"\[ARTIFACT_CAPTURED\]:\s*(.+)$",
+                    System.Text.RegularExpressions.RegexOptions.Multiline);
+
+                foreach (System.Text.RegularExpressions.Match match in capturedMatches)
+                {
+                    string capturedPath = match.Groups[1].Value.Trim().Trim('"', '\'', '\r');
+                    TryAddArtifact(capturedPath);
+                }
+            }
+            catch
+            {
+            }
+
+            // 解析 stderr 中的 [ARTIFACT_COPY_WARNING] 告警信息
+            var warningBuilder = new StringBuilder();
+            if (rawStderr.Contains("[ARTIFACT_COPY_WARNING]"))
+            {
+                var lines = rawStderr.Split('\n');
+                foreach (var l in lines)
+                {
+                    if (l.Contains("[ARTIFACT_COPY_WARNING]"))
+                    {
+                        warningBuilder.AppendLine(l.Trim());
+                    }
+                }
+            }
+
             // 6. 执行上下文截断保护 (Compaction Gate: 防止 10 万行 print 打爆 Token)
             string safeStdout = TruncateOutput(rawStdout, options);
 
             if (exitCode == 0)
             {
                 string outputSummary = string.IsNullOrWhiteSpace(safeStdout) ? "[代码执行成功，无标准输出]" : safeStdout;
+                if (warningBuilder.Length > 0)
+                {
+                    outputSummary += "\n\n⚠️ 产物警告:\n" + warningBuilder.ToString().Trim();
+                }
                 return ToolExecutionResult.CreateSuccess(outputSummary, generatedArtifacts);
             }
             else
@@ -301,13 +360,14 @@ namespace DataAnalysis_Assistant.Services.Python
         }
 
         /// <summary>
-        /// 预处理 Python 执行脚本：自动注入中文字体防乱码补丁、Agg离线后端阻断阻塞式 plt.show()，并自动兜底导出未保存的 Figure
+        /// 预处理 Python 执行脚本：自动注入中文字体防乱码补丁、Agg离线后端阻断阻塞式 plt.show()，并自动拦截 savefig 镜像及兜底导出未保存的 Figure
         /// </summary>
         public static string PreprocessPythonCode(string rawCode, string outputPlotDir)
         {
             var sb = new StringBuilder();
+            string safePlotDir = outputPlotDir.Replace("\\", "/");
 
-            // 1. 顶部无感知注入 Matplotlib 中文适配与 show 屏蔽钩子
+            // 1. 顶部无感知注入 Matplotlib 中文适配、show 屏蔽钩子与 Universal savefig Monkey-Patch
             sb.AppendLine("# === [DataAnalysis_Assistant Auto Plot & Font Header] ===");
             sb.AppendLine("try:");
             sb.AppendLine("    import matplotlib");
@@ -317,6 +377,34 @@ namespace DataAnalysis_Assistant.Services.Python
             sb.AppendLine("    plt.rcParams['axes.unicode_minus'] = False");
             sb.AppendLine("    _orig_show = plt.show");
             sb.AppendLine("    plt.show = lambda *args, **kwargs: None");
+            sb.AppendLine("    import os, shutil, uuid, time, sys");
+            sb.AppendLine($"    _target_scratch = r'{safePlotDir}'");
+            sb.AppendLine("    os.makedirs(_target_scratch, exist_ok=True)");
+            sb.AppendLine("    _orig_savefig = plt.savefig");
+            sb.AppendLine("    def _safe_intercept_savefig(fname, *args, **kwargs):");
+            sb.AppendLine("        res = _orig_savefig(fname, *args, **kwargs)");
+            sb.AppendLine("        try:");
+            sb.AppendLine("            abs_fname = os.path.abspath(str(fname))");
+            sb.AppendLine("            abs_scratch = os.path.abspath(_target_scratch)");
+            sb.AppendLine("            # 智能判断：若模型保存的图片已经在 scratch 目录下，直接标记原图，绝不重复生成时间戳哈希副本");
+            sb.AppendLine("            try:");
+            sb.AppendLine("                in_scratch = (os.path.commonpath([abs_fname, abs_scratch]) == abs_scratch)");
+            sb.AppendLine("            except Exception:");
+            sb.AppendLine("                in_scratch = False");
+            sb.AppendLine("            if in_scratch and os.path.exists(abs_fname):");
+            sb.AppendLine("                print(f'[ARTIFACT_CAPTURED]: {abs_fname}')");
+            sb.AppendLine("            elif os.path.exists(abs_fname):");
+            sb.AppendLine("                raw_name = os.path.basename(abs_fname)");
+            sb.AppendLine("                stem, ext = os.path.splitext(raw_name)");
+            sb.AppendLine("                if not ext: ext = '.png'");
+            sb.AppendLine("                unique_name = f\"{stem}_{int(time.time())}_{uuid.uuid4().hex[:6]}{ext}\"");
+            sb.AppendLine("                mirror_path = os.path.join(abs_scratch, unique_name)");
+            sb.AppendLine("                shutil.copy2(abs_fname, mirror_path)");
+            sb.AppendLine("                print(f'[ARTIFACT_CAPTURED]: {mirror_path}')");
+            sb.AppendLine("        except Exception as e:");
+            sb.AppendLine("            sys.stderr.write(f'[ARTIFACT_COPY_WARNING]: 产物镜像失败: {str(e)}\\n')");
+            sb.AppendLine("        return res");
+            sb.AppendLine("    plt.savefig = _safe_intercept_savefig");
             sb.AppendLine("except Exception:");
             sb.AppendLine("    pass");
             sb.AppendLine("# === [User Generated Code Start] ===");
@@ -327,7 +415,6 @@ namespace DataAnalysis_Assistant.Services.Python
             sb.AppendLine("    import matplotlib.pyplot as plt");
             sb.AppendLine("    if plt.get_fignums():");
             sb.AppendLine("        import time, os");
-            string safePlotDir = outputPlotDir.Replace("\\", "/");
             sb.AppendLine($"        _out_dir = r'{safePlotDir}'");
             sb.AppendLine("        os.makedirs(_out_dir, exist_ok=True)");
             sb.AppendLine("        for _idx in plt.get_fignums():");

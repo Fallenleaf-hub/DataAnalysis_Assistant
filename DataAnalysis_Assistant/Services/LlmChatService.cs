@@ -208,6 +208,10 @@ namespace DataAnalysis_Assistant.Services
                 payloadDict["tools"] = tools;
                 payloadDict["tool_choice"] = string.IsNullOrWhiteSpace(toolChoice) ? "auto" : toolChoice;
             }
+            else if (!string.IsNullOrWhiteSpace(toolChoice) && toolChoice.Equals("none", StringComparison.OrdinalIgnoreCase))
+            {
+                payloadDict["tool_choice"] = "none";
+            }
 
             string jsonBody = JsonSerializer.Serialize(payloadDict);
 
@@ -355,7 +359,14 @@ namespace DataAnalysis_Assistant.Services
             string? userQuestion,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
-            await foreach (var chunk in StreamChatCompletionWithToolsAsync(settings, history, documentContext, userQuestion, null, cancellationToken))
+            await foreach (var chunk in StreamChatCompletionWithToolsAsync(
+                settings,
+                history,
+                documentContext,
+                userQuestion,
+                tools: null,
+                toolChoice: "auto",
+                cancellationToken: cancellationToken))
             {
                 yield return chunk;
             }
@@ -370,6 +381,7 @@ namespace DataAnalysis_Assistant.Services
             string? documentContext,
             string? userQuestion,
             IEnumerable<ToolDefinition>? tools = null,
+            string toolChoice = "auto",
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             if (settings == null)
@@ -397,7 +409,11 @@ namespace DataAnalysis_Assistant.Services
             if (tools != null && tools.Any())
             {
                 payloadDict["tools"] = tools;
-                payloadDict["tool_choice"] = "auto";
+                payloadDict["tool_choice"] = string.IsNullOrWhiteSpace(toolChoice) ? "auto" : toolChoice;
+            }
+            else if (!string.IsNullOrWhiteSpace(toolChoice) && toolChoice.Equals("none", StringComparison.OrdinalIgnoreCase))
+            {
+                payloadDict["tool_choice"] = "none";
             }
 
             string jsonBody = JsonSerializer.Serialize(payloadDict);

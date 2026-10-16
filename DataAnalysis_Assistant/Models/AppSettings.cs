@@ -20,9 +20,9 @@ namespace DataAnalysis_Assistant.Models
         public int PythonSecurityMode { get; set; } = 1;
 
         /// <summary>
-        /// 单次 Python 代码执行超时时间（秒，默认 30 秒）
+        /// 单次 Python 代码执行超时时间（秒，默认 60 秒，有效范围 30~120 秒）
         /// </summary>
-        public int PythonTimeoutSeconds { get; set; } = 30;
+        public int PythonTimeoutSeconds { get; set; } = 60;
 
         /// <summary>
         /// 用户禁用的自定义技能名称列表
@@ -33,6 +33,16 @@ namespace DataAnalysis_Assistant.Models
         /// 自定义技能根目录路径（若为空则使用默认应用技能目录与系统通用目录）
         /// </summary>
         public string CustomSkillsPath { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Agent 最大自主探索决策轮次（默认 12 轮，有效范围 6~20）
+        /// </summary>
+        public int AgentMaxIterations { get; set; } = 12;
+
+        /// <summary>
+        /// 是否在达到轮次上限时自动执行终轮强制研报汇总（默认开启，关闭后直接轻量总结以节省 Token）
+        /// </summary>
+        public bool EnableAutoFinalSynthesis { get; set; } = true;
     }
 }
 

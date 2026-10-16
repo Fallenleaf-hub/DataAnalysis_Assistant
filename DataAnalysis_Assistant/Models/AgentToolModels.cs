@@ -174,5 +174,34 @@ namespace DataAnalysis_Assistant.Models
         /// </summary>
         public bool HasToolCalls => ToolCalls != null && ToolCalls.Count > 0;
     }
+
+    /// <summary>
+    /// Agent 循环生命周期终止原因
+    /// </summary>
+    public enum AgentTerminationReason
+    {
+        None = 0,
+        NormalCompleted = 1,          // 正常完成（大模型输出最终业务研报）
+        MaxIterationsReached = 2,     // 达到最大轮次（经由终轮强制收敛生成总结）
+        UserCancelled = 3,            // 用户手动中止 (CancellationToken)
+        ConsecutiveErrorsTripped = 4  // 触发连续报错安全熔断
+    }
+
+    /// <summary>
+    /// 持久化结构化工具调用记录模型（解耦纯文本推理与工具调用明细）
+    /// </summary>
+    public class ToolCallRecordItem
+    {
+        public string CallId { get; set; } = string.Empty;
+        public string ToolName { get; set; } = string.Empty;
+        public string Arguments { get; set; } = string.Empty;
+        public string Output { get; set; } = string.Empty;
+        public string? RawOutputPath { get; set; }     // 模型代码尝试写入的原始绝对路径 (便于排查)
+        public string? MirroredPath { get; set; }      // scratch 目录中的实际镜像路径
+        public bool Success { get; set; } = true;
+        public List<string> ArtifactPaths { get; set; } = new();
+        public int RetryCount { get; set; } = 0;
+        public DateTime Timestamp { get; set; } = DateTime.Now;
+    }
 }
 

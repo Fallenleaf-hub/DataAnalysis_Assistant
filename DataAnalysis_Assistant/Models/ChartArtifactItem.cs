@@ -111,6 +111,31 @@ namespace DataAnalysis_Assistant.Models
         }
 
         /// <summary>
+        /// 本地物理文件是否存在（当用户一键清理 scratch 缓存时可能为 false）
+        /// </summary>
+        [JsonIgnore]
+        public bool IsFileExisting
+        {
+            get
+            {
+                try
+                {
+                    return !string.IsNullOrEmpty(_filePath) && File.Exists(_filePath);
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 产物文件是否已清理或丢失
+        /// </summary>
+        [JsonIgnore]
+        public bool IsMissing => !IsFileExisting;
+
+        /// <summary>
         /// 用于 XAML 图片绑定的绝对文件 Uri
         /// </summary>
         [JsonIgnore]

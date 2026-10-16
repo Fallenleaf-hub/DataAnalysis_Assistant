@@ -101,6 +101,9 @@ namespace DataAnalysis_Assistant
             // 窗口就绪后二次确认加载图标
             this.Activated += (s, e) => { _ = LoadAppBrandIconAsync(); };
 
+            // 监听窗口尺寸变化，防止缩小窗口后右侧对话栏被挤出视图
+            this.SizeChanged += MainWindow_SizeChanged;
+
             // 默认角标状态与会话统计
             UpdateDocCountDisplay();
             UpdateHistoryCountDisplay();
@@ -470,7 +473,23 @@ namespace DataAnalysis_Assistant
         {
             DispatcherQueue.TryEnqueue(() =>
             {
-                var existing = PlotGallery.FirstOrDefault(p => p.FilePath.Equals(plot.FilePath, StringComparison.OrdinalIgnoreCase));
+                string normPath;
+                try
+                {
+                    normPath = Path.GetFullPath(plot.FilePath);
+                    plot.FilePath = normPath;
+                }
+                catch
+                {
+                    normPath = plot.FilePath;
+                }
+
+                var existing = PlotGallery.FirstOrDefault(p =>
+                {
+                    try { return Path.GetFullPath(p.FilePath).Equals(normPath, StringComparison.OrdinalIgnoreCase); }
+                    catch { return p.FilePath.Equals(normPath, StringComparison.OrdinalIgnoreCase); }
+                });
+
                 if (existing == null)
                 {
                     PlotGallery.Insert(0, plot);
@@ -831,7 +850,11 @@ fig.tight_layout()
 
                 try
                 {
-                    var result = await _pythonExecService.ExecuteCodeAsync(code, _settings.PythonPath, cancellationToken: cancellationToken);
+                    var execOptions = new PythonExecutionOptions
+                    {
+                        TimeoutSeconds = Math.Max(60, _settings.PythonTimeoutSeconds)
+                    };
+                    var result = await _pythonExecService.ExecuteCodeAsync(code, _settings.PythonPath, options: execOptions, cancellationToken: cancellationToken);
                     if (result.Success && result.GeneratedArtifacts.Count > 0)
                     {
                         foreach (var artifact in result.GeneratedArtifacts)
@@ -1019,6 +1042,19 @@ fig.tight_layout()
             sliderTemperature.Value = _settings.Temperature;
             tbSystemPrompt.Text = _settings.SystemPrompt;
 
+            if (sliderMaxIterations != null)
+            {
+                sliderMaxIterations.Value = Math.Clamp(_settings.AgentMaxIterations > 0 ? _settings.AgentMaxIterations : 12, 6, 20);
+            }
+            if (toggleAutoFinalSynthesis != null)
+            {
+                toggleAutoFinalSynthesis.IsOn = _settings.EnableAutoFinalSynthesis;
+            }
+            if (sliderPythonTimeout != null)
+            {
+                sliderPythonTimeout.Value = Math.Clamp(_settings.PythonTimeoutSeconds > 0 ? _settings.PythonTimeoutSeconds : 60, 30, 300);
+            }
+
             // 选中模型 (支持匹配已有或动态追加自定义模型)
             bool foundInSettings = false;
             foreach (ComboBoxItem item in cbModelName.Items)
@@ -1080,6 +1116,14 @@ fig.tight_layout()
         {
             tbContextLengthValue.Text = $"{_settings.MaxContextLength:N0} tokens";
             tbTemperatureValue.Text = _settings.Temperature.ToString("F1");
+            if (tbMaxIterationsValue != null && sliderMaxIterations != null)
+            {
+                tbMaxIterationsValue.Text = $"{(int)sliderMaxIterations.Value} 轮";
+            }
+            if (tbPythonTimeoutValue != null && sliderPythonTimeout != null)
+            {
+                tbPythonTimeoutValue.Text = $"{(int)sliderPythonTimeout.Value} 秒";
+            }
         }
 
         private void cbQuickModel_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1258,6 +1302,18 @@ fig.tight_layout()
             {
                 _settings.CustomSkillsPath = tbCustomSkillsPath.Text.Trim();
             }
+            if (sliderMaxIterations != null)
+            {
+                _settings.AgentMaxIterations = (int)sliderMaxIterations.Value;
+            }
+            if (toggleAutoFinalSynthesis != null)
+            {
+                _settings.EnableAutoFinalSynthesis = toggleAutoFinalSynthesis.IsOn;
+            }
+            if (sliderPythonTimeout != null)
+            {
+                _settings.PythonTimeoutSeconds = (int)sliderPythonTimeout.Value;
+            }
 
             SettingsService.SaveSettings(_settings);
             UpdateSettingsDisplay();
@@ -1286,7 +1342,7 @@ fig.tight_layout()
             infoBarSettings.IsOpen = true;
             infoBarSettings.Severity = InfoBarSeverity.Success;
             infoBarSettings.Title = "配置已保存";
-            infoBarSettings.Message = $"配置已成功保存！当前模型: {_settings.ModelName}，单次最大生成: {_settings.MaxContextLength:N0} tokens。";
+            infoBarSettings.Message = $"配置已成功保存！当前模型: {_settings.ModelName}，Agent 决策上限: {_settings.AgentMaxIterations} 轮，Python 超时: {_settings.PythonTimeoutSeconds} 秒。";
         }
 
         private void btnResetSettingsPage_Click(object sender, RoutedEventArgs e)
@@ -1299,6 +1355,9 @@ fig.tight_layout()
             tbSystemPrompt.Text = _settings.SystemPrompt;
             cbModelName.SelectedIndex = 0;
             cbQuickModel.SelectedIndex = 0;
+            if (sliderMaxIterations != null) sliderMaxIterations.Value = _settings.AgentMaxIterations;
+            if (toggleAutoFinalSynthesis != null) toggleAutoFinalSynthesis.IsOn = _settings.EnableAutoFinalSynthesis;
+            if (sliderPythonTimeout != null) sliderPythonTimeout.Value = _settings.PythonTimeoutSeconds;
             if (tbCustomPythonPath != null) tbCustomPythonPath.Text = string.Empty;
             if (tbCustomSkillsPath != null) tbCustomSkillsPath.Text = string.Empty;
             if (comboPythonSecurityMode != null) comboPythonSecurityMode.SelectedIndex = 1;
@@ -1734,6 +1793,22 @@ fig.tight_layout()
             if (tbTemperatureValue != null)
             {
                 tbTemperatureValue.Text = e.NewValue.ToString("F1");
+            }
+        }
+
+        private void sliderMaxIterations_ValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+        {
+            if (tbMaxIterationsValue != null)
+            {
+                tbMaxIterationsValue.Text = $"{(int)e.NewValue} 轮";
+            }
+        }
+
+        private void sliderPythonTimeout_ValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+        {
+            if (tbPythonTimeoutValue != null)
+            {
+                tbPythonTimeoutValue.Text = $"{(int)e.NewValue} 秒";
             }
         }
 
@@ -2293,13 +2368,17 @@ def analyze_document_metrics(file_path: str):
                 return;
             }
 
-            // 1. 添加用户消息到列表并清空输入框
-            ChatMessages.Add(new ChatMessageItem
+            // 1. 生成本次任务独立批次标识，添加用户消息到列表并清空输入框
+            string currentAgentTaskId = Guid.NewGuid().ToString("N");
+
+            var userMessage = new ChatMessageItem
             {
                 Sender = "User",
                 Content = question,
-                Timestamp = DateTime.Now
-            });
+                Timestamp = DateTime.Now,
+                AgentTaskId = currentAgentTaskId
+            };
+            ChatMessages.Add(userMessage);
 
             tbQuestion.Text = string.Empty;
 
@@ -2325,7 +2404,8 @@ def analyze_document_metrics(file_path: str):
                 IsThinking = true,
                 IsReasoningExpanded = true, // 思考阶段初始即刻展开
                 ThinkingSeconds = 0,
-                Timestamp = DateTime.Now
+                Timestamp = DateTime.Now,
+                AgentTaskId = currentAgentTaskId
             };
             ChatMessages.Add(assistantMessage);
 
@@ -2408,7 +2488,24 @@ def analyze_document_metrics(file_path: str):
                 }
                 else if (msg.IsAssistant && !string.IsNullOrWhiteSpace(msg.Content))
                 {
-                    historyTurns.Add(new ChatTurn { Role = "assistant", Content = msg.Content });
+                    string content = msg.Content;
+
+                    // 针对历史不同任务批次进行上下文动态净化：
+                    // 若属于过去的 AgentTaskId，确保保留核心研报与结论，同时补充已生成图表的事实记录，杜绝遗漏已有成果
+                    if (!string.IsNullOrEmpty(msg.AgentTaskId) && msg.AgentTaskId != currentAgentTaskId)
+                    {
+                        if (msg.GeneratedPlots != null && msg.GeneratedPlots.Count > 0)
+                        {
+                            var existingPlots = msg.GeneratedPlots.Where(p => p.IsFileExisting).ToList();
+                            if (existingPlots.Count > 0 && !content.Contains("[已生成图表产物记录]"))
+                            {
+                                var plotSummary = string.Join(", ", existingPlots.Select(p => $"`{System.IO.Path.GetFileName(p.FilePath)}` ({p.Title})"));
+                                content = $"{content}\n\n> 📊 **[已生成图表产物记录]**：已成功在本地渲染生成 {plotSummary}。后续分析应以此为基础推进，无需重复绘图。";
+                            }
+                        }
+                    }
+
+                    historyTurns.Add(new ChatTurn { Role = "assistant", Content = content });
                 }
             }
 
@@ -2438,17 +2535,25 @@ def analyze_document_metrics(file_path: str):
                         assistantMessage.Content = update.IntermediateContent;
                     }
 
-                    // 实时同步挂接新生成的图表产物至消息气泡与画廊
+                    // 实时同步挂接新生成的图表产物至消息气泡与画廊 (全量标准化去重)
                     if (update.GeneratedArtifactsSoFar.Count > 0)
                     {
                         foreach (var artPath in update.GeneratedArtifactsSoFar)
                         {
-                            if (!assistantMessage.GeneratedPlots.Any(p => p.FilePath.Equals(artPath, StringComparison.OrdinalIgnoreCase)))
+                            string normArt;
+                            try { normArt = Path.GetFullPath(artPath); }
+                            catch { normArt = artPath; }
+
+                            if (!assistantMessage.GeneratedPlots.Any(p =>
+                            {
+                                try { return Path.GetFullPath(p.FilePath).Equals(normArt, StringComparison.OrdinalIgnoreCase); }
+                                catch { return p.FilePath.Equals(normArt, StringComparison.OrdinalIgnoreCase); }
+                            }))
                             {
                                 var plotItem = new ChartArtifactItem
                                 {
-                                    FilePath = artPath,
-                                    Title = Path.GetFileNameWithoutExtension(artPath),
+                                    FilePath = normArt,
+                                    Title = Path.GetFileNameWithoutExtension(normArt),
                                     CreatedAt = DateTime.Now
                                 };
                                 assistantMessage.GeneratedPlots.Add(plotItem);
@@ -2468,12 +2573,14 @@ def analyze_document_metrics(file_path: str):
             {
                 thinkingWatch.Start();
 
+                int effectiveMaxIterations = Math.Clamp(currentSettings.AgentMaxIterations > 0 ? currentSettings.AgentMaxIterations : 12, 6, 20);
+
                 var loopResult = await agentLoopService.RunLoopAsync(
                     currentSettings,
                     historyTurns,
                     documentContext,
                     question,
-                    maxIterations: 8,
+                    maxIterations: effectiveMaxIterations,
                     progress: progress,
                     cancellationToken: cancellationToken);
 
@@ -2486,6 +2593,12 @@ def analyze_document_metrics(file_path: str):
                     assistantMessage.ThinkingSeconds = totalThinkingTime;
                     assistantMessage.IsReasoningExpanded = false; // 生成完成后默认折叠思考
 
+                    assistantMessage.TerminationReason = loopResult.TerminationReason;
+                    if (loopResult.ExecutedToolCalls != null && loopResult.ExecutedToolCalls.Count > 0)
+                    {
+                        assistantMessage.ToolCalls = new List<ToolCallRecordItem>(loopResult.ExecutedToolCalls);
+                    }
+
                     if (!string.IsNullOrWhiteSpace(loopResult.ReasoningContent))
                     {
                         assistantMessage.ReasoningContent = loopResult.ReasoningContent;
@@ -2494,11 +2607,22 @@ def analyze_document_metrics(file_path: str):
                     if (loopResult.Success)
                     {
                         assistantMessage.Content = loopResult.FinalContent;
-                        tbChatRunStatus.Text = $"分析完毕 (共 {loopResult.TotalIterations} 轮 Agent 决策)";
+                        if (loopResult.TerminationReason == AgentTerminationReason.MaxIterationsReached)
+                        {
+                            tbChatRunStatus.Text = $"分析完毕 (达到探索上限 {loopResult.TotalIterations} 轮，已生成综合研报)";
+                        }
+                        else if (loopResult.TerminationReason == AgentTerminationReason.ConsecutiveErrorsTripped)
+                        {
+                            tbChatRunStatus.Text = "分析完毕 (触发连续报错熔断，已汇聚阶段性研报)";
+                        }
+                        else
+                        {
+                            tbChatRunStatus.Text = $"分析完毕 (共 {loopResult.TotalIterations} 轮 Agent 决策)";
+                        }
                     }
                     else
                     {
-                        if (cancellationToken.IsCancellationRequested)
+                        if (cancellationToken.IsCancellationRequested || loopResult.TerminationReason == AgentTerminationReason.UserCancelled)
                         {
                             assistantMessage.IsStopped = true;
                             if (string.IsNullOrEmpty(assistantMessage.Content))
@@ -2519,12 +2643,20 @@ def analyze_document_metrics(file_path: str):
                     {
                         foreach (var artPath in loopResult.GeneratedArtifactPaths)
                         {
-                            if (!assistantMessage.GeneratedPlots.Any(p => p.FilePath.Equals(artPath, StringComparison.OrdinalIgnoreCase)))
+                            string normArt;
+                            try { normArt = Path.GetFullPath(artPath); }
+                            catch { normArt = artPath; }
+
+                            if (!assistantMessage.GeneratedPlots.Any(p =>
+                            {
+                                try { return Path.GetFullPath(p.FilePath).Equals(normArt, StringComparison.OrdinalIgnoreCase); }
+                                catch { return p.FilePath.Equals(normArt, StringComparison.OrdinalIgnoreCase); }
+                            }))
                             {
                                 var plotItem = new ChartArtifactItem
                                 {
-                                    FilePath = artPath,
-                                    Title = Path.GetFileNameWithoutExtension(artPath),
+                                    FilePath = normArt,
+                                    Title = Path.GetFileNameWithoutExtension(normArt),
                                     CreatedAt = DateTime.Now
                                 };
                                 assistantMessage.GeneratedPlots.Add(plotItem);
@@ -3472,12 +3604,15 @@ def analyze_document_metrics(file_path: str):
                     msg.IsReasoningExpanded = false;
                     ChatMessages.Add(msg);
 
-                    // 深度复原画廊中的图表
+                    // 深度复原画廊中的图表（校验本地物理文件是否存在，防止临时文件清除后破图）
                     if (msg.GeneratedPlots != null && msg.GeneratedPlots.Count > 0)
                     {
                         foreach (var plot in msg.GeneratedPlots)
                         {
-                            AddPlotToGallery(plot, switchToVis: false);
+                            if (plot.IsFileExisting)
+                            {
+                                AddPlotToGallery(plot, switchToVis: false);
+                            }
                         }
                     }
                 }
@@ -3817,15 +3952,51 @@ def analyze_document_metrics(file_path: str):
                 // 向左拖拽 (deltaX < 0) 右栏变宽；向右拖拽 (deltaX > 0) 右栏变窄
                 double targetWidth = _startRightColWidth - deltaX;
 
-                // 约束右栏最小宽度 320px
-                double minRight = 320;
-                // 约束右栏最大宽度（保证中栏至少保留 360px 宽度）
+                // 约束右栏最小宽度 280px
+                double minRight = 280;
+                // 约束右栏最大宽度（保证中栏至少保留 300px 宽度）
                 double totalAvailable = gridMainContentColumns != null ? gridMainContentColumns.ActualWidth : 1200;
-                double maxRight = Math.Max(minRight, totalAvailable - 360 - 14);
+                double maxRight = Math.Max(minRight, totalAvailable - 300 - 14);
 
                 double clampedWidth = Math.Clamp(targetWidth, minRight, maxRight);
                 colRight.Width = new GridLength(clampedWidth, GridUnitType.Pixel);
                 e.Handled = true;
+            }
+        }
+
+        private void MainWindow_SizeChanged(object sender, WindowSizeChangedEventArgs e)
+        {
+            ClampRightColumnWidth(e.Size.Width);
+        }
+
+        private void ClampRightColumnWidth(double windowWidth)
+        {
+            if (colRight == null || colMiddle == null || gridMainContentColumns == null) return;
+
+            // 减去左侧窄导航栏 56px、主区域边距 22px 与分割手柄 14px
+            double availableWidth = windowWidth - 56 - 22 - 14;
+            if (availableWidth <= 0) return;
+
+            // 中栏保留的最小可用宽度 (300px)
+            double minMiddleWidth = 300;
+            // 右栏本身的最小可用宽度 (280px)
+            double minRightWidth = 280;
+
+            double maxRightWidth = Math.Max(minRightWidth, availableWidth - minMiddleWidth);
+
+            double currentRightWidth = colRight.Width.GridUnitType == GridUnitType.Pixel
+                ? colRight.Width.Value
+                : colRight.ActualWidth;
+
+            if (currentRightWidth <= 0) currentRightWidth = 420;
+
+            if (currentRightWidth > maxRightWidth)
+            {
+                colRight.Width = new GridLength(maxRightWidth, GridUnitType.Pixel);
+            }
+            else if (currentRightWidth < minRightWidth)
+            {
+                colRight.Width = new GridLength(minRightWidth, GridUnitType.Pixel);
             }
         }
 
