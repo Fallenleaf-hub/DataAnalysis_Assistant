@@ -68,6 +68,7 @@ namespace DataAnalysis_Assistant
         private readonly SemaphoreSlim _persistLock = new(1, 1);
         private readonly SemaphoreSlim _docsLoadLock = new(1, 1);
         private DateTime _lastDebouncePersistTime = DateTime.MinValue;
+        private bool _isSelectingGroupProgrammatically = false;
 
         public MainWindow()
         {
@@ -227,7 +228,15 @@ namespace DataAnalysis_Assistant
                                 _currentGroup.IsSelected = true;
                                 if (lvDocumentGroups != null && lvDocumentGroups.SelectedItem != _currentGroup)
                                 {
-                                    lvDocumentGroups.SelectedItem = _currentGroup;
+                                    _isSelectingGroupProgrammatically = true;
+                                    try
+                                    {
+                                        lvDocumentGroups.SelectedItem = _currentGroup;
+                                    }
+                                    finally
+                                    {
+                                        _isSelectingGroupProgrammatically = false;
+                                    }
                                 }
                                 await LoadGroupDocumentsAsync(_currentGroup, selectAndPreviewFirstDoc: true);
                             }
@@ -1983,7 +1992,15 @@ fig.tight_layout()
                 }
                 if (lvDocumentGroups != null && lvDocumentGroups.SelectedItem != group)
                 {
-                    lvDocumentGroups.SelectedItem = group;
+                    _isSelectingGroupProgrammatically = true;
+                    try
+                    {
+                        lvDocumentGroups.SelectedItem = group;
+                    }
+                    finally
+                    {
+                        _isSelectingGroupProgrammatically = false;
+                    }
                 }
 
                 // 3. 统一且幂等地将工作区 Documents 集合置为该组包含的所有文件
@@ -2795,9 +2812,18 @@ def analyze_document_metrics(file_path: str):
                 _currentSession.Messages = realMessages;
                 _currentSession.LastActiveAt = DateTime.Now;
 
-                // 若当前绑定了文档组，同步保持组关联
-                if (_currentGroup != null)
+                // 严格保持文档组绑定关系：绝对不修改已有的 BindGroupId
+                if (!string.IsNullOrEmpty(_currentSession.BindGroupId))
                 {
+                    var matchingGroup = DocumentGroups.FirstOrDefault(g => g.GroupId == _currentSession.BindGroupId);
+                    if (matchingGroup != null)
+                    {
+                        _currentSession.BindGroupName = matchingGroup.GroupName;
+                    }
+                }
+                else if (_currentGroup != null)
+                {
+                    // 仅当会话从未绑定任何组时，才初始继承当前组
                     _currentSession.BindGroupId = _currentGroup.GroupId;
                     _currentSession.BindGroupName = _currentGroup.GroupName;
                 }
@@ -2996,7 +3022,19 @@ def analyze_document_metrics(file_path: str):
 
             var group = await LibraryPersistenceService.Instance.CreateGroupAsync(name);
             DocumentGroups.Insert(0, group);
-            lvDocumentGroups.SelectedItem = group;
+            _currentGroup = group;
+            if (lvDocumentGroups != null && lvDocumentGroups.SelectedItem != group)
+            {
+                _isSelectingGroupProgrammatically = true;
+                try
+                {
+                    lvDocumentGroups.SelectedItem = group;
+                }
+                finally
+                {
+                    _isSelectingGroupProgrammatically = false;
+                }
+            }
             UpdateDocCountDisplay();
         }
 
@@ -3017,15 +3055,31 @@ def analyze_document_metrics(file_path: str):
             var group = await LibraryPersistenceService.Instance.CreateGroupAsync(name, docIds);
             DocumentGroups.Insert(0, group);
             _currentGroup = group;
-            lvDocumentGroups.SelectedItem = group;
 
-            // 同步绑定至当前活跃会话
-            if (_currentSession != null)
+            if (lvDocumentGroups != null && lvDocumentGroups.SelectedItem != group)
+            {
+                _isSelectingGroupProgrammatically = true;
+                try
+                {
+                    lvDocumentGroups.SelectedItem = group;
+                }
+                finally
+                {
+                    _isSelectingGroupProgrammatically = false;
+                }
+            }
+
+            // 若当前活跃会话是未绑定任何组的独立会话，绑定到新组；否则为新组创建专属新会话，绝不篡改已有组会话
+            if (_currentSession != null && (string.IsNullOrEmpty(_currentSession.BindGroupId) || _currentSession.BindGroupId == "default_group"))
             {
                 _currentSession.BindGroupId = group.GroupId;
                 _currentSession.BindGroupName = group.GroupName;
                 _currentSession.LastActiveAt = DateTime.Now;
                 await LibraryPersistenceService.Instance.SaveSessionAsync(_currentSession);
+            }
+            else
+            {
+                await CreateNewSessionForGroupAsync(group);
             }
 
             UpdateDocCountDisplay();
@@ -3092,28 +3146,68 @@ def analyze_document_metrics(file_path: str):
             }
         }
 
-        // 选中文档组加载组内文件
+        /// <summary>
+        /// 统一选中文档组并联动工作区文档与组下会话（严格遵守文档组与会话永久绑定不可变原则）
+        /// </summary>
+        private async Task SelectDocumentGroupAsync(DocumentGroup group, bool switchSessionIfNeeded = true)
+        {
+            if (group == null) return;
+
+            _currentGroup = group;
+            foreach (var g in DocumentGroups)
+            {
+                g.IsSelected = (g == group);
+            }
+
+            if (lvDocumentGroups != null && lvDocumentGroups.SelectedItem != group)
+            {
+                _isSelectingGroupProgrammatically = true;
+                try
+                {
+                    lvDocumentGroups.SelectedItem = group;
+                }
+                finally
+                {
+                    _isSelectingGroupProgrammatically = false;
+                }
+            }
+
+            // 1. 统一且幂等加载该组文档至工作区并预览首个文档
+            await LoadGroupDocumentsAsync(group, selectAndPreviewFirstDoc: true);
+
+            // 2. 严格按文档组联动对应的会话（绝对不修改任何已有会话的 BindGroupId！）
+            if (switchSessionIfNeeded)
+            {
+                // 若当前激活会话已经归属于该文档组，则保持原会话
+                if (_currentSession == null || _currentSession.BindGroupId != group.GroupId)
+                {
+                    // 查找该文档组下最近活跃的会话
+                    var targetSession = ChatSessions
+                        .Where(s => s.BindGroupId == group.GroupId)
+                        .OrderByDescending(s => s.LastActiveAt)
+                        .FirstOrDefault();
+
+                    if (targetSession != null)
+                    {
+                        SelectSession(targetSession);
+                    }
+                    else
+                    {
+                        // 若该组暂无任何历史会话，自动为该组新建一条专属会话
+                        await CreateNewSessionForGroupAsync(group);
+                    }
+                }
+            }
+        }
+
+        // 选中文档组加载组内文件并严格联动组下会话
         private async void lvDocumentGroups_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (_isSelectingGroupProgrammatically) return;
+
             if (lvDocumentGroups.SelectedItem is DocumentGroup group)
             {
-                _currentGroup = group;
-                foreach (var g in DocumentGroups)
-                {
-                    g.IsSelected = (g == group);
-                }
-
-                // 统一且幂等加载组内所有文件
-                await LoadGroupDocumentsAsync(group, selectAndPreviewFirstDoc: true);
-
-                // 绑定至当前激活会话
-                if (_currentSession != null)
-                {
-                    _currentSession.BindGroupId = group.GroupId;
-                    _currentSession.BindGroupName = group.GroupName;
-                    _currentSession.LastActiveAt = DateTime.Now;
-                    await LibraryPersistenceService.Instance.SaveSessionAsync(_currentSession);
-                }
+                await SelectDocumentGroupAsync(group, switchSessionIfNeeded: true);
             }
         }
 
@@ -3301,7 +3395,7 @@ def analyze_document_metrics(file_path: str):
             }
         }
 
-        // 鼠标左键单击文档组标题栏：切换选中文档组并加载该组文档
+        // 鼠标左键单击文档组标题栏：切换选中文档组并严格联动该组文档与专属会话
         private async void DocGroupHeader_PointerPressed(object sender, PointerRoutedEventArgs e)
         {
             var point = e.GetCurrentPoint(sender as UIElement);
@@ -3311,29 +3405,7 @@ def analyze_document_metrics(file_path: str):
                             ?? (sender as FrameworkElement)?.DataContext as DocumentGroup;
                 if (group != null)
                 {
-                    // 1. 切换选中文档组高亮态
-                    _currentGroup = group;
-                    foreach (var g in DocumentGroups)
-                    {
-                        g.IsSelected = (g == group);
-                    }
-                    if (lvDocumentGroups != null && lvDocumentGroups.SelectedItem != group)
-                    {
-                        lvDocumentGroups.SelectedItem = group;
-                    }
-
-                    // 2. 统一互斥幂等加载该组文档至工作区并预览首个文档
-                    await LoadGroupDocumentsAsync(group, selectAndPreviewFirstDoc: true);
-
-                    // 3. 关联当前活跃会话
-                    if (_currentSession != null)
-                    {
-                        _currentSession.BindGroupId = group.GroupId;
-                        _currentSession.BindGroupName = group.GroupName;
-                        _currentSession.LastActiveAt = DateTime.Now;
-                        await LibraryPersistenceService.Instance.SaveSessionAsync(_currentSession);
-                    }
-
+                    await SelectDocumentGroupAsync(group, switchSessionIfNeeded: true);
                     e.Handled = true;
                 }
             }
@@ -3346,7 +3418,7 @@ def analyze_document_metrics(file_path: str):
                         ?? (sender as FrameworkElement)?.DataContext as DocumentGroup;
             if (group != null)
             {
-                // 1. 激活该组选中状态
+                // 1. 激活该组选中状态 (带防重入保护)
                 _currentGroup = group;
                 foreach (var g in DocumentGroups)
                 {
@@ -3354,7 +3426,15 @@ def analyze_document_metrics(file_path: str):
                 }
                 if (lvDocumentGroups != null && lvDocumentGroups.SelectedItem != group)
                 {
-                    lvDocumentGroups.SelectedItem = group;
+                    _isSelectingGroupProgrammatically = true;
+                    try
+                    {
+                        lvDocumentGroups.SelectedItem = group;
+                    }
+                    finally
+                    {
+                        _isSelectingGroupProgrammatically = false;
+                    }
                 }
 
                 // 2. 自动切换到右侧【工作区文档】视角
@@ -3477,7 +3557,15 @@ def analyze_document_metrics(file_path: str):
             }
             if (lvDocumentGroups != null && lvDocumentGroups.SelectedItem != group)
             {
-                lvDocumentGroups.SelectedItem = group;
+                _isSelectingGroupProgrammatically = true;
+                try
+                {
+                    lvDocumentGroups.SelectedItem = group;
+                }
+                finally
+                {
+                    _isSelectingGroupProgrammatically = false;
+                }
             }
 
             // 统一且幂等加载该文档组的所有文件到工作区
@@ -3664,7 +3752,15 @@ def analyze_document_metrics(file_path: str):
                     }
                     if (lvDocumentGroups != null && lvDocumentGroups.SelectedItem != group)
                     {
-                        lvDocumentGroups.SelectedItem = group;
+                        _isSelectingGroupProgrammatically = true;
+                        try
+                        {
+                            lvDocumentGroups.SelectedItem = group;
+                        }
+                        finally
+                        {
+                            _isSelectingGroupProgrammatically = false;
+                        }
                     }
 
                     // 统一且幂等加载组内所有文档元数据及 SchemaProfile（直接命中磁盘缓存）
