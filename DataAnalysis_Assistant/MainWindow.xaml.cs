@@ -727,30 +727,33 @@ namespace DataAnalysis_Assistant
 
         private void btnOpenPlotFolder_Click(object sender, RoutedEventArgs e)
         {
-            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            string scratchDir = LocateScratchDirectory(baseDir);
-            string sandboxDir = Path.Combine(scratchDir, "agent_sandbox");
-            Directory.CreateDirectory(sandboxDir);
-            SkillManagerService.OpenFolderInExplorer(sandboxDir);
-        }
-
-        private static string LocateScratchDirectory(string baseDir)
-        {
-            var current = new DirectoryInfo(baseDir);
-            while (current != null && current.Parent != null)
+            try
             {
-                if (Directory.Exists(Path.Combine(current.FullName, ".git")) ||
-                    File.Exists(Path.Combine(current.FullName, "DataAnalysis_Assistant.slnx")))
+                // 1. 若当前有激活的看板图表，且物理文件存在，直接定位并在资源管理器中高亮选中该文件
+                if (_activeDashboardPlot != null && !string.IsNullOrWhiteSpace(_activeDashboardPlot.FilePath) && File.Exists(_activeDashboardPlot.FilePath))
                 {
-                    string targetScratch = Path.Combine(current.FullName, "scratch");
-                    Directory.CreateDirectory(targetScratch);
-                    return targetScratch;
+                    Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{_activeDashboardPlot.FilePath}\"") { UseShellExecute = true });
+                    return;
                 }
-                current = current.Parent;
+
+                // 2. 若画廊中有其他图表，尝试定位到首个存在的图表文件
+                var firstExistingPlot = PlotGallery.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p.FilePath) && File.Exists(p.FilePath));
+                if (firstExistingPlot != null)
+                {
+                    Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{firstExistingPlot.FilePath}\"") { UseShellExecute = true });
+                    return;
+                }
+
+                // 3. 兜底打开实际的 scratch 图表产物收容根目录（与 Python 引擎真实收容路径完全一致）
+                string scratchDir = PythonExecutionService.LocateOrInitScratchDirectory();
+                if (Directory.Exists(scratchDir))
+                {
+                    Process.Start(new ProcessStartInfo("explorer.exe", $"\"{scratchDir}\"") { UseShellExecute = true });
+                }
             }
-            string fallback = Path.Combine(baseDir, "scratch");
-            Directory.CreateDirectory(fallback);
-            return fallback;
+            catch
+            {
+            }
         }
 
         private void btnClearPlotGallery_Click(object sender, RoutedEventArgs e)

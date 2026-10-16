@@ -314,8 +314,9 @@ namespace DataAnalysis_Assistant.Services.Python
             return sb.ToString();
         }
 
-        private static string LocateOrInitScratchDirectory(string baseDir)
+        public static string LocateOrInitScratchDirectory(string? baseDir = null)
         {
+            baseDir ??= AppDomain.CurrentDomain.BaseDirectory;
             // 1. 尝试从当前工作目录或 baseDir 向上查找到包含 .git 或 .slnx 的工程根目录
             string[] searchRoots = new[] { Directory.GetCurrentDirectory(), baseDir };
             foreach (var root in searchRoots)
