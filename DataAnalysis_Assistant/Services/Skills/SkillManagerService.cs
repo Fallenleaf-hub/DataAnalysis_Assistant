@@ -18,10 +18,10 @@ namespace DataAnalysis_Assistant.Services.Skills
     public class SkillManagerService
     {
         /// <summary>
-        /// 获取本应用专用的默认标准技能根目录 (%APPDATA%\DataAnalysis_Assistant\skills)
-        /// 保证任何普通用户使用时均自动创建并绝对可用
+        /// 获取本应用专用的标准技能受控根目录 (%APPDATA%\DataAnalysis_Assistant\skills)
+        /// 唯一合法专属存储目录，保证任何普通用户使用时均自动创建并绝对可用
         /// </summary>
-        public static string GetDefaultAppSkillsDirectory()
+        public static string GetAppSkillsDirectory()
         {
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             string dir = Path.Combine(appData, "DataAnalysis_Assistant", "skills");
@@ -35,11 +35,11 @@ namespace DataAnalysis_Assistant.Services.Skills
                     {
                         File.WriteAllText(readmePath,
                             "【AI数据分析助手 - 自定义技能扩展目录】\r\n\r\n" +
-                            "本目录用于存放符合通用 Skill 规范的技能插件。\r\n" +
+                            "本目录为应用专属的自定义技能（Skill）受控存储目录。\r\n" +
                             "规范要求：\r\n" +
-                            "1. 每个技能为一个独立子文件夹（例如 my-data-skill/）；\r\n" +
+                            "1. 每个技能为一个独立子文件夹（例如 nature-figure/）；\r\n" +
                             "2. 文件夹根目录下必须包含带有 YAML Frontmatter 的 SKILL.md 描述文件；\r\n" +
-                            "3. 您可以在软件设置的 Skill 界面中直接点击【导入技能】选择文件夹一键安装。\r\n",
+                            "3. 您可以在软件界面中点击【导入技能】选择文件夹一键安装，或直接将技能文件夹拷贝至本目录下。\r\n",
                             Encoding.UTF8);
                     }
                 }
@@ -49,79 +49,25 @@ namespace DataAnalysis_Assistant.Services.Skills
         }
 
         /// <summary>
-        /// 获取当前生效的主技能目录（优先使用用户自定义目录，若未设置则使用应用专属目录）
+        /// 向后兼容方法：获取应用技能主目录
         /// </summary>
-        public static string GetPrimarySkillsDirectory(AppSettings? settings = null)
-        {
-            if (settings != null && !string.IsNullOrWhiteSpace(settings.CustomSkillsPath) && Directory.Exists(settings.CustomSkillsPath))
-            {
-                return settings.CustomSkillsPath;
-            }
-            return GetDefaultAppSkillsDirectory();
-        }
+        public static string GetDefaultAppSkillsDirectory() => GetAppSkillsDirectory();
 
         /// <summary>
-        /// 获取所有标准用户技能搜索根目录（优先用户自定义与应用目录，自动兼容常见外部 AI 生态）
+        /// 获取当前生效的主技能目录（统一收敛为应用专属目录）
+        /// </summary>
+        public static string GetPrimarySkillsDirectory(AppSettings? settings = null) => GetAppSkillsDirectory();
+
+        /// <summary>
+        /// 获取用户技能搜索根目录（严格收敛为唯一专属目录，彻底杜绝扫描全局外部生态）
         /// </summary>
         public static List<string> GetUserSkillsDirectories(AppSettings? settings = null)
         {
-            var list = new List<string>();
-            var addedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            // 1. 用户自定义技能根目录（最高优先级）
-            if (settings != null && !string.IsNullOrWhiteSpace(settings.CustomSkillsPath) && Directory.Exists(settings.CustomSkillsPath))
-            {
-                list.Add(settings.CustomSkillsPath);
-                addedPaths.Add(Path.GetFullPath(settings.CustomSkillsPath));
-            }
-
-            // 2. 本应用专属默认技能目录（任何电脑环境均开箱即用）
-            string defaultDir = GetDefaultAppSkillsDirectory();
-            string defaultFull = Path.GetFullPath(defaultDir);
-            if (!addedPaths.Contains(defaultFull))
-            {
-                list.Add(defaultDir);
-                addedPaths.Add(defaultFull);
-            }
-
-            string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-
-            // 3. 跨工具通用技能根目录 (~/.skills)
-            string globalSkills = Path.Combine(userProfile, ".skills");
-            if (Directory.Exists(globalSkills) && !addedPaths.Contains(Path.GetFullPath(globalSkills)))
-            {
-                list.Add(globalSkills);
-                addedPaths.Add(Path.GetFullPath(globalSkills));
-            }
-
-            // 4. 常见开源生态兼容自动发现（Claude, Agents, Gemini 等，若存在则自动融合）
-            string[] candidateEcosphereDirs = new[]
-            {
-                Path.Combine(userProfile, ".claude", "skills"),
-                Path.Combine(userProfile, ".agents", "skills"),
-                Path.Combine(userProfile, ".agentic", "skills"),
-                Path.Combine(userProfile, ".gemini", "config", "skills"),
-                Path.Combine(userProfile, ".gemini", "skills")
-            };
-
-            foreach (var cDir in candidateEcosphereDirs)
-            {
-                if (Directory.Exists(cDir))
-                {
-                    string full = Path.GetFullPath(cDir);
-                    if (!addedPaths.Contains(full))
-                    {
-                        list.Add(cDir);
-                        addedPaths.Add(full);
-                    }
-                }
-            }
-
-            return list;
+            return new List<string> { GetAppSkillsDirectory() };
         }
 
         /// <summary>
-        /// 异步扫描并加载所有用户目录下的标准技能
+        /// 异步扫描并加载专属目录下的所有用户已安装标准技能
         /// </summary>
         public async Task<List<SkillItem>> LoadUserInstalledSkillsAsync(
             AppSettings settings,
@@ -130,58 +76,51 @@ namespace DataAnalysis_Assistant.Services.Skills
             var results = new List<SkillItem>();
             var scannedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            var searchDirs = GetUserSkillsDirectories(settings);
+            string rootDir = GetAppSkillsDirectory();
+            if (!Directory.Exists(rootDir))
+            {
+                return results;
+            }
+
             var disabledSet = new HashSet<string>(settings.DisabledSkills ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
 
-            foreach (var rootDir in searchDirs)
+            try
             {
-                if (!Directory.Exists(rootDir)) continue;
-
-                // 严格安全排除内置能力路径
-                if (rootDir.IndexOf("builtin", StringComparison.OrdinalIgnoreCase) >= 0)
+                var subDirs = Directory.GetDirectories(rootDir);
+                foreach (var subDir in subDirs)
                 {
-                    continue;
-                }
-
-                try
-                {
-                    var subDirs = Directory.GetDirectories(rootDir);
-                    foreach (var subDir in subDirs)
+                    string dirName = Path.GetFileName(subDir);
+                    // 忽略隐藏或系统文件夹 (如 .system, .git)
+                    if (dirName.StartsWith(".") || dirName.StartsWith("_"))
                     {
-                        string dirName = Path.GetFileName(subDir);
-                        // 忽略隐藏或系统文件夹 (如 .system, .git)
-                        if (dirName.StartsWith(".") || dirName.StartsWith("_"))
+                        continue;
+                    }
+
+                    // 标准 Skill 规范：必须包含 SKILL.md
+                    string skillMdPath = Path.Combine(subDir, "SKILL.md");
+                    if (!File.Exists(skillMdPath))
+                    {
+                        // 也尝试小写 skill.md 容错
+                        skillMdPath = Path.Combine(subDir, "skill.md");
+                        if (!File.Exists(skillMdPath))
                         {
                             continue;
                         }
+                    }
 
-                        // 标准 Skill 规范：必须包含 SKILL.md
-                        string skillMdPath = Path.Combine(subDir, "SKILL.md");
-                        if (!File.Exists(skillMdPath))
-                        {
-                            // 也尝试小写 skill.md 容错
-                            skillMdPath = Path.Combine(subDir, "skill.md");
-                            if (!File.Exists(skillMdPath))
-                            {
-                                continue;
-                            }
-                        }
-
-                        // 读取并解析 SKILL.md 元数据
-                        var skillItem = await ParseSkillMdAsync(skillMdPath, subDir, rootDir, cancellationToken);
-                        if (skillItem != null && !scannedNames.Contains(skillItem.Name))
-                        {
-                            scannedNames.Add(skillItem.Name);
-                            // 设定激活状态
-                            skillItem.IsEnabled = !disabledSet.Contains(skillItem.Name);
-                            results.Add(skillItem);
-                        }
+                    // 读取并解析 SKILL.md 元数据与正文
+                    var skillItem = await ParseSkillMdAsync(skillMdPath, subDir, rootDir, cancellationToken);
+                    if (skillItem != null && !scannedNames.Contains(skillItem.Name))
+                    {
+                        scannedNames.Add(skillItem.Name);
+                        skillItem.IsEnabled = !disabledSet.Contains(skillItem.Name);
+                        results.Add(skillItem);
                     }
                 }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"[SkillManagerService] 扫描目录 {rootDir} 出错: {ex.Message}");
-                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SkillManagerService] 扫描专属目录出错: {ex.Message}");
             }
 
             return results.OrderBy(s => s.DisplayName).ToList();
@@ -204,6 +143,8 @@ namespace DataAnalysis_Assistant.Services.Skills
                 string name = folderName;
                 string description = string.Empty;
 
+                string instructions = content;
+
                 // 解析 YAML Frontmatter (--- 包裹区域)
                 if (content.StartsWith("---"))
                 {
@@ -211,6 +152,13 @@ namespace DataAnalysis_Assistant.Services.Skills
                     if (secondDashIndex > 3)
                     {
                         string yamlBlock = content.Substring(3, secondDashIndex - 3).Trim();
+                        int bodyStart = secondDashIndex + 3;
+                        while (bodyStart < content.Length && (content[bodyStart] == '\r' || content[bodyStart] == '\n'))
+                        {
+                            bodyStart++;
+                        }
+                        instructions = content.Substring(bodyStart).Trim();
+
                         var yamlLines = yamlBlock.Split('\n');
 
                         var descBuilder = new StringBuilder();
@@ -281,7 +229,7 @@ namespace DataAnalysis_Assistant.Services.Skills
 
                 if (string.IsNullOrWhiteSpace(description))
                 {
-                    description = $"位于用户技能目录的自定义扩展: {folderName}";
+                    description = $"位于用户专属技能目录的自定义扩展: {folderName}";
                 }
 
                 return new SkillItem
@@ -291,13 +239,55 @@ namespace DataAnalysis_Assistant.Services.Skills
                     Description = description,
                     DirectoryPath = directoryPath,
                     SkillMdPath = skillMdPath,
-                    SourceLocation = rootDir
+                    SourceLocation = rootDir,
+                    FullInstructions = instructions
                 };
             }
             catch
             {
                 return null;
             }
+        }
+
+        /// <summary>
+        /// 获取指定技能的完整 Markdown 规约正文（用于向大模型注入专业背景与步骤规约）
+        /// </summary>
+        public static async Task<string?> GetSkillFullInstructionsAsync(SkillItem skill, CancellationToken cancellationToken = default)
+        {
+            if (skill == null) return null;
+            if (!string.IsNullOrWhiteSpace(skill.FullInstructions))
+            {
+                return skill.FullInstructions;
+            }
+
+            if (!string.IsNullOrEmpty(skill.SkillMdPath) && File.Exists(skill.SkillMdPath))
+            {
+                try
+                {
+                    string content = await File.ReadAllTextAsync(skill.SkillMdPath, Encoding.UTF8, cancellationToken);
+                    if (content.StartsWith("---"))
+                    {
+                        int secondDashIndex = content.IndexOf("---", 3, StringComparison.Ordinal);
+                        if (secondDashIndex > 3)
+                        {
+                            int bodyStart = secondDashIndex + 3;
+                            while (bodyStart < content.Length && (content[bodyStart] == '\r' || content[bodyStart] == '\n'))
+                            {
+                                bodyStart++;
+                            }
+                            skill.FullInstructions = content.Substring(bodyStart).Trim();
+                            return skill.FullInstructions;
+                        }
+                    }
+                    skill.FullInstructions = content.Trim();
+                    return skill.FullInstructions;
+                }
+                catch
+                {
+                }
+            }
+
+            return null;
         }
 
         /// <summary>

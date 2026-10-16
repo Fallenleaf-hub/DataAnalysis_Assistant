@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <b>基于 .NET 8 与 WinUI 3 打造的具备自主 Agentic 推演决策、本地安全代码沙盒与多格式文档深度解析的现代 Windows 桌面智能数据分析看板</b>
+  <b>基于 .NET 8 与 WinUI 3 打造的具备自主 Agentic 推演决策、本地安全代码沙盒与多格式文档深度解析的现代 Windows 桌面智能数据分析工具</b>
 </p>
 
 <p align="center">
@@ -20,7 +20,7 @@
 
 ## 📖 简介
 
-**Data Analysis Assistant** 是一款专为 Windows 10/11 平台打造的本地桌面自主 Agentic 智能数据分析看板。系统深度融合了专业的本地多格式文档解析技术（支持 PDF、Word、Excel 等主流格式）、OpenAI 标准兼容的 LLM 流式对话引擎、以及**全自动自主代码推演与沙盒执行闭环（ReAct / CodeAct）**。大模型可自主编写、调试并执行 Python 科学计算与可视化代码，实时捕获分析图表并沉淀至大屏看板，同时支持多任务批次隔离、终轮强制收敛综合研报与自适应响应式布局，帮助用户高效应对海量数据洞察、数学建模竞赛与复杂报告提炼。
+**Data Analysis Assistant** 是一款专为 Windows 10/11 平台打造的本地桌面自主 Agentic 智能数据分析工具。支持本地多格式文档解析技术（支持 PDF、Word、Excel 等主流格式）、OpenAI 标准兼容的 LLM 流式对话引擎、以及**全自动自主代码推演与沙盒执行闭环（ReAct / CodeAct）**。大模型可自主编写、调试并执行 Python 科学计算与可视化代码，实时捕获分析图表并沉淀至大屏看板，同时支持多任务批次隔离、终轮强制收敛综合研报与自适应响应式布局，帮助用户高效应对海量数据洞察、数学建模竞赛与复杂报告提炼。
 
 ---
 
@@ -56,19 +56,6 @@
 - **未打包独立部署 (Unpackaged Win32)**：摆脱 Windows UWP/MSIX 沙盒约束，支持单可执行文件独立自包含运行；
 - **密钥本地绝对隔离**：API Key 等敏感配置持久化于系统本地 `%APPDATA%\DataAnalysis_Assistant\settings.json`，**绝不上云、绝不包含在 Git 仓库中**；
 - **全局参数自主调节**：支持在设置中心自由调节 Agent 决策轮次上限（6~20）、终轮收敛开关以及 Python 执行基础超时时间（30~300s）。
-
----
-
-## 🛠️ 技术栈与依赖库
-
-| 维度 | 技术选型 | 说明 |
-| :--- | :--- | :--- |
-| **运行时目标** | `.NET 8.0` (`net8.0-windows10.0.19041.0`) | 现代高性能跨平台 runtime |
-| **UI 框架** | `Windows App SDK 2.5.1` + `WinUI 3` | Fluent Design 现代桌面界面体系 |
-| **PDF 解析** | `PdfPig 0.1.16` | 跨平台高性能 PDF 文本提取 |
-| **Office 解析** | `DocX 5.2.0` / `EPPlus 8.7.1` | Word 文档与 Excel 电子表格高保真读取 |
-| **网络与通信** | `System.Net.Http` + `System.Text.Json` | 复用 HttpClient，兼容 OpenAI SSE 流解析 |
-| **构建与 CI/CD** | `GitHub Actions` (`windows-latest`) | 自动化编译、打包 Zip 并发布到 Releases |
 
 ---
 
@@ -143,18 +130,6 @@ git push origin v1.0.2
 
 ---
 
-## 🗺️ 规划与路线图 (Roadmap)
-
-- [x] **阶段 1**：WinUI 3 极窄导轨布局、抽屉多文档管理与看板框架构建
-- [x] **阶段 2**：PDF/Word/Excel/TXT 多格式真实内容解析与 Token 预估
-- [x] **阶段 3**：OpenAI/DeepSeek SSE 真实流式对话接入与模型列表在线获取
-- [x] **架构优化**：迁移至未打包（Unpackaged）自包含独立部署与 GitHub Actions 自动流水线
-- [x] **阶段 4**：本地 Python 科学沙盒执行器，支持大模型多步自主推演、终轮强制收敛与动态分级超时 (CodeAct Engine)
-- [x] **阶段 5**：多任务批次隔离 (`AgentTaskId`)、上下文动态净化消歧与全局自适应响应式布局
-- [ ] **阶段 6**：多文档本地向量嵌入（RAG）检索与深度长文本知识库切片增强
-
----
-
-## 📄 开源许可证
+## 📄开源许可证
 
 本项目基于 [MIT License](LICENSE) 开源，欢迎自由使用、修改与衍生开发。

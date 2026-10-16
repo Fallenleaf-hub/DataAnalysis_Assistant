@@ -68,15 +68,23 @@ namespace DataAnalysis_Assistant.Services
             AppSettings settings,
             List<ChatTurn>? history,
             string? documentContext,
-            string? userQuestion)
+            string? userQuestion,
+            string? activeSkillInstruction = null)
         {
             var messages = new List<object>();
 
-            // 1. 组装 System 消息 (系统提示词 + 可选参考文档/Schema 上下文)
+            // 1. 组装 System 消息 (系统提示词 + 扩展技能指南 + 可选参考文档/Schema 上下文)
             var sbSystem = new StringBuilder();
             if (!string.IsNullOrWhiteSpace(settings.SystemPrompt))
             {
                 sbSystem.AppendLine(settings.SystemPrompt.Trim());
+            }
+
+            // 阶段五：深度注入专属扩展技能规约指南 (优先级高，紧随全局系统提示词)
+            if (!string.IsNullOrWhiteSpace(activeSkillInstruction))
+            {
+                sbSystem.AppendLine();
+                sbSystem.AppendLine(activeSkillInstruction.Trim());
             }
 
             if (!string.IsNullOrWhiteSpace(documentContext))
@@ -179,6 +187,7 @@ namespace DataAnalysis_Assistant.Services
             string? userQuestion,
             IEnumerable<ToolDefinition>? tools = null,
             string toolChoice = "auto",
+            string? activeSkillInstruction = null,
             CancellationToken cancellationToken = default)
         {
             if (settings == null)
@@ -192,7 +201,7 @@ namespace DataAnalysis_Assistant.Services
                 endpoint += "/chat/completions";
             }
 
-            var messages = BuildMessagesPayload(settings, history, documentContext, userQuestion);
+            var messages = BuildMessagesPayload(settings, history, documentContext, userQuestion, activeSkillInstruction);
 
             var payloadDict = new Dictionary<string, object>
             {
@@ -357,6 +366,7 @@ namespace DataAnalysis_Assistant.Services
             List<ChatTurn>? history,
             string? documentContext,
             string? userQuestion,
+            string? activeSkillInstruction = null,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             await foreach (var chunk in StreamChatCompletionWithToolsAsync(
@@ -366,6 +376,7 @@ namespace DataAnalysis_Assistant.Services
                 userQuestion,
                 tools: null,
                 toolChoice: "auto",
+                activeSkillInstruction: activeSkillInstruction,
                 cancellationToken: cancellationToken))
             {
                 yield return chunk;
@@ -382,6 +393,7 @@ namespace DataAnalysis_Assistant.Services
             string? userQuestion,
             IEnumerable<ToolDefinition>? tools = null,
             string toolChoice = "auto",
+            string? activeSkillInstruction = null,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             if (settings == null)
@@ -395,7 +407,7 @@ namespace DataAnalysis_Assistant.Services
                 endpoint += "/chat/completions";
             }
 
-            var messages = BuildMessagesPayload(settings, history, documentContext, userQuestion);
+            var messages = BuildMessagesPayload(settings, history, documentContext, userQuestion, activeSkillInstruction);
 
             var payloadDict = new Dictionary<string, object>
             {

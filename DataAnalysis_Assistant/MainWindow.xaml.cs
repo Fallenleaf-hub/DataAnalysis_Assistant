@@ -39,7 +39,11 @@ namespace DataAnalysis_Assistant
         public ObservableCollection<ChatMessageItem> ChatMessages { get; } = new();
         public ObservableCollection<ChatSessionItem> ChatSessions { get; } = new();
         public ObservableCollection<SkillItem> InstalledSkills { get; } = new();
+        public ObservableCollection<SkillItem> FilteredSkills { get; } = new();
         public ObservableCollection<ChartArtifactItem> PlotGallery { get; } = new();
+
+        private SkillItem? _activeMountedSkill;
+        private bool _isUpdatingQuestionTextProgrammatically = false;
 
         private AppSettings _settings = new();
         private DocumentGroup? _currentGroup;
@@ -86,6 +90,9 @@ namespace DataAnalysis_Assistant
 
             // 加载配置
             LoadSettings();
+
+            // 预加载本地已安装的受控扩展技能（加速对话 Slash 快捷交互）
+            _ = LoadInstalledSkillsAsync();
 
             // 初始化欢迎消息（含 Markdown 格式、表格与代码块展示）
             InitializeWelcomeChatMessage();
@@ -1158,10 +1165,7 @@ fig.tight_layout()
             {
                 comboPythonSecurityMode.SelectedIndex = Math.Clamp(_settings.PythonSecurityMode, 0, 2);
             }
-            if (tbCustomSkillsPath != null)
-            {
-                tbCustomSkillsPath.Text = _settings.CustomSkillsPath ?? string.Empty;
-            }
+
 
             UpdateSettingsDisplay();
             _ = CheckPythonEnvironmentAsync();
@@ -1354,10 +1358,7 @@ fig.tight_layout()
             {
                 _settings.PythonSecurityMode = comboPythonSecurityMode.SelectedIndex;
             }
-            if (tbCustomSkillsPath != null)
-            {
-                _settings.CustomSkillsPath = tbCustomSkillsPath.Text.Trim();
-            }
+
             if (sliderMaxIterations != null)
             {
                 _settings.AgentMaxIterations = (int)sliderMaxIterations.Value;
@@ -1415,7 +1416,6 @@ fig.tight_layout()
             if (toggleAutoFinalSynthesis != null) toggleAutoFinalSynthesis.IsOn = _settings.EnableAutoFinalSynthesis;
             if (sliderPythonTimeout != null) sliderPythonTimeout.Value = _settings.PythonTimeoutSeconds;
             if (tbCustomPythonPath != null) tbCustomPythonPath.Text = string.Empty;
-            if (tbCustomSkillsPath != null) tbCustomSkillsPath.Text = string.Empty;
             if (comboPythonSecurityMode != null) comboPythonSecurityMode.SelectedIndex = 1;
             UpdateSettingsDisplay();
             _ = CheckPythonEnvironmentAsync();
@@ -1435,9 +1435,14 @@ fig.tight_layout()
             {
                 var skills = await _skillManager.LoadUserInstalledSkillsAsync(_settings);
                 InstalledSkills.Clear();
+                FilteredSkills.Clear();
                 foreach (var s in skills)
                 {
                     InstalledSkills.Add(s);
+                    if (s.IsEnabled)
+                    {
+                        FilteredSkills.Add(s);
+                    }
                 }
 
                 if (tbSkillsCountBadge != null)
@@ -1559,90 +1564,7 @@ fig.tight_layout()
             }
         }
 
-        private async void btnBrowseSkillsPath_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                var picker = new FolderPicker
-                {
-                    SuggestedStartLocation = PickerLocationId.ComputerFolder
-                };
-                picker.FileTypeFilter.Add("*");
 
-                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-                WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
-
-                var folder = await picker.PickSingleFolderAsync();
-                if (folder != null)
-                {
-                    if (tbCustomSkillsPath != null)
-                    {
-                        tbCustomSkillsPath.Text = folder.Path;
-                    }
-                    _settings.CustomSkillsPath = folder.Path;
-                    SettingsService.SaveSettings(_settings);
-
-                    if (infoBarSkillSettings != null)
-                    {
-                        infoBarSkillSettings.IsOpen = true;
-                        infoBarSkillSettings.Severity = InfoBarSeverity.Success;
-                        infoBarSkillSettings.Title = "技能根目录已更新";
-                        infoBarSkillSettings.Message = $"已设置自定义技能根目录：{folder.Path}，正在重新扫描...";
-                    }
-
-                    await LoadInstalledSkillsAsync();
-                }
-            }
-            catch (Exception ex)
-            {
-                if (infoBarSkillSettings != null)
-                {
-                    infoBarSkillSettings.IsOpen = true;
-                    infoBarSkillSettings.Severity = InfoBarSeverity.Error;
-                    infoBarSkillSettings.Title = "选择失败";
-                    infoBarSkillSettings.Message = ex.Message;
-                }
-            }
-        }
-
-        private async void btnApplySkillsPath_Click(object sender, RoutedEventArgs e)
-        {
-            string path = tbCustomSkillsPath?.Text?.Trim() ?? string.Empty;
-            _settings.CustomSkillsPath = path;
-            SettingsService.SaveSettings(_settings);
-
-            if (infoBarSkillSettings != null)
-            {
-                infoBarSkillSettings.IsOpen = true;
-                infoBarSkillSettings.Severity = InfoBarSeverity.Success;
-                infoBarSkillSettings.Title = "配置已确定应用";
-                infoBarSkillSettings.Message = string.IsNullOrEmpty(path)
-                    ? "已应用为默认应用技能目录与系统通用目录，正在重新扫描..."
-                    : $"已应用自定义技能目录：{path}，正在重新扫描...";
-            }
-
-            await LoadInstalledSkillsAsync();
-        }
-
-        private async void btnResetSkillsPath_Click(object sender, RoutedEventArgs e)
-        {
-            if (tbCustomSkillsPath != null)
-            {
-                tbCustomSkillsPath.Text = string.Empty;
-            }
-            _settings.CustomSkillsPath = string.Empty;
-            SettingsService.SaveSettings(_settings);
-
-            if (infoBarSkillSettings != null)
-            {
-                infoBarSkillSettings.IsOpen = true;
-                infoBarSkillSettings.Severity = InfoBarSeverity.Informational;
-                infoBarSkillSettings.Title = "已恢复默认";
-                infoBarSkillSettings.Message = "已清除自定义技能根目录，恢复为应用专属技能库。";
-            }
-
-            await LoadInstalledSkillsAsync();
-        }
 
         private async void btnRefreshSkills_Click(object sender, RoutedEventArgs e)
         {
@@ -2380,9 +2302,205 @@ def analyze_document_metrics(file_path: str):
             }
         }
 
-        // 拦截输入框按键：Enter 发送，Shift+Enter 换行 (使用 PreviewKeyDown 确保优先于 TextBox 内部插入换行符)
+        #region 对话框 Slash Command (/) 技能浮层与交互导航
+
+        private void tbQuestion_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_isUpdatingQuestionTextProgrammatically) return;
+
+            string text = tbQuestion.Text;
+
+            // 当输入框包含 '/' 前缀时触发上拉浮层与模糊过滤
+            if (!string.IsNullOrEmpty(text) && text.StartsWith("/"))
+            {
+                string query = text.Length > 1 ? text.Substring(1).Trim() : string.Empty;
+
+                // 若本地技能列表为空，触发一次异步拉取
+                if (InstalledSkills.Count == 0)
+                {
+                    _ = LoadInstalledSkillsAsync().ContinueWith(_ =>
+                    {
+                        DispatcherQueue.TryEnqueue(() => FilterSkillsAndShowPopup(query));
+                    });
+                    return;
+                }
+
+                FilterSkillsAndShowPopup(query);
+            }
+            else
+            {
+                HideSkillSelectorPopup();
+            }
+        }
+
+        private void FilterSkillsAndShowPopup(string query)
+        {
+            FilteredSkills.Clear();
+            var matched = InstalledSkills.Where(s => s.IsEnabled &&
+                (string.IsNullOrWhiteSpace(query) ||
+                 s.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                 s.Description.Contains(query, StringComparison.OrdinalIgnoreCase))).ToList();
+
+            foreach (var item in matched)
+            {
+                FilteredSkills.Add(item);
+            }
+
+            if (FilteredSkills.Count > 0)
+            {
+                borderSkillSelectorPopup.Visibility = Visibility.Visible;
+                if (lvSkillSelector.SelectedIndex < 0 || lvSkillSelector.SelectedIndex >= FilteredSkills.Count)
+                {
+                    lvSkillSelector.SelectedIndex = 0;
+                }
+            }
+            else
+            {
+                HideSkillSelectorPopup();
+            }
+        }
+
+        private void HideSkillSelectorPopup()
+        {
+            if (borderSkillSelectorPopup != null)
+            {
+                borderSkillSelectorPopup.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private void lvSkillSelector_ItemClick(object sender, ItemClickEventArgs e)
+        {
+            if (e.ClickedItem is SkillItem skill)
+            {
+                SelectSkill(skill);
+            }
+        }
+
+        private void SelectSkill(SkillItem skill)
+        {
+            if (skill == null) return;
+
+            HideSkillSelectorPopup();
+
+            _activeMountedSkill = skill;
+
+            // 清除输入框中键入的 '/' 命令部分
+            _isUpdatingQuestionTextProgrammatically = true;
+            try
+            {
+                tbQuestion.Text = string.Empty;
+            }
+            finally
+            {
+                _isUpdatingQuestionTextProgrammatically = false;
+            }
+
+            // 呈现技能胶囊卡片 (对应图二视觉规范，附带描述 ToolTip)
+            if (borderActiveSkillPill != null && tbActiveSkillPillName != null)
+            {
+                tbActiveSkillPillName.Text = skill.Name;
+                ToolTipService.SetToolTip(borderActiveSkillPill, string.IsNullOrWhiteSpace(skill.Description) ? skill.Name : $"{skill.Name}\n{skill.Description}");
+                borderActiveSkillPill.Visibility = Visibility.Visible;
+            }
+
+            // 动态更新输入框占位符提示并调整高度，确保视觉整体和谐无抖动
+            if (tbQuestion != null)
+            {
+                tbQuestion.PlaceholderText = $"已挂载技能 [{skill.Name}]，继续输入你的分析需求或数据问题 (Enter 发送)...";
+                tbQuestion.Height = 52;
+                tbQuestion.Focus(FocusState.Programmatic);
+            }
+        }
+
+        private void btnRemoveActiveSkill_Click(object sender, RoutedEventArgs e)
+        {
+            RemoveActiveSkill();
+        }
+
+        private void RemoveActiveSkill()
+        {
+            _activeMountedSkill = null;
+            if (borderActiveSkillPill != null)
+            {
+                borderActiveSkillPill.Visibility = Visibility.Collapsed;
+            }
+
+            // 恢复初始输入提示与高度
+            if (tbQuestion != null)
+            {
+                tbQuestion.PlaceholderText = "输入你的数据分析或问答需求 (输入 / 触发技能扩展，Enter 发送)...";
+                tbQuestion.Height = 70;
+                tbQuestion.Focus(FocusState.Programmatic);
+            }
+        }
+
+        #endregion
+
+        // 拦截输入框按键：浮层开启时支持 Up/Down 滚动、Enter/Tab 选中、Esc 关闭；文本为空时退格清除胶囊；Enter 发送
         private void tbQuestion_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
         {
+            // 1. 若浮层可见，拦截键盘导航与选择
+            if (borderSkillSelectorPopup != null && borderSkillSelectorPopup.Visibility == Visibility.Visible)
+            {
+                if (e.Key == Windows.System.VirtualKey.Down)
+                {
+                    e.Handled = true;
+                    if (FilteredSkills.Count > 0)
+                    {
+                        int next = (lvSkillSelector.SelectedIndex + 1) % FilteredSkills.Count;
+                        lvSkillSelector.SelectedIndex = next;
+                        lvSkillSelector.ScrollIntoView(FilteredSkills[next]);
+                    }
+                    return;
+                }
+
+                if (e.Key == Windows.System.VirtualKey.Up)
+                {
+                    e.Handled = true;
+                    if (FilteredSkills.Count > 0)
+                    {
+                        int prev = lvSkillSelector.SelectedIndex - 1;
+                        if (prev < 0) prev = FilteredSkills.Count - 1;
+                        lvSkillSelector.SelectedIndex = prev;
+                        lvSkillSelector.ScrollIntoView(FilteredSkills[prev]);
+                    }
+                    return;
+                }
+
+                if (e.Key == Windows.System.VirtualKey.Enter || e.Key == Windows.System.VirtualKey.Tab)
+                {
+                    e.Handled = true; // 绝对拦截！阻止回车默认发送或插入换行符
+                    if (lvSkillSelector.SelectedItem is SkillItem selectedSkill)
+                    {
+                        SelectSkill(selectedSkill);
+                    }
+                    else if (FilteredSkills.Count > 0)
+                    {
+                        SelectSkill(FilteredSkills[0]);
+                    }
+                    return;
+                }
+
+                if (e.Key == Windows.System.VirtualKey.Escape)
+                {
+                    e.Handled = true;
+                    HideSkillSelectorPopup();
+                    return;
+                }
+            }
+
+            // 2. 当输入框文本为空且按下退格键 (Backspace) 时，快捷移除当前挂载的技能胶囊
+            if (e.Key == Windows.System.VirtualKey.Back)
+            {
+                if (string.IsNullOrEmpty(tbQuestion.Text) && _activeMountedSkill != null)
+                {
+                    e.Handled = true;
+                    RemoveActiveSkill();
+                    return;
+                }
+            }
+
+            // 3. 常规 Enter 发送逻辑 (仅在浮层关闭时生效)
             if (e.Key == Windows.System.VirtualKey.Enter)
             {
                 var shiftState = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift);
@@ -2435,16 +2553,45 @@ def analyze_document_metrics(file_path: str):
             // 1. 生成本次任务独立批次标识，添加用户消息到列表并清空输入框
             string currentAgentTaskId = Guid.NewGuid().ToString("N");
 
+            // 记录本次提问挂载的技能扩展并重置输入框胶囊状态
+            var currentSkill = _activeMountedSkill;
+            RemoveActiveSkill();
+
             var userMessage = new ChatMessageItem
             {
                 Sender = "User",
                 Content = question,
                 Timestamp = DateTime.Now,
-                AgentTaskId = currentAgentTaskId
+                AgentTaskId = currentAgentTaskId,
+                ActiveSkillName = currentSkill?.Name
             };
             ChatMessages.Add(userMessage);
 
             tbQuestion.Text = string.Empty;
+
+            // 阶段五：若挂载了技能，提取并组装专属技能规约 System 指令
+            string? activeSkillInstruction = null;
+            if (currentSkill != null)
+            {
+                try
+                {
+                    string? skillFullMarkdown = await SkillManagerService.GetSkillFullInstructionsAsync(currentSkill);
+                    if (!string.IsNullOrWhiteSpace(skillFullMarkdown))
+                    {
+                        var sbSkill = new StringBuilder();
+                        sbSkill.AppendLine($"【🎯 已启用专属专业扩展技能 (Specialized Skill: {currentSkill.Name})】");
+                        sbSkill.AppendLine("在执行本次数据分析与推演任务时，请务必严格遵循以下技能指南的专业角色、工作流程与输出规范：");
+                        sbSkill.AppendLine("==================== [SKILL GUIDE START] ====================");
+                        sbSkill.AppendLine(skillFullMarkdown.Trim());
+                        sbSkill.AppendLine("==================== [SKILL GUIDE END] ======================");
+                        activeSkillInstruction = sbSkill.ToString();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[SkillInstruction] 提取失败: {ex.Message}");
+                }
+            }
 
             // 关键节点 A: 用户提问即刻写盘（防止未完成推理时退出丢失提问）
             _ = PersistCurrentSessionAsync(force: true);
@@ -2653,6 +2800,7 @@ def analyze_document_metrics(file_path: str):
                     documentContext,
                     question,
                     maxIterations: effectiveMaxIterations,
+                    activeSkillInstruction: activeSkillInstruction,
                     progress: progress,
                     cancellationToken: cancellationToken);
 
@@ -2817,6 +2965,7 @@ def analyze_document_metrics(file_path: str):
 
         private void btnClearChat_Click(object sender, RoutedEventArgs e)
         {
+            RemoveActiveSkill();
             ChatMessages.Clear();
             InitializeWelcomeChatMessage();
             _ = PersistCurrentSessionAsync(force: true);
@@ -3707,6 +3856,7 @@ def analyze_document_metrics(file_path: str):
             btnTabDocPreview_Click(this, new RoutedEventArgs());
 
             // 清空右侧当前消息流并重置，准备开始新会话
+            RemoveActiveSkill();
             ChatMessages.Clear();
             tbChatRunStatus.Text = "";
             tbQuestion.Focus(FocusState.Programmatic);
@@ -3778,6 +3928,7 @@ def analyze_document_metrics(file_path: str):
             UpdateHistoryCountDisplay();
 
             // 清空并初始化欢迎消息
+            RemoveActiveSkill();
             ChatMessages.Clear();
             InitializeWelcomeChatMessage();
         }

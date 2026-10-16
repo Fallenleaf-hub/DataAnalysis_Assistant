@@ -48,6 +48,32 @@ namespace DataAnalysis_Assistant.Models
         [JsonIgnore]
         public Visibility AssistantBubbleVisibility => IsAssistant ? Visibility.Visible : Visibility.Collapsed;
 
+        private string? _activeSkillName;
+
+        /// <summary>
+        /// 本次提问挂载的专属扩展技能名称（如 nature-figure、nature-reviewer）
+        /// </summary>
+        public string? ActiveSkillName
+        {
+            get => _activeSkillName;
+            set
+            {
+                if (_activeSkillName != value)
+                {
+                    _activeSkillName = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(HasActiveSkill));
+                    OnPropertyChanged(nameof(ActiveSkillVisibility));
+                }
+            }
+        }
+
+        [JsonIgnore]
+        public bool HasActiveSkill => !string.IsNullOrEmpty(ActiveSkillName);
+
+        [JsonIgnore]
+        public Visibility ActiveSkillVisibility => HasActiveSkill ? Visibility.Visible : Visibility.Collapsed;
+
         /// <summary>
         /// 本轮对话或代码执行生成的图表资产列表
         /// </summary>

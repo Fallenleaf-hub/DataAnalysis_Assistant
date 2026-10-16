@@ -82,6 +82,7 @@ namespace DataAnalysis_Assistant.Services.Agent
             string documentContext,
             string userQuestion,
             int maxIterations = 12,
+            string? activeSkillInstruction = null,
             IProgress<AgentProgressUpdate>? progress = null,
             CancellationToken cancellationToken = default)
         {
@@ -144,6 +145,7 @@ namespace DataAnalysis_Assistant.Services.Agent
                         maxIterations,
                         allGeneratedArtifacts,
                         accumulatedReasoning,
+                        activeSkillInstruction,
                         progress,
                         cancellationToken);
                 }
@@ -353,6 +355,7 @@ namespace DataAnalysis_Assistant.Services.Agent
                                 failedToolSummaries,
                                 executedToolCalls,
                                 AgentTerminationReason.ConsecutiveErrorsTripped,
+                                activeSkillInstruction,
                                 progress,
                                 cancellationToken);
                         }
@@ -378,6 +381,7 @@ namespace DataAnalysis_Assistant.Services.Agent
                             failedToolSummaries,
                             executedToolCalls,
                             AgentTerminationReason.MaxIterationsReached,
+                            activeSkillInstruction,
                             progress,
                             cancellationToken);
                     }
@@ -425,6 +429,7 @@ namespace DataAnalysis_Assistant.Services.Agent
                 failedToolSummaries,
                 executedToolCalls,
                 AgentTerminationReason.MaxIterationsReached,
+                activeSkillInstruction,
                 progress,
                 cancellationToken);
         }
@@ -444,6 +449,7 @@ namespace DataAnalysis_Assistant.Services.Agent
             List<string> failedToolSummaries,
             List<ToolCallRecordItem> executedToolCalls,
             AgentTerminationReason terminationReason,
+            string? activeSkillInstruction,
             IProgress<AgentProgressUpdate>? progress,
             CancellationToken cancellationToken)
         {
@@ -523,6 +529,7 @@ namespace DataAnalysis_Assistant.Services.Agent
                     maxIterations,
                     allGeneratedArtifacts,
                     accumulatedReasoning,
+                    activeSkillInstruction,
                     progress,
                     cancellationToken);
             }
@@ -692,6 +699,7 @@ namespace DataAnalysis_Assistant.Services.Agent
             int maxIterations,
             List<string> allGeneratedArtifacts,
             StringBuilder accumulatedReasoning,
+            string? activeSkillInstruction,
             IProgress<AgentProgressUpdate>? progress,
             CancellationToken cancellationToken)
         {
@@ -709,6 +717,7 @@ namespace DataAnalysis_Assistant.Services.Agent
                     userQuestion,
                     toolDefs,
                     toolChoice: toolChoice,
+                    activeSkillInstruction: activeSkillInstruction,
                     cancellationToken: cancellationToken))
                 {
                     if (chunk.Type == StreamChunkType.Reasoning)
@@ -787,6 +796,7 @@ namespace DataAnalysis_Assistant.Services.Agent
                 userQuestion,
                 toolDefs,
                 toolChoice: toolChoice,
+                activeSkillInstruction: activeSkillInstruction,
                 cancellationToken: cancellationToken);
         }
     }

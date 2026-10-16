@@ -444,6 +444,13 @@
                                                             <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                                                                 <Border Background="{StaticResource AccentWarmBrush}" CornerRadius="3" Width="5" Height="13" VerticalAlignment="Center"/>
                                                                 <TextBlock Text="我 (用户)" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                                <!-- 阶段五：专属扩展技能胶囊徽章 (浅色暖调自适应规范) -->
+                                                                <Border Visibility="{x:Bind ActiveSkillVisibility, Mode=OneWay}" Background="#F2ECE1" BorderBrush="#D8CFBF" BorderThickness="1" CornerRadius="4" Padding="5,1" Margin="2,0,0,0">
+                                                                    <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                                                        <TextBlock Text="&lt;/&gt;" FontSize="8" FontWeight="Bold" FontFamily="Consolas, Cascadia Code, Courier New" Foreground="{StaticResource AccentWarmBrush}" VerticalAlignment="Center"/>
+                                                                        <TextBlock Text="{x:Bind ActiveSkillName, Mode=OneWay}" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                                                                    </StackPanel>
+                                                                </Border>
                                                             </StackPanel>
                                                             <TextBlock Text="{x:Bind FormattedTime, Mode=OneWay}" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                                                         </Grid>
@@ -565,8 +572,43 @@
                                             <RowDefinition Height="Auto"/>
                                         </Grid.RowDefinitions>
 
-                                        <!-- 多行提问输入框 (使用 PreviewKeyDown 拦截 Enter 发送与 Shift+Enter 换行) -->
-                                        <TextBox x:Name="tbQuestion" Grid.Row="0" PlaceholderText="输入你的数据分析或问答需求 (Enter 发送)..." AcceptsReturn="True" Height="70" BorderThickness="0" CornerRadius="8" Background="Transparent" FontSize="13" PreviewKeyDown="tbQuestion_PreviewKeyDown"/>
+                                        <!-- 输入区内容组：挂载的技能胶囊卡片 + 提问输入框 -->
+                                        <Grid Grid.Row="0">
+                                            <Grid.RowDefinitions>
+                                                <!-- 技能胶囊 Pill 区域 (未挂载时自动折叠，高度为 0) -->
+                                                <RowDefinition Height="Auto"/>
+                                                <!-- 文本输入框 -->
+                                                <RowDefinition Height="*"/>
+                                            </Grid.RowDefinitions>
+
+                                            <!-- 挂载的技能胶囊卡片 (浅色暖调自适应规范) -->
+                                            <Border x:Name="borderActiveSkillPill"
+                                                    Grid.Row="0"
+                                                    HorizontalAlignment="Left"
+                                                    Background="#F2ECE1"
+                                                    BorderBrush="#D8CFBF"
+                                                    BorderThickness="1"
+                                                    CornerRadius="6"
+                                                    Padding="6,3"
+                                                    Margin="0,0,0,6"
+                                                    Visibility="Collapsed">
+                                                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                    <!-- 图标小方块 -->
+                                                    <Border Width="16" Height="16" CornerRadius="3" Background="{StaticResource CardBgBrush}" BorderBrush="#D0C7B7" BorderThickness="1" VerticalAlignment="Center">
+                                                        <TextBlock Text="&lt;/&gt;" FontSize="8.5" FontWeight="Bold" FontFamily="Consolas, Cascadia Code, Courier New" Foreground="{StaticResource AccentWarmBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-1,0,0"/>
+                                                    </Border>
+                                                    <!-- 技能名称 -->
+                                                    <TextBlock x:Name="tbActiveSkillPillName" Text="nature-reviewer" FontSize="11.5" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                                                    <!-- 移除按钮 ✕ -->
+                                                    <Button x:Name="btnRemoveActiveSkill" Click="btnRemoveActiveSkill_Click" Padding="3,1" Margin="2,0,0,0" Background="Transparent" BorderThickness="0" CornerRadius="4" ToolTipService.ToolTip="移除当前挂载技能">
+                                                        <TextBlock Text="✕" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                                                    </Button>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- 多行提问输入框 (使用 PreviewKeyDown 拦截 Enter 发送与 Shift+Enter 换行，支持 / 弹出技能列表) -->
+                                            <TextBox x:Name="tbQuestion" Grid.Row="1" PlaceholderText="输入你的数据分析或问答需求 (输入 / 触发技能扩展，Enter 发送)..." AcceptsReturn="True" Height="70" BorderThickness="0" CornerRadius="8" Background="Transparent" FontSize="13" TextChanged="tbQuestion_TextChanged" PreviewKeyDown="tbQuestion_PreviewKeyDown"/>
+                                        </Grid>
 
                                         <!-- 底部操作栏：两列物理隔离，防止任何宽度下文字与下拉框重叠 -->
                                         <Grid Grid.Row="1" Margin="0,6,0,0" ColumnSpacing="8">
@@ -602,6 +644,65 @@
                                             </StackPanel>
                                         </Grid>
                                     </Grid>
+                                </Border>
+
+                                <!-- ==================== 阶段三：Slash Command 技能上拉选择浮层 (浅色暖调自适应规范) ==================== -->
+                                <Border x:Name="borderSkillSelectorPopup"
+                                        Grid.Row="1" Grid.RowSpan="3"
+                                        VerticalAlignment="Bottom"
+                                        HorizontalAlignment="Stretch"
+                                        Margin="0,0,0,132"
+                                        MaxHeight="260"
+                                        Background="{StaticResource CardBgBrush}"
+                                        BorderBrush="#D5CDBF"
+                                        BorderThickness="1"
+                                        CornerRadius="10"
+                                        Padding="4,6"
+                                        Visibility="Collapsed"
+                                        Canvas.ZIndex="100">
+                                    <ListView x:Name="lvSkillSelector"
+                                              ItemsSource="{x:Bind FilteredSkills}"
+                                              SelectionMode="Single"
+                                              SingleSelectionFollowsFocus="False"
+                                              IsItemClickEnabled="True"
+                                              ItemClick="lvSkillSelector_ItemClick"
+                                              Background="Transparent"
+                                              BorderThickness="0"
+                                              Padding="0">
+                                        <ListView.ItemContainerStyle>
+                                            <Style TargetType="ListViewItem">
+                                                <Setter Property="MinHeight" Value="34"/>
+                                                <Setter Property="Padding" Value="8,4"/>
+                                                <Setter Property="CornerRadius" Value="6"/>
+                                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                            </Style>
+                                        </ListView.ItemContainerStyle>
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate x:DataType="models:SkillItem">
+                                                <Grid ColumnSpacing="8" VerticalAlignment="Center">
+                                                    <Grid.ColumnDefinitions>
+                                                        <!-- 左侧图标 [</>] -->
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <!-- 中间技能名称 -->
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <!-- 右侧浅灰描述，单行截断 -->
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <!-- 小图标小方块带 </> -->
+                                                    <Border Grid.Column="0" Width="18" Height="18" CornerRadius="4" Background="#F2ECE1" BorderBrush="#D0C7B7" BorderThickness="1" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                                        <TextBlock Text="&lt;/&gt;" FontSize="9" FontWeight="Bold" FontFamily="Consolas, Cascadia Code, Courier New" Foreground="{StaticResource AccentWarmBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-1,0,0"/>
+                                                    </Border>
+
+                                                    <!-- 技能名称 (加粗深色) -->
+                                                    <TextBlock Grid.Column="1" Text="{x:Bind Name}" FontWeight="SemiBold" FontSize="12.5" Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+
+                                                    <!-- 技能描述 (浅灰色单行截断) -->
+                                                    <TextBlock Grid.Column="2" Text="{x:Bind Description}" FontSize="11.5" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" Margin="4,0,0,0"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
                                 </Border>
                             </Grid>
                         </Border>
@@ -1160,7 +1261,7 @@
                                             <!-- 空状态提示 -->
                                             <StackPanel x:Name="panelNoSkillsHint" Visibility="Collapsed" Spacing="10" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,16">
                                                 <TextBlock Text="未检测到已安装的自定义扩展 Skill" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}" HorizontalAlignment="Center"/>
-                                                <TextBlock Text="标准技能应为一个独立文件夹，根目录下包含带有 YAML Frontmatter 的 SKILL.md。&#x0a;默认技能存放于应用专属目录（%APPDATA%\DataAnalysis_Assistant\skills）或跨工具通用目录（~/.skills）。&#x0a;您可以点击下方按钮直接一键导入外部技能文件夹，或打开主目录手工放入技能包。" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="520"/>
+                                                <TextBlock Text="标准技能应为一个独立文件夹，根目录下包含带有 YAML Frontmatter 的 SKILL.md。&#x0a;所有技能统一存放于应用专属受控目录（%APPDATA%\DataAnalysis_Assistant\skills）。&#x0a;您可以点击下方按钮直接一键导入外部技能文件夹，或打开主目录手工放入技能包。" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="520"/>
                                                 <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center" Margin="0,4,0,0">
                                                     <Button Click="btnImportSkill_Click" Content="一键导入技能文件夹..." Padding="14,6" CornerRadius="8" Background="{StaticResource AccentWarmBrush}" Foreground="White" FontSize="12"/>
                                                     <Button Click="btnOpenSkillsFolder_Click" Content="打开应用技能主目录" Padding="14,6" CornerRadius="8" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="12"/>
@@ -1208,35 +1309,6 @@
                                                     </DataTemplate>
                                                 </ItemsControl.ItemTemplate>
                                             </ItemsControl>
-                                        </Grid>
-
-                                        <!-- 分割线 -->
-                                        <Border Height="1" Background="#EDE8DD" Margin="0,4,0,4"/>
-
-                                        <!-- 条目: 自定义技能根目录路径 -->
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="380"/>
-                                            </Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,16,0">
-                                                <TextBlock Text="自定义技能根目录 (可选)" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                                <TextBlock Text="指定本地技能文件夹存放路径；若留空则自动使用应用专属目录与通用标准目录" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap"/>
-                                            </StackPanel>
-                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="8">
-                                                <Grid>
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="*"/>
-                                                        <ColumnDefinition Width="Auto"/>
-                                                    </Grid.ColumnDefinitions>
-                                                    <TextBox x:Name="tbCustomSkillsPath" Grid.Column="0" PlaceholderText="例如 D:\AI_Skills" CornerRadius="8" FontSize="11" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                                    <Button x:Name="btnBrowseSkillsPath" Click="btnBrowseSkillsPath_Click" Grid.Column="1" Content="浏览..." Padding="12,6" CornerRadius="8" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11" VerticalAlignment="Center" ToolTipService.ToolTip="浏览选择本地自定义技能文件夹"/>
-                                                </Grid>
-                                                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-                                                    <Button x:Name="btnResetSkillsPath" Click="btnResetSkillsPath_Click" Content="恢复默认" Padding="12,5" CornerRadius="6" Background="Transparent" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11"/>
-                                                    <Button x:Name="btnApplySkillsPath" Click="btnApplySkillsPath_Click" Content="确定应用" Padding="16,5" CornerRadius="6" Background="{StaticResource AccentWarmBrush}" Foreground="White" FontSize="11" FontWeight="Medium"/>
-                                                </StackPanel>
-                                            </StackPanel>
                                         </Grid>
                                     </StackPanel>
                                 </Border>

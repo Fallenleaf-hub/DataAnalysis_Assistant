@@ -135,6 +135,35 @@ namespace DataAnalysis_Assistant.Models
         /// </summary>
         public string FolderName => string.IsNullOrEmpty(DirectoryPath) ? string.Empty : System.IO.Path.GetFileName(DirectoryPath);
 
+        /// <summary>
+        /// 快捷斜杠指令触发词（如 /nature-figure）
+        /// </summary>
+        public string CommandTrigger => $"/{Name}";
+
+        private string? _fullInstructions;
+
+        /// <summary>
+        /// 提取的完整 Markdown 业务指令与规约内容（去除 YAML 前置元数据）
+        /// </summary>
+        public string? FullInstructions
+        {
+            get => _fullInstructions;
+            set
+            {
+                if (_fullInstructions != value)
+                {
+                    _fullInstructions = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(HasInstructions));
+                }
+            }
+        }
+
+        /// <summary>
+        /// 是否已成功加载技能规约正文
+        /// </summary>
+        public bool HasInstructions => !string.IsNullOrWhiteSpace(_fullInstructions);
+
         protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
