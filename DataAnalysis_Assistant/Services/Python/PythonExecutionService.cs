@@ -50,19 +50,17 @@ namespace DataAnalysis_Assistant.Services.Python
                 return ToolExecutionResult.CreateFailure("执行失败：未在系统环境变量 PATH 或指定路径中找到 python.exe。请检查 Python 安装。");
             }
 
-            // 2. 准备执行沙盒与产物收容目录 (遵循 scratch 隔离纪律)
-            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            // 向上寻找工作区根目录下的 scratch/，若未定位则使用 AppData/scratch
-            string scratchDir = LocateOrInitScratchDirectory(baseDir);
+            // 2. 准备执行沙盒与产物收容目录 (遵循 scratch 隔离纪律，统一收容至 AppData/scratch)
+            string scratchDir = LocateOrInitScratchDirectory();
             string sandboxDir = Path.Combine(scratchDir, "agent_sandbox");
             Directory.CreateDirectory(sandboxDir);
 
             string scriptFileName = $"agent_exec_{Guid.NewGuid():N}.py";
             string scriptFilePath = Path.Combine(sandboxDir, scriptFileName);
 
-            // 3. 记录执行前 scratch 目录内的已有图表文件，以便精确捕捉新生成的图表资产 (全量路径标准化)
+            // 3. 记录执行前 agent_sandbox 目录内的已有图表文件，以便精确捕捉新生成的图表资产 (全量路径标准化)
             var existingFiles = new HashSet<string>(
-                Directory.GetFiles(scratchDir, "*.*", SearchOption.AllDirectories).Select(Path.GetFullPath),
+                Directory.GetFiles(sandboxDir, "*.*", SearchOption.AllDirectories).Select(Path.GetFullPath),
                 StringComparer.OrdinalIgnoreCase);
 
             // 4. 对代码进行智能预处理：注入中文字体补丁、Agg离线渲染后端与图表自动落地保护钩子
@@ -175,7 +173,7 @@ namespace DataAnalysis_Assistant.Services.Python
                 }
             }
 
-            // 5. 扫描捕获新生成的图表与资产文件 (.png, .jpg, .jpeg, .svg, .csv, .xlsx, .html)
+            // 5. 扫描捕获新生成的图表与资产文件（严格限制在 agent_sandbox 目录，确保仅捕获带编号的沙盒成果）
             var generatedArtifacts = new List<string>();
             var seenArtifacts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -185,7 +183,10 @@ namespace DataAnalysis_Assistant.Services.Python
                 try
                 {
                     string fullPath = Path.GetFullPath(rawPath);
-                    if (File.Exists(fullPath) && seenArtifacts.Add(fullPath))
+                    // 关键约束：必须存在物理文件、必须位于 agent_sandbox 目录下、且不重复
+                    if (File.Exists(fullPath) &&
+                        fullPath.StartsWith(sandboxDir, StringComparison.OrdinalIgnoreCase) &&
+                        seenArtifacts.Add(fullPath))
                     {
                         generatedArtifacts.Add(fullPath);
                     }
@@ -197,7 +198,8 @@ namespace DataAnalysis_Assistant.Services.Python
 
             try
             {
-                var currentFiles = Directory.GetFiles(scratchDir, "*.*", SearchOption.AllDirectories);
+                // 仅扫描 agent_sandbox 目录，彻底忽略 scratch 根目录下的无编号原图
+                var currentFiles = Directory.GetFiles(sandboxDir, "*.*", SearchOption.AllDirectories);
                 foreach (var file in currentFiles)
                 {
                     string fullPath = Path.GetFullPath(file);
@@ -314,37 +316,13 @@ namespace DataAnalysis_Assistant.Services.Python
             return sb.ToString();
         }
 
+        /// <summary>
+        /// 定位或初始化 scratch 临时资产收容目录。
+        /// 统一固定收容于 %APPDATA%\DataAnalysis_Assistant\scratch，彻底避免污染工作区根目录。
+        /// </summary>
         public static string LocateOrInitScratchDirectory(string? baseDir = null)
         {
-            baseDir ??= AppDomain.CurrentDomain.BaseDirectory;
-            // 1. 尝试从当前工作目录或 baseDir 向上查找到包含 .git 或 .slnx 的工程根目录
-            string[] searchRoots = new[] { Directory.GetCurrentDirectory(), baseDir };
-            foreach (var root in searchRoots)
-            {
-                if (string.IsNullOrWhiteSpace(root)) continue;
-                try
-                {
-                    var current = new DirectoryInfo(root);
-                    while (current != null)
-                    {
-                        if (Directory.Exists(Path.Combine(current.FullName, ".git")) ||
-                            File.Exists(Path.Combine(current.FullName, "DataAnalysis_Assistant.slnx")) ||
-                            File.Exists(Path.Combine(current.FullName, "DataAnalysis_Assistant.sln")))
-                        {
-                            string targetScratch = Path.Combine(current.FullName, "scratch");
-                            Directory.CreateDirectory(targetScratch);
-                            return targetScratch;
-                        }
-                        current = current.Parent;
-                    }
-                }
-                catch
-                {
-                    // 忽略无权限向上遍历的目录
-                }
-            }
-
-            // 2. 备用 fallback: AppData/DataAnalysis_Assistant/scratch (保证用户目录始终具有读写权限)
+            // 统一固定使用: AppData/DataAnalysis_Assistant/scratch (保证用户目录始终具有读写权限且与源码工程彻底隔离)
             try
             {
                 string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
@@ -387,23 +365,27 @@ namespace DataAnalysis_Assistant.Services.Python
             sb.AppendLine("        try:");
             sb.AppendLine("            abs_fname = os.path.abspath(str(fname))");
             sb.AppendLine("            abs_scratch = os.path.abspath(_target_scratch)");
-            sb.AppendLine("            # 智能判断：若模型保存的图片已经在 scratch 目录下，直接标记原图，绝不重复生成时间戳哈希副本");
-            sb.AppendLine("            try:");
-            sb.AppendLine("                in_scratch = (os.path.commonpath([abs_fname, abs_scratch]) == abs_scratch)");
-            sb.AppendLine("            except Exception:");
-            sb.AppendLine("                in_scratch = False");
-            sb.AppendLine("            if in_scratch and os.path.exists(abs_fname):");
-            sb.AppendLine("                print(f'[ARTIFACT_CAPTURED]: {abs_fname}')");
-            sb.AppendLine("            elif os.path.exists(abs_fname):");
-            sb.AppendLine("                raw_name = os.path.basename(abs_fname)");
-            sb.AppendLine("                stem, ext = os.path.splitext(raw_name)");
-            sb.AppendLine("                if not ext: ext = '.png'");
-            sb.AppendLine("                unique_name = f\"{stem}_{int(time.time())}_{uuid.uuid4().hex[:6]}{ext}\"");
-            sb.AppendLine("                mirror_path = os.path.join(abs_scratch, unique_name)");
+            sb.AppendLine("            raw_name = os.path.basename(abs_fname)");
+            sb.AppendLine("            stem, ext = os.path.splitext(raw_name)");
+            sb.AppendLine("            if not ext: ext = '.png'");
+            sb.AppendLine("            unique_name = f\"{stem}_{int(time.time())}_{uuid.uuid4().hex[:6]}{ext}\"");
+            sb.AppendLine("            mirror_path = os.path.join(abs_scratch, unique_name)");
+            sb.AppendLine("            if os.path.exists(abs_fname):");
             sb.AppendLine("                shutil.copy2(abs_fname, mirror_path)");
+            sb.AppendLine("                # 若原始图片直接生成在 scratch 根目录下，在完成沙盒镜像后安全清理无编号的临时原图");
+            sb.AppendLine("                try:");
+            sb.AppendLine("                    scratch_root = os.path.dirname(abs_scratch)");
+            sb.AppendLine("                    if os.path.dirname(abs_fname) == scratch_root and os.path.exists(abs_fname):");
+            sb.AppendLine("                        os.remove(abs_fname)");
+            sb.AppendLine("                except Exception:");
+            sb.AppendLine("                    pass");
             sb.AppendLine("                print(f'[ARTIFACT_CAPTURED]: {mirror_path}')");
             sb.AppendLine("        except Exception as e:");
             sb.AppendLine("            sys.stderr.write(f'[ARTIFACT_COPY_WARNING]: 产物镜像失败: {str(e)}\\n')");
+            sb.AppendLine("        try:");
+            sb.AppendLine("            plt.close('all')");
+            sb.AppendLine("        except Exception:");
+            sb.AppendLine("            pass");
             sb.AppendLine("        return res");
             sb.AppendLine("    plt.savefig = _safe_intercept_savefig");
             sb.AppendLine("except Exception:");
@@ -411,21 +393,6 @@ namespace DataAnalysis_Assistant.Services.Python
             sb.AppendLine("# === [User Generated Code Start] ===");
             sb.AppendLine(rawCode);
             sb.AppendLine();
-            sb.AppendLine("# === [Auto Figure Capture Hook] ===");
-            sb.AppendLine("try:");
-            sb.AppendLine("    import matplotlib.pyplot as plt");
-            sb.AppendLine("    if plt.get_fignums():");
-            sb.AppendLine("        import time, os");
-            sb.AppendLine($"        _out_dir = r'{safePlotDir}'");
-            sb.AppendLine("        os.makedirs(_out_dir, exist_ok=True)");
-            sb.AppendLine("        for _idx in plt.get_fignums():");
-            sb.AppendLine("            _fig = plt.figure(_idx)");
-            sb.AppendLine("            _plot_name = f'chart_{int(time.time()*1000)}_{_idx}.png'");
-            sb.AppendLine("            _out_path = os.path.join(_out_dir, _plot_name)");
-            sb.AppendLine("            _fig.savefig(_out_path, dpi=200, bbox_inches='tight')");
-            sb.AppendLine("        plt.close('all')");
-            sb.AppendLine("except Exception:");
-            sb.AppendLine("    pass");
 
             return sb.ToString();
         }

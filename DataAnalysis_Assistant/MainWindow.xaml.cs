@@ -493,6 +493,22 @@ namespace DataAnalysis_Assistant
                     normPath = plot.FilePath;
                 }
 
+                // 统一安全过滤：若图片位于 scratch 体系内，必须位于 agent_sandbox 目录下（带唯一编号），杜绝根目录无编号临时图入画廊
+                string scratchDir = PythonExecutionService.LocateOrInitScratchDirectory();
+                string sandboxDir = Path.Combine(scratchDir, "agent_sandbox");
+                if (normPath.StartsWith(scratchDir, StringComparison.OrdinalIgnoreCase) &&
+                    !normPath.StartsWith(sandboxDir, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                // 彻底屏蔽图二（旧版末尾兜底重复图 chart_1792xxxx_1）
+                string fileNameNoExt = Path.GetFileNameWithoutExtension(normPath);
+                if (System.Text.RegularExpressions.Regex.IsMatch(fileNameNoExt, @"^chart_\d{10,}_\d+$"))
+                {
+                    return;
+                }
+
                 var existing = PlotGallery.FirstOrDefault(p =>
                 {
                     try { return Path.GetFullPath(p.FilePath).Equals(normPath, StringComparison.OrdinalIgnoreCase); }
@@ -885,14 +901,26 @@ fig.tight_layout()
                     var result = await _pythonExecService.ExecuteCodeAsync(code, _settings.PythonPath, options: execOptions, cancellationToken: cancellationToken);
                     if (result.Success && result.GeneratedArtifacts.Count > 0)
                     {
+                        string scratchDir = PythonExecutionService.LocateOrInitScratchDirectory();
+                        string sandboxDir = Path.Combine(scratchDir, "agent_sandbox");
                         foreach (var artifact in result.GeneratedArtifacts)
                         {
-                            string ext = Path.GetExtension(artifact).ToLowerInvariant();
+                            string normArt;
+                            try { normArt = Path.GetFullPath(artifact); }
+                            catch { normArt = artifact; }
+
+                            if (normArt.StartsWith(scratchDir, StringComparison.OrdinalIgnoreCase) &&
+                                !normArt.StartsWith(sandboxDir, StringComparison.OrdinalIgnoreCase))
+                            {
+                                continue;
+                            }
+
+                            string ext = Path.GetExtension(normArt).ToLowerInvariant();
                             if (ext is ".png" or ".jpg" or ".jpeg" or ".svg")
                             {
                                 var plotItem = new ChartArtifactItem
                                 {
-                                    FilePath = artifact,
+                                    FilePath = normArt,
                                     Title = "数据分析结果图",
                                     CreatedAt = DateTime.Now
                                 };
@@ -2571,14 +2599,22 @@ def analyze_document_metrics(file_path: str):
                         assistantMessage.Content = update.IntermediateContent;
                     }
 
-                    // 实时同步挂接新生成的图表产物至消息气泡与画廊 (全量标准化去重)
+                    // 实时同步挂接新生成的图表产物至消息气泡与画廊 (全量标准化去重，严格限制在 agent_sandbox)
                     if (update.GeneratedArtifactsSoFar.Count > 0)
                     {
+                        string scratchDir = PythonExecutionService.LocateOrInitScratchDirectory();
+                        string sandboxDir = Path.Combine(scratchDir, "agent_sandbox");
                         foreach (var artPath in update.GeneratedArtifactsSoFar)
                         {
                             string normArt;
                             try { normArt = Path.GetFullPath(artPath); }
                             catch { normArt = artPath; }
+
+                            if (normArt.StartsWith(scratchDir, StringComparison.OrdinalIgnoreCase) &&
+                                !normArt.StartsWith(sandboxDir, StringComparison.OrdinalIgnoreCase))
+                            {
+                                continue;
+                            }
 
                             if (!assistantMessage.GeneratedPlots.Any(p =>
                             {
@@ -2674,14 +2710,22 @@ def analyze_document_metrics(file_path: str):
                         }
                     }
 
-                    // 补充挂接所有产物图表
+                    // 补充挂接所有产物图表（严格限定在 agent_sandbox 目录）
                     if (loopResult.GeneratedArtifactPaths.Count > 0)
                     {
+                        string scratchDir = PythonExecutionService.LocateOrInitScratchDirectory();
+                        string sandboxDir = Path.Combine(scratchDir, "agent_sandbox");
                         foreach (var artPath in loopResult.GeneratedArtifactPaths)
                         {
                             string normArt;
                             try { normArt = Path.GetFullPath(artPath); }
                             catch { normArt = artPath; }
+
+                            if (normArt.StartsWith(scratchDir, StringComparison.OrdinalIgnoreCase) &&
+                                !normArt.StartsWith(sandboxDir, StringComparison.OrdinalIgnoreCase))
+                            {
+                                continue;
+                            }
 
                             if (!assistantMessage.GeneratedPlots.Any(p =>
                             {
@@ -3246,12 +3290,12 @@ def analyze_document_metrics(file_path: str):
                         Title = "删除文档组",
                         Content = new TextBlock
                         {
-                            Text = $"确定要删除文档组【{group.GroupName}】吗？\n\n• 确定删除：仅删除组定义，保留本地原始文件与文档元数据\n• 删除组及本地文件与元数据：同时彻底删除本地原始文件与元数据",
+                            Text = $"确定要删除文档组【{group.GroupName}】吗？\n\n• 确定删除：仅解散组定义，保留文档元数据与对话历史\n• 彻底删除组及对话与图表：删除组配置、名下所有对话记录与生成图表缓存\n\n（提示：无论哪种选项，您电脑上的本地原始数据文件均完好保留，绝不删除）",
                             TextWrapping = TextWrapping.Wrap,
                             Margin = new Thickness(0, 10, 0, 0)
                         },
                         PrimaryButtonText = "确定删除",
-                        SecondaryButtonText = "删除组及本地文件与元数据",
+                        SecondaryButtonText = "彻底删除组及对话与图表",
                         CloseButtonText = "取消",
                         DefaultButton = ContentDialogButton.Close,
                         XamlRoot = this.Content.XamlRoot
@@ -3267,21 +3311,32 @@ def analyze_document_metrics(file_path: str):
                         if (_currentGroup == group)
                         {
                             _currentGroup = DocumentGroups.FirstOrDefault();
-                            lvDocumentGroups.SelectedItem = _currentGroup;
-                            await ReloadCurrentGroupDocsAsync();
+                            if (_currentGroup != null)
+                            {
+                                _isSelectingGroupProgrammatically = true;
+                                try
+                                {
+                                    lvDocumentGroups.SelectedItem = _currentGroup;
+                                }
+                                finally
+                                {
+                                    _isSelectingGroupProgrammatically = false;
+                                }
+                                await ReloadCurrentGroupDocsAsync();
+                            }
                         }
                         UpdateDocCountDisplay();
                         SyncGroupSessions();
                     }
                     else if (result == ContentDialogResult.Secondary)
                     {
-                        // 2. 彻底删除：再提示一遍二次确认，待用户确定后删除
+                        // 2. 彻底删除：再提示一遍二次确认，待用户确定后级联彻底删除
                         var secondDialog = new ContentDialog
                         {
-                            Title = "⚠️ 确认彻底删除本地原始数据与元数据",
+                            Title = "⚠️ 确认彻底删除文档组、对话及图表缓存",
                             Content = new TextBlock
                             {
-                                Text = $"您即将彻底删除文档组【{group.GroupName}】包含的所有本地原始数据文件与文档元数据！\n\n注意：被删除的本地磁盘文件无法找回，请再次确认是否彻底删除？",
+                                Text = $"您即将彻底销毁文档组【{group.GroupName}】！\n\n将执行清理：\n1. 清理应用库中该组文档的元数据与数据画像缓存（安全提示：您的电脑本地原始文件将完好保留，绝不删除）\n2. 彻底删除该组名下绑定的所有历史会话对话记录\n3. 物理抹除对话演算过程中生成的所有图表图片与临时缓存\n\n注意：被删除的应用内对话记录与图表缓存无法找回，请再次确认是否彻底删除？",
                                 TextWrapping = TextWrapping.Wrap,
                                 Margin = new Thickness(0, 10, 0, 0)
                             },
@@ -3294,25 +3349,9 @@ def analyze_document_metrics(file_path: str):
                         var secondResult = await secondDialog.ShowAsync();
                         if (secondResult == ContentDialogResult.Primary)
                         {
-                            // 遍历组内所有文档，删除物理文件与元数据
+                            // 1. 遍历组内所有文档，仅清理应用内部元数据与 Schema 缓存（绝不删除用户本地原始数据文件！）
                             foreach (var docId in group.DocumentIds.ToList())
                             {
-                                var doc = await LibraryPersistenceService.Instance.LoadDocumentMetaAsync(docId)
-                                          ?? Documents.FirstOrDefault(d => d.DocId == docId);
-
-                                // 删除本地原始数据文件
-                                if (doc != null && !string.IsNullOrWhiteSpace(doc.Path) && File.Exists(doc.Path))
-                                {
-                                    try
-                                    {
-                                        File.Delete(doc.Path);
-                                    }
-                                    catch (Exception fileEx)
-                                    {
-                                        Debug.WriteLine($"删除物理文件失败: {doc.Path}, {fileEx.Message}");
-                                    }
-                                }
-
                                 // 删除文档元数据与 Schema 缓存
                                 await LibraryPersistenceService.Instance.DeleteDocumentMetaAsync(docId);
 
@@ -3324,16 +3363,110 @@ def analyze_document_metrics(file_path: str):
                                 }
                             }
 
-                            // 删除文档组定义
+                            // 2. 级联彻底删除该组名下的所有对话会话及对话生成的图表文件
+                            var sessionsToDelete = ChatSessions.Where(s => s.BindGroupId == group.GroupId).ToList();
+                            var allPersistedSessions = await LibraryPersistenceService.Instance.ListAllSessionsAsync();
+                            foreach (var ps in allPersistedSessions)
+                            {
+                                if (ps.BindGroupId == group.GroupId && !sessionsToDelete.Any(s => s.Id == ps.Id))
+                                {
+                                    sessionsToDelete.Add(ps);
+                                }
+                            }
+
+                            bool currentSessionDeleted = false;
+                            foreach (var session in sessionsToDelete)
+                            {
+                                // A. 物理抹除该会话在分析过程中生成的所有图表图片文件
+                                var fullSession = await LibraryPersistenceService.Instance.LoadSessionAsync(session.Id) ?? session;
+                                if (fullSession.Messages != null)
+                                {
+                                    foreach (var msg in fullSession.Messages)
+                                    {
+                                        if (msg.GeneratedPlots != null)
+                                        {
+                                            foreach (var plot in msg.GeneratedPlots)
+                                            {
+                                                if (!string.IsNullOrWhiteSpace(plot.FilePath) && File.Exists(plot.FilePath))
+                                                {
+                                                    try
+                                                    {
+                                                        File.Delete(plot.FilePath);
+                                                    }
+                                                    catch (Exception plotEx)
+                                                    {
+                                                        Debug.WriteLine($"删除图表产物失败: {plot.FilePath}, {plotEx.Message}");
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // B. 从磁盘物理删除会话 JSON
+                                await LibraryPersistenceService.Instance.DeleteSessionAsync(session.Id);
+
+                                // C. 从内存会话列表中移除
+                                var memSession = ChatSessions.FirstOrDefault(s => s.Id == session.Id);
+                                if (memSession != null)
+                                {
+                                    ChatSessions.Remove(memSession);
+                                }
+
+                                if (_currentSession?.Id == session.Id)
+                                {
+                                    currentSessionDeleted = true;
+                                }
+                            }
+
+                            // 3. 删除文档组定义
                             await LibraryPersistenceService.Instance.DeleteGroupAsync(group.GroupId);
                             DocumentGroups.Remove(group);
+
+                            // 4. 若当前处于被删除的组，切换到首个可用组或置空
                             if (_currentGroup == group)
                             {
                                 _currentGroup = DocumentGroups.FirstOrDefault();
-                                lvDocumentGroups.SelectedItem = _currentGroup;
-                                await ReloadCurrentGroupDocsAsync();
+                                if (_currentGroup != null)
+                                {
+                                    _isSelectingGroupProgrammatically = true;
+                                    try
+                                    {
+                                        lvDocumentGroups.SelectedItem = _currentGroup;
+                                    }
+                                    finally
+                                    {
+                                        _isSelectingGroupProgrammatically = false;
+                                    }
+                                    await ReloadCurrentGroupDocsAsync();
+                                }
+                                else
+                                {
+                                    Documents.Clear();
+                                    DisplayDocument(null);
+                                }
                             }
+
+                            // 5. 若当前激活会话被级联删除，自动重置或切换到剩余可用会话
+                            if (currentSessionDeleted || _currentSession == null)
+                            {
+                                _currentSession = _currentGroup != null
+                                    ? ChatSessions.Where(s => s.BindGroupId == _currentGroup.GroupId).OrderByDescending(s => s.LastActiveAt).FirstOrDefault()
+                                    : ChatSessions.FirstOrDefault();
+
+                                if (_currentSession != null)
+                                {
+                                    SelectSession(_currentSession);
+                                }
+                                else
+                                {
+                                    // 若没有剩余会话，初始化默认会话
+                                    btnNewChat_Click(this, new RoutedEventArgs());
+                                }
+                            }
+
                             UpdateDocCountDisplay();
+                            UpdateHistoryCountDisplay();
                             SyncGroupSessions();
                         }
                     }
@@ -3711,9 +3844,20 @@ def analyze_document_metrics(file_path: str):
                     msg.IsReasoningExpanded = false;
                     ChatMessages.Add(msg);
 
-                    // 深度复原画廊中的图表（校验本地物理文件是否存在，防止临时文件清除后破图）
+                    // 深度复原画廊中的图表（自动净化历史中残留的未带编号根目录临时图，并校验物理文件是否存在）
                     if (msg.GeneratedPlots != null && msg.GeneratedPlots.Count > 0)
                     {
+                        string scratchDir = PythonExecutionService.LocateOrInitScratchDirectory();
+                        string sandboxDir = Path.Combine(scratchDir, "agent_sandbox");
+                        var invalidPlots = msg.GeneratedPlots.Where(p =>
+                            (p.FilePath.StartsWith(scratchDir, StringComparison.OrdinalIgnoreCase) &&
+                            !p.FilePath.StartsWith(sandboxDir, StringComparison.OrdinalIgnoreCase)) ||
+                            System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileNameWithoutExtension(p.FilePath), @"^chart_\d{10,}_\d+$")).ToList();
+                        foreach (var inv in invalidPlots)
+                        {
+                            msg.GeneratedPlots.Remove(inv);
+                        }
+
                         foreach (var plot in msg.GeneratedPlots)
                         {
                             if (plot.IsFileExisting)
