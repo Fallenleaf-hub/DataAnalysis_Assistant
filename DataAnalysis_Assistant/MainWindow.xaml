@@ -83,18 +83,6 @@
                             <TextBlock x:Name="tbRailDocBadge" Text="0" FontSize="8" FontWeight="Bold" Foreground="White"/>
                         </Border>
                     </Grid>
-
-                    <!-- 5. AI 对话 / @ 助手 -->
-                    <Button x:Name="btnNavChat" Click="btnNavChat_Click" ToolTipService.ToolTip="AI 对话助手"
-                            Width="40" Height="40" Padding="0" CornerRadius="10"
-                            Background="Transparent" BorderThickness="0">
-                        <Viewbox Width="20" Height="20">
-                            <Canvas Width="24" Height="24">
-                                <Path x:Name="pathNavChatOuter" Stroke="{StaticResource TextSecondaryBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                                      Data="M 16 12 C 16 14.2 14.2 16 12 16 C 9.8 16 8 14.2 8 12 C 8 9.8 9.8 8 12 8 C 14.2 8 16 9.8 16 12 Z M 16 9 V 14 C 16 15.1 16.9 16 18 16 C 19.1 16 20 15.1 20 14 V 12 C 20 7.6 16.4 4 12 4 C 7.6 4 4 7.6 4 12 C 4 16.4 7.6 20 12 20 C 14.5 20 16.8 18.8 18.2 17"/>
-                            </Canvas>
-                        </Viewbox>
-                    </Button>
                 </StackPanel>
 
                 <!-- 6. 底部：三点设置与更多 -->
@@ -202,7 +190,6 @@
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
 
                                         <Border Grid.Column="0" Background="{StaticResource CardBgBrush}" CornerRadius="12" Padding="12,10" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1">
@@ -223,13 +210,6 @@
                                             <StackPanel Spacing="3">
                                                 <TextBlock Text="提取字数 (Chars)" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
                                                 <TextBlock x:Name="tbStatCharCount" Text="0" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                            </StackPanel>
-                                        </Border>
-
-                                        <Border Grid.Column="3" Background="{StaticResource CardBgBrush}" CornerRadius="12" Padding="12,10" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1">
-                                            <StackPanel Spacing="3">
-                                                <TextBlock Text="预估 Token 占用" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
-                                                <TextBlock x:Name="tbStatTokenCount" Text="~0" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
                                             </StackPanel>
                                         </Border>
                                     </Grid>
@@ -332,14 +312,13 @@
                                                     </StackPanel>
                                                     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
                                                         <Button Click="btnExportDashboardReport_Click" Content="📄 导出研报" Padding="10,4" CornerRadius="6" Background="{StaticResource AccentWarmBrush}" Foreground="White" FontSize="11" ToolTipService.ToolTip="将当前看板激活图表与数据结论导出为专业 Word 或 Markdown 研报"/>
-                                                        <Button Click="btnActivePlotZoom_Click" Content="🔍 放大" Padding="10,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11" ToolTipService.ToolTip="全屏放大查看当前图表"/>
                                                         <Button Click="btnActivePlotCopy_Click" Content="📋 复制" Padding="10,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11" ToolTipService.ToolTip="复制当前图表到剪贴板"/>
                                                         <Button Click="btnActivePlotSave_Click" Content="💾 另存为" Padding="10,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11" ToolTipService.ToolTip="将当前图表另存为本地文件"/>
                                                     </StackPanel>
                                                 </Grid>
 
-                                                <!-- 主大图展示区 (可点击放大) -->
-                                                <Border Grid.Row="1" CornerRadius="10" Background="#FBF9F4" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="8" Margin="0,0,0,10" PointerPressed="imgActiveDashboardPlot_PointerPressed" ToolTipService.ToolTip="点击全屏放大查看">
+                                                <!-- 主大图展示区 -->
+                                                <Border Grid.Row="1" CornerRadius="10" Background="#FBF9F4" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="8" Margin="0,0,0,10">
                                                     <Image x:Name="imgActiveDashboardPlot" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                                 </Border>
 
@@ -1096,7 +1075,7 @@
                             <!-- 页面大标题 -->
                             <StackPanel Spacing="4">
                                 <TextBlock Text="Skill" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                <TextBlock Text="管理并接入标准 Skill 规范，发现本地已安装的技能插件（软件内置分析能力默认生效，不在此处罗列）" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                <TextBlock Text="管理并接入标准 Skill 规范，发现本地已安装的技能插件" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
                             </StackPanel>
 
                             <!-- 反馈提示条 InfoBar -->
@@ -1360,39 +1339,7 @@
                                                 <TextBlock Text="正式生产发布版本号及构建发行基线" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
                                             </StackPanel>
                                             <Border Grid.Column="1" Background="#E8E2D5" CornerRadius="6" Padding="8,3" VerticalAlignment="Center">
-                                                <TextBlock Text="v1.3.0 (2026.10)" FontWeight="Bold" FontSize="11" Foreground="#382E24"/>
-                                            </Border>
-                                        </Grid>
-
-                                        <Border Height="1" Background="#EDE8DD"/>
-
-                                        <!-- 条目 2: 底层运行时架构 -->
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,16,0">
-                                                <TextBlock Text="底层运行时架构" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                                <TextBlock Text="基于微软 Windows App SDK 与 WinUI 3 现代化原生技术栈构建" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
-                                            </StackPanel>
-                                            <TextBlock Grid.Column="1" Text=".NET 8.0 / WinUI 3 (x64)" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
-                                        </Grid>
-
-                                        <Border Height="1" Background="#EDE8DD"/>
-
-                                        <!-- 条目 3: 核心执行范式与沙盒 -->
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,16,0">
-                                                <TextBlock Text="Agentic 执行范式与安全" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                                <TextBlock Text="支持 ReAct / CodeAct 双模自主推演调度，并受 Safety Gate 强约束沙盒保护" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
-                                            </StackPanel>
-                                            <Border Grid.Column="1" Background="#FEF3C7" CornerRadius="6" Padding="8,3" VerticalAlignment="Center">
-                                                <TextBlock Text="CodeAct 沙盒已就绪" FontSize="11" FontWeight="SemiBold" Foreground="#92400E"/>
+                                                <TextBlock Text="v1.4.0 (2026.10)" FontWeight="Bold" FontSize="11" Foreground="#382E24"/>
                                             </Border>
                                         </Grid>
                                     </StackPanel>
@@ -1446,7 +1393,7 @@
         </Grid>
 
         <!-- ==================== 全局高清图表全屏放大查看模态图层 ==================== -->
-        <Grid x:Name="gridPlotImageViewer" Background="#CC000000" Visibility="Collapsed" Canvas.ZIndex="999">
+        <Grid x:Name="gridPlotImageViewer" Grid.Column="0" Grid.ColumnSpan="2" Background="#CC000000" Visibility="Collapsed" Canvas.ZIndex="999">
             <Grid Margin="32,24" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="1100" MaxHeight="800">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -1476,6 +1423,28 @@
                     <Button Click="btnViewerSaveAs_Click" Content="💾 另存为..." Padding="14,6" CornerRadius="8" Background="{StaticResource AccentWarmBrush}" Foreground="White" BorderThickness="0" FontSize="12"/>
                 </StackPanel>
             </Grid>
+        </Grid>
+
+        <!-- ==================== 全局仿手机顶部通知浮动胶囊 Toast ==================== -->
+        <Grid Grid.Column="0" Grid.ColumnSpan="2" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,16,0,0" Canvas.ZIndex="1000" IsHitTestVisible="False">
+            <Border x:Name="borderGlobalToast"
+                    Background="#D9FDFCF9"
+                    CornerRadius="10"
+                    Padding="16,7"
+                    BorderBrush="#D0C8B8"
+                    BorderThickness="1"
+                    Opacity="0"
+                    Visibility="Collapsed">
+                <Border.RenderTransform>
+                    <TranslateTransform x:Name="transGlobalToast" Y="-16"/>
+                </Border.RenderTransform>
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <!-- 翡翠绿成功勾选图标 -->
+                    <FontIcon Glyph="&#xE73E;" FontSize="13" Foreground="#15803D" FontWeight="SemiBold"/>
+                    <!-- 贴合暖色背景的深色主文字 -->
+                    <TextBlock x:Name="tbGlobalToastText" Text="已复制到剪贴板" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" FontWeight="SemiBold"/>
+                </StackPanel>
+            </Border>
         </Grid>
     </Grid>
 </Window>

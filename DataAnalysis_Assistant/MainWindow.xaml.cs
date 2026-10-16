@@ -11,6 +11,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using XamlPath = Microsoft.UI.Xaml.Shapes.Path;
 using XamlShape = Microsoft.UI.Xaml.Shapes.Shape;
@@ -301,16 +302,6 @@ namespace DataAnalysis_Assistant
             OpenDrawer(paneDocLibrary, btnNavDocLibrary);
         }
 
-        // AI 对话快捷聚焦按钮
-        private void btnNavChat_Click(object sender, RoutedEventArgs e)
-        {
-            gridMainWorkspace.Visibility = Visibility.Visible;
-            gridSettingsPage.Visibility = Visibility.Collapsed;
-            CloseDrawer(highlightHome: false);
-            HighlightNavButton(btnNavChat);
-            tbQuestion?.Focus(FocusState.Programmatic);
-        }
-
         // 打开抽屉并切换至历史会话记录面板
         private void OpenDrawer(FrameworkElement paneToShow, Button navBtn)
         {
@@ -361,7 +352,6 @@ namespace DataAnalysis_Assistant
             SetNavButtonState(btnNavVis, activeBtn == btnNavVis, pathNavVisBack, pathNavVisFront, pathNavVisInner);
             SetNavShapeState(pathNavVisDot, activeBtn == btnNavVis);
             SetNavButtonState(btnNavDocLibrary, activeBtn == btnNavDocLibrary, pathNavDoc1, pathNavDoc2, pathNavDoc3);
-            SetNavButtonState(btnNavChat, activeBtn == btnNavChat, pathNavChatOuter);
             SetNavButtonState(btnNavSettings, activeBtn == btnNavSettings);
             SetNavShapeState(pathNavSettingsDot1, activeBtn == btnNavSettings);
             SetNavShapeState(pathNavSettingsDot2, activeBtn == btnNavSettings);
@@ -579,27 +569,13 @@ namespace DataAnalysis_Assistant
             return null;
         }
 
-        private void imgActiveDashboardPlot_PointerPressed(object sender, PointerRoutedEventArgs e)
-        {
-            if (_activeDashboardPlot != null)
-            {
-                ShowLargePlotViewer(_activeDashboardPlot);
-            }
-        }
-
-        private void btnActivePlotZoom_Click(object sender, RoutedEventArgs e)
-        {
-            if (_activeDashboardPlot != null)
-            {
-                ShowLargePlotViewer(_activeDashboardPlot);
-            }
-        }
 
         private async void btnActivePlotCopy_Click(object sender, RoutedEventArgs e)
         {
             if (_activeDashboardPlot != null)
             {
                 await CopyImageToClipboardAsync(_activeDashboardPlot.FilePath);
+                ShowGlobalToast("已复制到剪贴板");
             }
         }
 
@@ -632,6 +608,7 @@ namespace DataAnalysis_Assistant
             if (sender is Button btn && btn.Tag is ChartArtifactItem plot)
             {
                 await CopyImageToClipboardAsync(plot.FilePath);
+                ShowGlobalToast("已复制到剪贴板");
             }
         }
 
@@ -673,6 +650,7 @@ namespace DataAnalysis_Assistant
             if (_viewingPlot != null)
             {
                 await CopyImageToClipboardAsync(_viewingPlot.FilePath);
+                ShowGlobalToast("已复制到剪贴板");
             }
         }
 
@@ -995,8 +973,8 @@ fig.tight_layout()
         {
             await ShowMessageDialogAsync(
                 "检查更新",
-                "您当前使用的是正式发布版：v1.3.0 (构建版本 2026.10)\n\n" +
-                "当前版本已是最新正式版本，多文档组协同管理、实时流式分析与沙盒执行功能均已完整就绪，无需更新。");
+                "您当前使用的是正式发布版：v1.4.0 (构建版本 2026.10)\n\n" +
+                "当前版本已是最新正式版本，多文档组协同管理、实时流式分析、浮动 Toast 通知与沙盒执行功能均已完整就绪，无需更新。");
         }
 
         private async void btnCopyDiagnosticInfo_Click(object sender, RoutedEventArgs e)
@@ -1005,7 +983,7 @@ fig.tight_layout()
             {
                 var sb = new StringBuilder();
                 sb.AppendLine("=== DataAnalysis Assistant 客户端诊断信息 ===");
-                sb.AppendLine($"软件版本: v1.3.0 (2026.10 Release)");
+                sb.AppendLine($"软件版本: v1.4.0 (2026.10 Release)");
                 sb.AppendLine($"运行时: .NET {Environment.Version}");
                 sb.AppendLine($"操作系统: {Environment.OSVersion.VersionString} ({(Environment.Is64BitOperatingSystem ? "x64" : "x86")})");
                 sb.AppendLine($"执行架构: {(Environment.Is64BitProcess ? "x64 原生进程" : "x86")}");
@@ -2120,7 +2098,6 @@ fig.tight_layout()
                 tbStatFileType.Text = "--";
                 tbStatFileSize.Text = "0 KB";
                 tbStatCharCount.Text = "0";
-                tbStatTokenCount.Text = "~0";
                 tbPreviewContent.Text = string.Empty;
                 tbPreviewContent.Visibility = Visibility.Collapsed;
                 spEmptyPreview.Visibility = Visibility.Visible;
@@ -2134,7 +2111,6 @@ fig.tight_layout()
             tbStatFileType.Text = doc.ExtensionLabel;
             tbStatFileSize.Text = doc.FormattedSize;
             tbStatCharCount.Text = doc.CharacterCount.ToString("N0");
-            tbStatTokenCount.Text = $"~{doc.EstimatedTokens:N0}";
 
             tbPreviewContent.Text = doc.ExtractedText;
             bool hasText = !string.IsNullOrWhiteSpace(doc.ExtractedText);
@@ -2176,6 +2152,7 @@ fig.tight_layout()
                 var package = new DataPackage();
                 package.SetText(tbPreviewContent.Text);
                 Clipboard.SetContent(package);
+                ShowGlobalToast("已复制到剪贴板");
             }
         }
 
@@ -2717,6 +2694,7 @@ def analyze_document_metrics(file_path: str):
                         dataPackage.SetText(msg.Content);
                         Clipboard.SetContent(dataPackage);
                         tbChatRunStatus.Text = "已复制回答内容至剪贴板";
+                        ShowGlobalToast("已复制到剪贴板");
                     }
                     catch { }
                 }
@@ -3690,6 +3668,100 @@ def analyze_document_metrics(file_path: str):
             {
                 Debug.WriteLine($"ShowMessageDialogAsync 异常: {ex.Message}");
             }
+        }
+
+        #endregion
+
+        #region 全局浮动胶囊 Toast 提示 (类似手机顶部通知)
+
+        private DispatcherTimer? _toastTimer;
+        private Storyboard? _toastFadeOutStoryboard;
+
+        public void ShowGlobalToast(string message = "已复制到剪贴板", int durationMs = 1800)
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (borderGlobalToast == null || tbGlobalToastText == null) return;
+
+                tbGlobalToastText.Text = message;
+                borderGlobalToast.Visibility = Visibility.Visible;
+
+                // 停止之前的计时器与淡出动画，防止多次快速点击冲突
+                _toastTimer?.Stop();
+                _toastFadeOutStoryboard?.Stop();
+
+                // 进场动画：透明度平滑渐变至 1.0，Y 坐标自 -16 平滑滑至 0
+                var animFadeIn = new DoubleAnimation
+                {
+                    From = borderGlobalToast.Opacity,
+                    To = 1.0,
+                    Duration = new Duration(TimeSpan.FromMilliseconds(180))
+                };
+                Storyboard.SetTarget(animFadeIn, borderGlobalToast);
+                Storyboard.SetTargetProperty(animFadeIn, "Opacity");
+
+                var sbIn = new Storyboard();
+                sbIn.Children.Add(animFadeIn);
+
+                if (transGlobalToast != null)
+                {
+                    var animSlideIn = new DoubleAnimation
+                    {
+                        From = transGlobalToast.Y,
+                        To = 0,
+                        Duration = new Duration(TimeSpan.FromMilliseconds(180)),
+                        EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                    };
+                    Storyboard.SetTarget(animSlideIn, transGlobalToast);
+                    Storyboard.SetTargetProperty(animSlideIn, "Y");
+                    sbIn.Children.Add(animSlideIn);
+                }
+
+                sbIn.Begin();
+
+                // 启动倒计时，延时后触发退出动画
+                _toastTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(durationMs) };
+                _toastTimer.Tick += (s, e) =>
+                {
+                    _toastTimer.Stop();
+
+                    var animFadeOut = new DoubleAnimation
+                    {
+                        From = borderGlobalToast.Opacity,
+                        To = 0.0,
+                        Duration = new Duration(TimeSpan.FromMilliseconds(220))
+                    };
+                    Storyboard.SetTarget(animFadeOut, borderGlobalToast);
+                    Storyboard.SetTargetProperty(animFadeOut, "Opacity");
+
+                    _toastFadeOutStoryboard = new Storyboard();
+                    _toastFadeOutStoryboard.Children.Add(animFadeOut);
+
+                    if (transGlobalToast != null)
+                    {
+                        var animSlideOut = new DoubleAnimation
+                        {
+                            From = transGlobalToast.Y,
+                            To = -10,
+                            Duration = new Duration(TimeSpan.FromMilliseconds(220)),
+                            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
+                        };
+                        Storyboard.SetTarget(animSlideOut, transGlobalToast);
+                        Storyboard.SetTargetProperty(animSlideOut, "Y");
+                        _toastFadeOutStoryboard.Children.Add(animSlideOut);
+                    }
+
+                    _toastFadeOutStoryboard.Completed += (s2, e2) =>
+                    {
+                        if (borderGlobalToast.Opacity <= 0.05)
+                        {
+                            borderGlobalToast.Visibility = Visibility.Collapsed;
+                        }
+                    };
+                    _toastFadeOutStoryboard.Begin();
+                };
+                _toastTimer.Start();
+            });
         }
 
         #endregion
