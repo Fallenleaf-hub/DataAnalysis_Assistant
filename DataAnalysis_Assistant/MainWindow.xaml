@@ -328,13 +328,15 @@
                                                     <!-- 右侧操作栏 (紧凑右对齐，绝不覆盖左侧文字) -->
                                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" VerticalAlignment="Center">
                                                         <Button Click="btnExportDashboardReport_Click" Content="📄 导出研报" Padding="8,4" CornerRadius="6" Background="{StaticResource AccentWarmBrush}" Foreground="White" FontSize="11" ToolTipService.ToolTip="将当前看板激活图表与数据结论导出为专业 Word 或 Markdown 研报"/>
+                                                        <Button Click="btnActivePlotZoom_Click" Content="🔍 放大" Padding="8,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11" ToolTipService.ToolTip="全屏放大查看当前高清图表"/>
                                                         <Button Click="btnActivePlotCopy_Click" Content="📋 复制" Padding="8,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11" ToolTipService.ToolTip="复制当前图表到剪贴板"/>
                                                         <Button Click="btnActivePlotSave_Click" Content="💾 另存为" Padding="8,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11" ToolTipService.ToolTip="将当前图表另存为本地文件"/>
                                                     </StackPanel>
                                                 </Grid>
 
-                                                <!-- 主大图展示区 -->
-                                                <Border Grid.Row="1" CornerRadius="10" Background="#FBF9F4" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="8" Margin="0,0,0,10">
+                                                <!-- 主大图展示区 (支持点击直接全屏放大) -->
+                                                <Border Grid.Row="1" CornerRadius="10" Background="#FBF9F4" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="8" Margin="0,0,0,10"
+                                                        PointerPressed="imgActiveDashboardPlot_PointerPressed" ToolTipService.ToolTip="点击全屏放大查看高清图表">
                                                     <Image x:Name="imgActiveDashboardPlot" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                                 </Border>
 

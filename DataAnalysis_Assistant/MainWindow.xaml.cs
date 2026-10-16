@@ -589,6 +589,22 @@ namespace DataAnalysis_Assistant
         }
 
 
+        private void btnActivePlotZoom_Click(object sender, RoutedEventArgs e)
+        {
+            if (_activeDashboardPlot != null)
+            {
+                ShowLargePlotViewer(_activeDashboardPlot);
+            }
+        }
+
+        private void imgActiveDashboardPlot_PointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            if (_activeDashboardPlot != null)
+            {
+                ShowLargePlotViewer(_activeDashboardPlot);
+            }
+        }
+
         private async void btnActivePlotCopy_Click(object sender, RoutedEventArgs e)
         {
             if (_activeDashboardPlot != null)
