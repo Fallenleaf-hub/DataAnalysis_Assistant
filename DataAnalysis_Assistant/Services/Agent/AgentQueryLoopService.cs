@@ -40,6 +40,7 @@ namespace DataAnalysis_Assistant.Services.Agent
         public List<ToolCallRecordItem> ExecutedToolCalls { get; set; } = new();
         public string? ErrorMessage { get; set; }
         public AgentTerminationReason TerminationReason { get; set; } = AgentTerminationReason.None;
+        public bool IsStreamTruncated { get; set; } = false;
     }
 
     /// <summary>
@@ -48,7 +49,6 @@ namespace DataAnalysis_Assistant.Services.Agent
     /// </summary>
     public class AgentQueryLoopService
     {
-        private const int PerToolMaxRetry = 2;
         private const int MaxConsecutiveFailures = 3;
 
         private readonly LlmChatService _chatService;
@@ -99,6 +99,9 @@ namespace DataAnalysis_Assistant.Services.Agent
             int iteration = 0;
             int consecutiveFailures = 0;
             int currentToolRetryCount = 0;
+            int totalSelfHealingRetries = 0;
+            const int MaxGlobalSelfHealingRetries = 6;
+            bool isLoopStreamTruncated = false;
 
             while (iteration < maxIterations)
             {
@@ -113,7 +116,8 @@ namespace DataAnalysis_Assistant.Services.Agent
                         TotalIterations = iteration,
                         GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
                         CompleteTurnHistory = loopHistory,
-                        ExecutedToolCalls = executedToolCalls
+                        ExecutedToolCalls = executedToolCalls,
+                        IsStreamTruncated = isLoopStreamTruncated
                     };
                 }
 
@@ -134,7 +138,7 @@ namespace DataAnalysis_Assistant.Services.Agent
                     StatusMessage = iteration == 1
                         ? "正在拆解任务并规划分析路径..."
                         : currentToolRetryCount > 0
-                            ? $"第 {iteration}/{maxIterations} 轮 (自愈微调 {currentToolRetryCount}/{PerToolMaxRetry})：正在根据报错调整代码与参数..."
+                            ? $"第 {iteration}/{maxIterations} 轮 (自愈重试中)：正在根据报错调整代码与参数..."
                             : $"第 {iteration}/{maxIterations} 轮：正在评估工具执行结果并推导下一步...",
                     GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts)
                 });
@@ -198,6 +202,11 @@ namespace DataAnalysis_Assistant.Services.Agent
                     };
                 }
 
+                if (response.IsStreamTruncated)
+                {
+                    isLoopStreamTruncated = true;
+                }
+
                 // 累计思考链路
                 if (!string.IsNullOrWhiteSpace(response.ReasoningContent))
                 {
@@ -218,7 +227,8 @@ namespace DataAnalysis_Assistant.Services.Agent
 
                     bool anyToolFailed = false;
 
-                    // 逐一受控执行工具
+                    // 逐一受控执行工具（声明本轮局部错误列表，杜绝历史跨轮污染）
+                    var turnErrors = new List<string>();
                     foreach (var tc in response.ToolCalls)
                     {
                         if (cancellationToken.IsCancellationRequested) break;
@@ -273,6 +283,10 @@ namespace DataAnalysis_Assistant.Services.Agent
                         if (!execResult.Success)
                         {
                             anyToolFailed = true;
+                            if (!string.IsNullOrWhiteSpace(execResult.ErrorMessage))
+                            {
+                                turnErrors.Add(execResult.ErrorMessage);
+                            }
                             string truncatedErr = TruncateErrorForPrompt(execResult.ErrorMessage);
                             failedToolSummaries.Add($"[{fnName}] {truncatedErr}");
                         }
@@ -334,42 +348,53 @@ namespace DataAnalysis_Assistant.Services.Agent
                             TotalIterations = iteration,
                             GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
                             CompleteTurnHistory = loopHistory,
-                            ExecutedToolCalls = executedToolCalls
+                            ExecutedToolCalls = executedToolCalls,
+                            IsStreamTruncated = isLoopStreamTruncated
                         };
                     }
 
-                    // 4. 自主反思、局部重试与按轮次连续错误计数
+                    // 4. 自主反思、局部重试与按轮次连续错误计数（硬伤优先于进展）
                     bool producedNewArtifacts = allGeneratedArtifacts.Count > artifactCountStart;
 
                     if (anyToolFailed)
                     {
-                        // 判定是否具备局部自愈重试配额（可重试的代码问题且未生成产物，且未超过局部上限）
-                        if (!producedNewArtifacts && currentToolRetryCount < PerToolMaxRetry)
+                        // 基于本轮局部 turnErrors 判定动态配额，杜绝跨轮历史污染
+                        int allowedRetryQuota = turnErrors.Count > 0 ? turnErrors.Min(GetErrorRetryQuota) : 2;
+
+                        if (!producedNewArtifacts && 
+                            currentToolRetryCount < allowedRetryQuota && 
+                            totalSelfHealingRetries < MaxGlobalSelfHealingRetries)
                         {
                             currentToolRetryCount++;
+                            totalSelfHealingRetries++;
+
                             progress?.Report(new AgentProgressUpdate
                             {
                                 CurrentIteration = iteration,
                                 MaxIterations = maxIterations,
                                 Phase = "reflecting",
-                                StatusMessage = $"第 {iteration}/{maxIterations} 轮 (自愈微调 {currentToolRetryCount}/{PerToolMaxRetry})：检测到代码异常，Agent 正在局部调整自愈...",
+                                StatusMessage = $"第 {iteration}/{maxIterations} 轮 (自愈微调 {currentToolRetryCount}/{allowedRetryQuota}，全局预算 {totalSelfHealingRetries}/{MaxGlobalSelfHealingRetries})：检测到可自愈异常，Agent 正在调整代码...",
                                 GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts),
                                 IntermediateReasoning = accumulatedReasoning.ToString()
                             });
-                            // 允许局部自愈，不消耗全局 iteration 轮次，不增加整轮熔断计数，直接进入下一轮调用大模型微调
-                            continue;
+                            continue; // 不消耗全局 iteration，不增加熔断计数
                         }
 
-                        // 已耗尽局部重试配额或持续无进展：重置局部重试，累加 1 次整轮连续失败计数
+                        // 硬伤裁决：重置局部配额
                         currentToolRetryCount = 0;
-                        consecutiveFailures++;
+
+                        // 仅在完全无实质进展时才增加熔断失败计数；若有新产物出图，不加失败计数
+                        if (!producedNewArtifacts)
+                        {
+                            consecutiveFailures++;
+                        }
 
                         progress?.Report(new AgentProgressUpdate
                         {
                             CurrentIteration = iteration,
                             MaxIterations = maxIterations,
                             Phase = "reflecting",
-                            StatusMessage = $"第 {iteration}/{maxIterations} 轮：连续执行异常 ({consecutiveFailures}/{MaxConsecutiveFailures})，Agent 正在反思调整方案...",
+                            StatusMessage = $"第 {iteration}/{maxIterations} 轮：执行遇阻 ({consecutiveFailures}/{MaxConsecutiveFailures})，Agent 正在汇聚阶段性结论...",
                             GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts),
                             IntermediateReasoning = accumulatedReasoning.ToString()
                         });
@@ -449,7 +474,8 @@ namespace DataAnalysis_Assistant.Services.Agent
                         TotalIterations = iteration,
                         GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
                         CompleteTurnHistory = loopHistory,
-                        ExecutedToolCalls = executedToolCalls
+                        ExecutedToolCalls = executedToolCalls,
+                        IsStreamTruncated = isLoopStreamTruncated
                     };
                 }
             }
@@ -687,29 +713,33 @@ namespace DataAnalysis_Assistant.Services.Agent
         }
 
         /// <summary>
-        /// 异常硬伤分类识别（区分可重试与不可重试错误）
+        /// 获取特定异常允许的最大局部自愈重试次数（分级自愈配额）
         /// </summary>
-        private static bool IsNonRetryableError(string? errorMessage)
+        private static int GetErrorRetryQuota(string? fullErrorMessage)
         {
-            if (string.IsNullOrWhiteSpace(errorMessage)) return false;
+            if (string.IsNullOrWhiteSpace(fullErrorMessage)) return 2;
 
-            // 1. 结构化标记识别
-            if (errorMessage.Contains("[ERR_TYPE:FileNotFound]") ||
-                errorMessage.Contains("[ERR_TYPE:SyntaxError]") ||
-                errorMessage.Contains("[ERR_TYPE:ModuleNotFound]") ||
-                errorMessage.Contains("[ERR_TYPE:KeyError]"))
+            // 0 次自愈：环境缺依赖，改代码无效，坚决阻断
+            if (fullErrorMessage.Contains("[ERR_TYPE:ModuleNotFound]") ||
+                fullErrorMessage.Contains("ModuleNotFoundError"))
             {
-                return true;
+                return 0;
             }
 
-            // 2. 经典 Python/系统硬性错误特征
-            string lower = errorMessage.ToLowerInvariant();
-            return lower.Contains("filenotfounderror") ||
-                   lower.Contains("modulenotfounderror") ||
-                   lower.Contains("syntaxerror") ||
-                   lower.Contains("indentationerror") ||
-                   lower.Contains("未找到名为") ||
-                   lower.Contains("no such file or directory");
+            // 1 次自愈：语法错误（LLM 看到光标定位一次修复率高）、文件缺失（改路径/换缓存）、列名猜错
+            if (fullErrorMessage.Contains("[ERR_TYPE:SyntaxError]") ||
+                fullErrorMessage.Contains("[ERR_TYPE:FileNotFound]") ||
+                fullErrorMessage.Contains("[ERR_TYPE:KeyError]") ||
+                fullErrorMessage.Contains("FileNotFoundError") ||
+                fullErrorMessage.Contains("KeyError") ||
+                fullErrorMessage.Contains("no such file or directory") ||
+                System.Text.RegularExpressions.Regex.IsMatch(fullErrorMessage, @"^\s*(Syntax|Indentation)Error:", System.Text.RegularExpressions.RegexOptions.Multiline))
+            {
+                return 1;
+            }
+
+            // 2 次自愈：常规运算异常或超时
+            return 2;
         }
 
         /// <summary>
@@ -846,7 +876,34 @@ namespace DataAnalysis_Assistant.Services.Agent
             }
             catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
-                // 若流式接口在部分特殊代理或本地模型上遇阻，记录警告并向用户上报降级状态
+                LogException("StreamChatError", ex);
+
+                bool hasSubstantiveContent = curTurnContent.Length > 0;
+                if (hasSubstantiveContent)
+                {
+                    // 已接收到实质性正文，保留现有输出并安全收敛，不再盲目重试导致闪退或重复 token 消耗
+                    toolCalls.Clear();
+                    progress?.Report(new AgentProgressUpdate
+                    {
+                        CurrentIteration = iteration,
+                        MaxIterations = maxIterations,
+                        Phase = "warning",
+                        StatusMessage = "[网络流式中断] 接收推流时连接中断，已保留已生成内容并结束本轮输出。",
+                        IntermediateReasoning = accumulatedReasoning.ToString(),
+                        IntermediateContent = curTurnContent.ToString(),
+                        GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts)
+                    });
+
+                    return new ChatToolResponse
+                    {
+                        Content = curTurnContent.ToString(),
+                        ReasoningContent = curTurnReasoning.Length > 0 ? curTurnReasoning.ToString() : string.Empty,
+                        ToolCalls = toolCalls,
+                        IsStreamTruncated = true
+                    };
+                }
+
+                // 正文全空，说明属于首包或初期的连接异常，自动降级至阻塞请求
                 streamSucceeded = false;
                 progress?.Report(new AgentProgressUpdate
                 {
@@ -953,6 +1010,24 @@ namespace DataAnalysis_Assistant.Services.Agent
                     string label = string.IsNullOrEmpty(altText) ? fileName : $"{altText} ({fileName})";
                     return $"> 📊 **[可视化图表：{label}]** *(已由系统自动挂载至上方消息卡片与右侧画廊，请查阅对应高清图件)*";
                 });
+        }
+
+        /// <summary>
+        /// 异常持久化写入 APPDATA/logs，支持 Release 环境排障且不污染工作区
+        /// </summary>
+        private static void LogException(string tag, Exception ex)
+        {
+            try
+            {
+                string logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DataAnalysis_Assistant", "logs");
+                Directory.CreateDirectory(logDir);
+                string logFile = Path.Combine(logDir, $"agent_{DateTime.Now:yyyyMMdd}.log");
+                string entry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [{tag}] {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}\n\n";
+                File.AppendAllText(logFile, entry, Encoding.UTF8);
+            }
+            catch
+            {
+            }
         }
     }
 }

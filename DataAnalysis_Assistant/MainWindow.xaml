@@ -541,6 +541,20 @@
                                                                     </ItemsControl.ItemTemplate>
                                                                 </ItemsControl>
 
+                                                                <!-- 终轮收敛温和提示横幅 (纯 XAML 绑定，零 Content 污染) -->
+                                                                <InfoBar IsOpen="True" Severity="Informational" IsClosable="False"
+                                                                         Visibility="{x:Bind TerminationNoticeVisibility, Mode=OneWay}"
+                                                                         Title="探索收敛提示"
+                                                                         Message="{x:Bind TerminationNoticeMessage, Mode=OneWay}"
+                                                                         Margin="0,8,0,0" CornerRadius="6"/>
+
+                                                                <!-- 网络推流中断警示横幅 (保留真实性，不污染研报正文) -->
+                                                                <InfoBar IsOpen="True" Severity="Warning" IsClosable="False"
+                                                                         Visibility="{x:Bind TruncatedNoticeVisibility, Mode=OneWay}"
+                                                                         Title="网络连接中断"
+                                                                         Message="由于网络连接中断，以上研报为已接收到的阶段性内容。"
+                                                                         Margin="0,4,0,0" CornerRadius="6"/>
+
                                                                 <!-- 底部操作栏：导出研报与复制 -->
                                                                 <Grid Margin="0,4,0,0">
                                                                     <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
@@ -1420,7 +1434,7 @@
                                                 <Border Background="{StaticResource SidebarBgBrush}" CornerRadius="6" Padding="6,2" HorizontalAlignment="Right">
                                                     <TextBlock x:Name="tbPythonTimeoutValue" Text="60 秒" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource AccentWarmBrush}"/>
                                                 </Border>
-                                                <Slider x:Name="sliderPythonTimeout" Minimum="30" Maximum="300" StepFrequency="5" Value="60" ValueChanged="sliderPythonTimeout_ValueChanged"/>
+                                                <Slider x:Name="sliderPythonTimeout" Minimum="30" Maximum="120" StepFrequency="5" Value="60" ValueChanged="sliderPythonTimeout_ValueChanged"/>
                                             </StackPanel>
                                         </Grid>
                                     </StackPanel>

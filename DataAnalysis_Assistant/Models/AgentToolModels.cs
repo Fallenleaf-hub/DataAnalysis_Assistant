@@ -170,6 +170,11 @@ namespace DataAnalysis_Assistant.Models
         public string FinishReason { get; set; } = string.Empty;
 
         /// <summary>
+        /// 是否由于推流中断截断
+        /// </summary>
+        public bool IsStreamTruncated { get; set; } = false;
+
+        /// <summary>
         /// 是否包含工具调用请求
         /// </summary>
         public bool HasToolCalls => ToolCalls != null && ToolCalls.Count > 0;

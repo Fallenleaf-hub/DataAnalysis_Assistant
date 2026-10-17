@@ -852,7 +852,10 @@ fig.tight_layout()
 
             try
             {
-                var result = await _pythonExecService.ExecuteCodeAsync(pythonCode, _settings.PythonPath);
+                var result = await _pythonExecService.ExecuteCodeAsync(
+                    pythonCode, 
+                    _settings.PythonPath, 
+                    options: new PythonExecutionOptions { TimeoutSeconds = Math.Clamp(_settings.PythonTimeoutSeconds, 30, 120) });
                 if (result.Success && result.GeneratedArtifacts.Count > 0)
                 {
                     foreach (var path in result.GeneratedArtifacts)
@@ -1022,7 +1025,7 @@ fig.tight_layout()
             }
             if (sliderPythonTimeout != null)
             {
-                sliderPythonTimeout.Value = Math.Clamp(_settings.PythonTimeoutSeconds > 0 ? _settings.PythonTimeoutSeconds : 60, 30, 300);
+                sliderPythonTimeout.Value = Math.Clamp(_settings.PythonTimeoutSeconds > 0 ? _settings.PythonTimeoutSeconds : 60, 30, 120);
             }
 
             // 选中模型 (支持匹配已有或动态追加自定义模型)
@@ -1276,7 +1279,7 @@ fig.tight_layout()
             }
             if (sliderPythonTimeout != null)
             {
-                _settings.PythonTimeoutSeconds = (int)sliderPythonTimeout.Value;
+                _settings.PythonTimeoutSeconds = Math.Clamp((int)sliderPythonTimeout.Value, 30, 120);
             }
 
             SettingsService.SaveSettings(_settings);
@@ -1321,7 +1324,7 @@ fig.tight_layout()
             cbQuickModel.SelectedIndex = 0;
             if (sliderMaxIterations != null) sliderMaxIterations.Value = _settings.AgentMaxIterations;
             if (toggleAutoFinalSynthesis != null) toggleAutoFinalSynthesis.IsOn = _settings.EnableAutoFinalSynthesis;
-            if (sliderPythonTimeout != null) sliderPythonTimeout.Value = _settings.PythonTimeoutSeconds;
+            if (sliderPythonTimeout != null) sliderPythonTimeout.Value = Math.Clamp(_settings.PythonTimeoutSeconds, 30, 120);
             if (tbCustomPythonPath != null) tbCustomPythonPath.Text = string.Empty;
             if (comboPythonSecurityMode != null) comboPythonSecurityMode.SelectedIndex = 1;
             UpdateSettingsDisplay();
@@ -2761,10 +2764,22 @@ def analyze_document_metrics(file_path: str):
                         }
                     }
 
-                    svChatList.ChangeView(null, svChatList.ScrollableHeight, null);
+                    // 智能吸底：仅当用户处于视口底部附近（40 像素内）才自动滚动，绝不强行拽屏
+                    bool isNearBottom = (svChatList.ScrollableHeight - svChatList.VerticalOffset) <= 40;
+                    if (isNearBottom)
+                    {
+                        svChatList.ChangeView(null, svChatList.ScrollableHeight, null);
+                    }
 
-                    // 关键节点 B: Agent 步级进度更新，防抖节流安全写盘（沉淀已产生思考与产物图表）
-                    _ = PersistCurrentSessionAsync(force: false);
+                    // 抑制写盘风暴：流式期间放宽节流，完成阶段强制落盘
+                    if (update.Phase == "complete")
+                    {
+                        _ = PersistCurrentSessionAsync(force: true);
+                    }
+                    else
+                    {
+                        _ = PersistCurrentSessionAsync(force: false);
+                    }
                 });
             });
 
@@ -2797,6 +2812,7 @@ def analyze_document_metrics(file_path: str):
                         assistantMessage.IsReasoningExpanded = false; // 生成完成后默认折叠思考
 
                         assistantMessage.TerminationReason = loopResult.TerminationReason;
+                        assistantMessage.IsStreamTruncated = loopResult.IsStreamTruncated;
                         if (loopResult.ExecutedToolCalls != null && loopResult.ExecutedToolCalls.Count > 0)
                         {
                             assistantMessage.ToolCalls = new List<ToolCallRecordItem>(loopResult.ExecutedToolCalls);
@@ -2893,6 +2909,7 @@ def analyze_document_metrics(file_path: str):
                 {
                     // 实体保底同步：UI 队列繁忙或未在 2 秒内响应时，在后台 Task 线程直接确保关键数据字段写入实体
                     assistantMessage.TerminationReason = loopResult.TerminationReason;
+                    assistantMessage.IsStreamTruncated = loopResult.IsStreamTruncated;
                     if (loopResult.ExecutedToolCalls != null && loopResult.ExecutedToolCalls.Count > 0)
                     {
                         assistantMessage.ToolCalls = new List<ToolCallRecordItem>(loopResult.ExecutedToolCalls);
@@ -2979,11 +2996,11 @@ def analyze_document_metrics(file_path: str):
         {
             if (_currentSession == null) return;
 
-            // 节流机制：非强制落盘时至少间隔 1.5 秒，确保流式输出极致流畅
+            // 节流机制：非强制落盘时至少间隔 4.0 秒，确保流式输出极致流畅，抑制高频写盘风暴
             if (!force)
             {
                 var now = DateTime.Now;
-                if ((now - _lastDebouncePersistTime).TotalSeconds < 1.5)
+                if ((now - _lastDebouncePersistTime).TotalSeconds < 4.0)
                 {
                     return;
                 }

@@ -17,6 +17,8 @@ namespace DataAnalysis_Assistant.Models
         private bool _isThinking = false;
         private double _thinkingSeconds = 0;
         private bool _isStopped = false;
+        private AgentTerminationReason _terminationReason = AgentTerminationReason.None;
+        private bool _isStreamTruncated = false;
         private ObservableCollection<ChartArtifactItem> _generatedPlots = new();
 
         public ChatMessageItem()
@@ -264,7 +266,57 @@ namespace DataAnalysis_Assistant.Models
         /// <summary>
         /// 结构化 Agent 终止原因（默认为 None）
         /// </summary>
-        public AgentTerminationReason TerminationReason { get; set; } = AgentTerminationReason.None;
+        public AgentTerminationReason TerminationReason
+        {
+            get => _terminationReason;
+            set
+            {
+                if (_terminationReason != value)
+                {
+                    _terminationReason = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(TerminationNoticeVisibility));
+                    OnPropertyChanged(nameof(TerminationNoticeMessage));
+                }
+            }
+        }
+
+        /// <summary>
+        /// 是否由于网络推流异常被截断
+        /// </summary>
+        public bool IsStreamTruncated
+        {
+            get => _isStreamTruncated;
+            set
+            {
+                if (_isStreamTruncated != value)
+                {
+                    _isStreamTruncated = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(TruncatedNoticeVisibility));
+                }
+            }
+        }
+
+        [JsonIgnore]
+        public Visibility TerminationNoticeVisibility =>
+            (_terminationReason == AgentTerminationReason.MaxIterationsReached || 
+             _terminationReason == AgentTerminationReason.ConsecutiveErrorsTripped)
+            ? Visibility.Visible : Visibility.Collapsed;
+
+        [JsonIgnore]
+        public string TerminationNoticeMessage => _terminationReason switch
+        {
+            AgentTerminationReason.MaxIterationsReached => 
+                "本次分析已达到最大探索上限，Agent 已综合当前阶段所有探索结果为您收敛汇聚本份研报。",
+            AgentTerminationReason.ConsecutiveErrorsTripped => 
+                "由于执行过程多次持续遇阻，Agent 已根据现有探索成果收敛汇聚本份研报。",
+            _ => string.Empty
+        };
+
+        [JsonIgnore]
+        public Visibility TruncatedNoticeVisibility =>
+            _isStreamTruncated ? Visibility.Visible : Visibility.Collapsed;
 
         /// <summary>
         /// 本回合执行的结构化工具调用明细列表（支持安全序列化落盘，旧版本 JSON 反序列化时自动为空）

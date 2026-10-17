@@ -67,7 +67,7 @@ namespace DataAnalysis_Assistant.Services.Python
                 StringComparer.OrdinalIgnoreCase);
 
             // 4. 对代码进行智能预处理：注入中文字体补丁、Agg离线渲染后端与图表自动落地保护钩子
-            string processedCode = PreprocessPythonCode(code, sandboxDir);
+            var (processedCode, headerLineCount) = PreprocessPythonCode(code, sandboxDir);
 
             // 5. 将代码写入临时执行脚本 (UTF-8 无 BOM)
             try
@@ -121,7 +121,7 @@ namespace DataAnalysis_Assistant.Services.Python
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
 
-                int effectiveTimeoutSeconds = Math.Max(30, options.TimeoutSeconds);
+                int effectiveTimeoutSeconds = Math.Clamp(options.TimeoutSeconds, 30, 120);
                 using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(effectiveTimeoutSeconds));
                 using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
@@ -296,21 +296,49 @@ namespace DataAnalysis_Assistant.Services.Python
             // 6. 执行上下文截断保护 (Compaction Gate: 防止 10 万行 print 打爆 Token)
             string safeStdout = TruncateOutput(rawStdout, options);
 
-            // 7. 清理临时执行脚本，严格遵循工作区与沙盒隔离及卫生纪律
-            try
+            // 7. 组装与格式化错误信息（精准行号换算与 SyntaxError 标记注入）
+            string errorMsg = string.IsNullOrWhiteSpace(rawStderr) 
+                ? $"Python 进程异常退出 (Exit Code: {exitCode})" 
+                : rawStderr;
+
+            if (exitCode != 0 && !string.IsNullOrWhiteSpace(rawStderr))
             {
-                if (File.Exists(scriptFilePath))
+                // 使用行首多行正则识别 SyntaxError/IndentationError，避免 print 误伤
+                if (System.Text.RegularExpressions.Regex.IsMatch(rawStderr, @"^\s*(Syntax|Indentation)Error:", System.Text.RegularExpressions.RegexOptions.Multiline))
                 {
-                    File.Delete(scriptFilePath);
+                    // 仅精准锚定属于当前临时脚本的文件帧进行行号换算，绝不改写第三方库或 pandas 内部帧
+                    string escapedPath = System.Text.RegularExpressions.Regex.Escape(scriptFilePath);
+                    string pattern = $@"File ""{escapedPath}"", line (\d+)";
+
+                    string correctedStderr = System.Text.RegularExpressions.Regex.Replace(
+                        rawStderr,
+                        pattern,
+                        m =>
+                        {
+                            if (int.TryParse(m.Groups[1].Value, out int lineNum) && lineNum > headerLineCount)
+                            {
+                                return $"File \"{scriptFilePath}\", line {lineNum - headerLineCount} (相对用户代码第 {lineNum - headerLineCount} 行)";
+                            }
+                            return m.Value;
+                        });
+
+                    errorMsg = $"[ERR_TYPE:SyntaxError]\n{correctedStderr}";
                 }
             }
-            catch
-            {
-            }
 
-            if (exitCode == 0)
+            // 8. 消除假阴性与假阳性（超时部分产物警示）
+            bool hasFatalError = errorMsg.Contains("[ERR_TYPE:SyntaxError]") ||
+                                 errorMsg.Contains("[ERR_TYPE:FileNotFound]") ||
+                                 errorMsg.Contains("[ERR_TYPE:ModuleNotFound]");
+
+            if (exitCode == 0 || (generatedArtifacts.Count > 0 && !hasFatalError))
             {
-                string outputSummary = string.IsNullOrWhiteSpace(safeStdout) ? "[代码执行成功，无标准输出]" : safeStdout;
+                string outputSummary = string.IsNullOrWhiteSpace(safeStdout) ? "[代码执行成功，产物已就绪]" : safeStdout;
+                if (exitCode != 0)
+                {
+                    // 消除假阳性：诚实警示部分产物，杜绝在残缺数据上自信收敛
+                    outputSummary += $"\n\n⚠️ 脚本执行超时或非正常终止 (ExitCode: {exitCode})，仅捕获到部分产物（共 {generatedArtifacts.Count} 个），请核对是否已覆盖全部分析目标或考虑降采样/分步执行。";
+                }
                 if (warningBuilder.Length > 0)
                 {
                     outputSummary += "\n\n⚠️ 产物警告:\n" + warningBuilder.ToString().Trim();
@@ -319,9 +347,6 @@ namespace DataAnalysis_Assistant.Services.Python
             }
             else
             {
-                string errorMsg = string.IsNullOrWhiteSpace(rawStderr)
-                    ? $"Python 进程异常退出 (Exit Code: {exitCode})"
-                    : rawStderr;
                 return ToolExecutionResult.CreateFailure(errorMsg, safeStdout);
             }
         }
@@ -402,6 +427,8 @@ namespace DataAnalysis_Assistant.Services.Python
             return sandboxDir;
         }
 
+        private static string? _cachedSandboxPrefix;
+
         /// <summary>
         /// 严格校验给定文件路径是否位于 agent_sandbox 目录内（杜绝 scratch 根目录无编号临时文件或外部路径）
         /// </summary>
@@ -410,10 +437,13 @@ namespace DataAnalysis_Assistant.Services.Python
             if (string.IsNullOrWhiteSpace(filePath)) return false;
             try
             {
+                if (_cachedSandboxPrefix == null)
+                {
+                    string sandboxDir = Path.GetFullPath(LocateOrInitSandboxDirectory());
+                    _cachedSandboxPrefix = sandboxDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                }
                 string fullPath = Path.GetFullPath(filePath);
-                string sandboxDir = Path.GetFullPath(LocateOrInitSandboxDirectory());
-                string sandboxPrefix = sandboxDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
-                return fullPath.StartsWith(sandboxPrefix, StringComparison.OrdinalIgnoreCase);
+                return fullPath.StartsWith(_cachedSandboxPrefix, StringComparison.OrdinalIgnoreCase);
             }
             catch
             {
@@ -424,7 +454,7 @@ namespace DataAnalysis_Assistant.Services.Python
         /// <summary>
         /// 预处理 Python 执行脚本：自动注入中文字体防乱码补丁、Agg离线后端阻断阻塞式 plt.show()，并自动拦截 savefig 镜像及兜底导出未保存的 Figure
         /// </summary>
-        public static string PreprocessPythonCode(string rawCode, string outputPlotDir)
+        public static (string FullCode, int HeaderLineCount) PreprocessPythonCode(string rawCode, string outputPlotDir)
         {
             var sb = new StringBuilder();
             string safePlotDir = outputPlotDir.Replace("\\", "/");
@@ -517,11 +547,18 @@ namespace DataAnalysis_Assistant.Services.Python
             sb.AppendLine("    plt.savefig = _safe_intercept_plt_savefig");
             sb.AppendLine("except Exception:");
             sb.AppendLine("    pass");
-            sb.AppendLine("# === [User Generated Code Start] ===");
-            sb.AppendLine(rawCode);
-            sb.AppendLine();
 
-            return sb.ToString();
+            string headerText = sb.ToString();
+            const string sentinelLine = "# === [User Generated Code Start] ===\n";
+            string prefixText = headerText + sentinelLine;
+            int headerLineCount = prefixText.Count(c => c == '\n');
+
+            var fullSb = new StringBuilder();
+            fullSb.Append(prefixText);
+            fullSb.AppendLine(rawCode);
+            fullSb.AppendLine();
+
+            return (fullSb.ToString(), headerLineCount);
         }
     }
 }

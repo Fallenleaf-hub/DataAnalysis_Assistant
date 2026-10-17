@@ -87,6 +87,14 @@ namespace DataAnalysis_Assistant.Services
                 sbSystem.AppendLine(activeSkillInstruction.Trim());
             }
 
+            // 深度注入思考与工具下推纪律规范 (防止 Reasoning 吞噬 Token 上限导致截断)
+            sbSystem.AppendLine();
+            sbSystem.AppendLine("================ 思考与工具推演纪律 (Reasoning Discipline) ================");
+            sbSystem.AppendLine("1. 【思考短小精炼】：严禁在思考链路（Reasoning / Thinking）中编写完整的代码实现或长篇大论草拟脚本；思考过程仅用于梳理逻辑大纲、核验条件与算法参数，必须保持精炼紧凑。");
+            sbSystem.AppendLine("2. 【代码严格下推工具】：所有用于数据探查、清洗、统计建模与 Matplotlib 绘图的可执行代码，必须且只能作为参数输出到具体的 tool_calls (如 run_python) 中执行，严禁在思考链或未执行的正文中冗余展开。");
+            sbSystem.AppendLine("3. 【成果导向高效推进】：获得工具执行结果后，立即评估数值指标与图表产物，快速推进下一阶段分析或直接输出最终结构化业务研报，杜绝多轮重复探查相同结构。");
+            sbSystem.AppendLine("============================================================================");
+
             if (!string.IsNullOrWhiteSpace(documentContext))
             {
                 sbSystem.AppendLine();
