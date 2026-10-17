@@ -104,35 +104,112 @@ namespace DataAnalysis_Assistant.Services
                 messages.Add(new { role = "system", content = sbSystem.ToString() });
             }
 
-            // 2. 组装历史对话（引入 ContextCompactionService 施加保真边界保护）
-            List<ChatTurn> effectiveHistory = history ?? new();
-            if (history != null && history.Count > 3)
+            // 2. 组装历史对话（引入完整 Token 预算监控与保真时序压缩管线）
+            List<ChatTurn> effectiveHistory = new();
+            if (history != null)
             {
-                var rolePairs = history
-                    .Where(t => t.Role != "tool" && (t.ToolCalls == null || t.ToolCalls.Count == 0))
-                    .Select(t => (t.Role, t.Content))
-                    .ToList();
-
-                var compactionResult = _compactionService.CompactContext(
-                    sbSystem.ToString(),
-                    documentContext ?? string.Empty,
-                    rolePairs,
-                    userQuestion ?? string.Empty);
-
-                if (compactionResult.WasCompacted)
+                // 先对单条超长的 tool 输出做就地保真折叠（防止单次打印巨幅数组撑爆 Payload）
+                foreach (var turn in history)
                 {
-                    var newHistory = new List<ChatTurn>();
-                    foreach (var (r, c) in compactionResult.CompactedHistory)
+                    if (turn.Role == "tool" && !string.IsNullOrEmpty(turn.Content) && turn.Content.Length > 2500)
                     {
-                        newHistory.Add(new ChatTurn { Role = r, Content = c });
+                        string c = turn.Content;
+                        // 若包含图表确认或关键事实，保留首部与尾部
+                        string trimmed = $"{c[..800]}\n\n... [中间过渡性数据输出过长已自动折叠，共省略 {c.Length - 1400} 字符] ...\n\n{c[^600..]}";
+                        effectiveHistory.Add(new ChatTurn
+                        {
+                            Role = turn.Role,
+                            Content = trimmed,
+                            ToolCallId = turn.ToolCallId,
+                            ToolCalls = turn.ToolCalls
+                        });
                     }
-                    // 保留原有 tool 相关回合
-                    foreach (var t in history.Where(t => t.Role == "tool" || (t.ToolCalls != null && t.ToolCalls.Count > 0)))
+                    else
                     {
-                        newHistory.Add(t);
+                        effectiveHistory.Add(turn);
                     }
-                    effectiveHistory = newHistory;
                 }
+            }
+
+            // 完整统计包含 tool、tool_calls 参数与正文的真实 Token 消耗
+            int sysTokens = ContextCompactionService.EstimateTokens(sbSystem.ToString());
+            int docTokens = ContextCompactionService.EstimateTokens(documentContext ?? string.Empty);
+            int qTokens = ContextCompactionService.EstimateTokens(userQuestion ?? string.Empty);
+            int histTokens = 0;
+            foreach (var t in effectiveHistory)
+            {
+                histTokens += ContextCompactionService.EstimateTokens(t.Content ?? string.Empty);
+                if (t.ToolCalls != null)
+                {
+                    foreach (var tc in t.ToolCalls)
+                    {
+                        histTokens += ContextCompactionService.EstimateTokens(tc.Function?.Arguments ?? string.Empty) + 20;
+                    }
+                }
+            }
+
+            int totalTokens = sysTokens + docTokens + qTokens + histTokens;
+            int triggerLimit = (int)(_compactionService.MaxTokenBudget * _compactionService.TriggerThresholdRatio);
+
+            // 当真实总 Token 超过 18,000 时，启动保真上下文时序压缩（严格保持线性时间线对齐，严禁打乱 tool 配对顺序）
+            if (totalTokens > triggerLimit && effectiveHistory.Count > 4)
+            {
+                int keepRecent = Math.Min(4, effectiveHistory.Count);
+                int splitIndex = effectiveHistory.Count - keepRecent;
+
+                var olderTurns = effectiveHistory.Take(splitIndex).ToList();
+                var recentTurns = effectiveHistory.Skip(splitIndex).ToList();
+
+                var compactedList = new List<ChatTurn>();
+
+                for (int i = 0; i < olderTurns.Count; i++)
+                {
+                    var turn = olderTurns[i];
+                    string role = turn.Role?.ToLowerInvariant() ?? string.Empty;
+
+                    if (role == "assistant" && turn.ToolCalls != null && turn.ToolCalls.Count > 0)
+                    {
+                        // 必须严格与紧随其后的 tool 回合成对保留，维护协议结构完整
+                        compactedList.Add(turn);
+                    }
+                    else if (role == "tool")
+                    {
+                        string c = turn.Content ?? string.Empty;
+                        if (c.Length > 400 && !ContextCompactionService.IsGroundTruthAnchor(c))
+                        {
+                            string summary = $"{c[..200]}...\n[早期过渡性工具输出已安全压缩]";
+                            compactedList.Add(new ChatTurn
+                            {
+                                Role = "tool",
+                                ToolCallId = turn.ToolCallId,
+                                Content = summary
+                            });
+                        }
+                        else
+                        {
+                            compactedList.Add(turn);
+                        }
+                    }
+                    else if (role == "user")
+                    {
+                        compactedList.Add(turn);
+                    }
+                    else if (role == "assistant")
+                    {
+                        if (ContextCompactionService.IsGroundTruthAnchor(turn.Content))
+                        {
+                            compactedList.Add(turn);
+                        }
+                        else
+                        {
+                            string summary = ContextCompactionService.SummarizeText(turn.Content, 200);
+                            compactedList.Add(new ChatTurn { Role = "assistant", Content = summary });
+                        }
+                    }
+                }
+
+                compactedList.AddRange(recentTurns);
+                effectiveHistory = compactedList;
             }
 
             foreach (var turn in effectiveHistory)
@@ -208,7 +285,7 @@ namespace DataAnalysis_Assistant.Services
                 ["model"] = string.IsNullOrWhiteSpace(settings.ModelName) ? "gpt-4o" : settings.ModelName,
                 ["messages"] = messages,
                 ["temperature"] = settings.Temperature,
-                ["max_tokens"] = Math.Clamp(settings.MaxContextLength > 0 ? settings.MaxContextLength : 4096, 1024, 8192),
+                ["max_tokens"] = 8192,
                 ["stream"] = false
             };
 
@@ -419,7 +496,7 @@ namespace DataAnalysis_Assistant.Services
                 ["model"] = string.IsNullOrWhiteSpace(settings.ModelName) ? "gpt-4o" : settings.ModelName,
                 ["messages"] = messages,
                 ["temperature"] = settings.Temperature,
-                ["max_tokens"] = Math.Clamp(settings.MaxContextLength > 0 ? settings.MaxContextLength : 4096, 1024, 8192),
+                ["max_tokens"] = 8192,
                 ["stream"] = true
             };
 

@@ -98,6 +98,7 @@ namespace DataAnalysis_Assistant.Services.Agent
 
             int iteration = 0;
             int consecutiveFailures = 0;
+            int currentToolRetryCount = 0;
 
             while (iteration < maxIterations)
             {
@@ -116,7 +117,13 @@ namespace DataAnalysis_Assistant.Services.Agent
                     };
                 }
 
-                iteration++;
+                // 仅当非局部自愈重试时，才消耗并推进全局 iteration 轮次
+                if (currentToolRetryCount == 0)
+                {
+                    iteration++;
+                }
+
+                int artifactCountStart = allGeneratedArtifacts.Count;
 
                 // 1. 阶段汇报：开始规划与决策
                 progress?.Report(new AgentProgressUpdate
@@ -126,7 +133,9 @@ namespace DataAnalysis_Assistant.Services.Agent
                     Phase = "thinking",
                     StatusMessage = iteration == 1
                         ? "正在拆解任务并规划分析路径..."
-                        : $"第 {iteration}/{maxIterations} 轮：正在评估工具执行结果并推导下一步...",
+                        : currentToolRetryCount > 0
+                            ? $"第 {iteration}/{maxIterations} 轮 (自愈微调 {currentToolRetryCount}/{PerToolMaxRetry})：正在根据报错调整代码与参数..."
+                            : $"第 {iteration}/{maxIterations} 轮：正在评估工具执行结果并推导下一步...",
                     GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts)
                 });
 
@@ -266,11 +275,6 @@ namespace DataAnalysis_Assistant.Services.Agent
                             anyToolFailed = true;
                             string truncatedErr = TruncateErrorForPrompt(execResult.ErrorMessage);
                             failedToolSummaries.Add($"[{fnName}] {truncatedErr}");
-
-                            if (IsNonRetryableError(execResult.ErrorMessage))
-                            {
-                                consecutiveFailures++;
-                            }
                         }
 
                         // 格式化工具输出并回填至上下文 (包含保真事实标记与产物接管确认)
@@ -304,7 +308,7 @@ namespace DataAnalysis_Assistant.Services.Agent
 
                         var (rawPath, mirrorPath) = ExtractPathInfo(fnName, fnArgs, execResult.GeneratedArtifacts);
 
-                        // 结构化落盘记录 (完整承载协议ID、原始路径与沙盒镜像路径)
+                        // 结构化落盘记录 (完整承载协议ID、原始路径、沙盒镜像路径与重试次数)
                         executedToolCalls.Add(new ToolCallRecordItem
                         {
                             CallId = effectiveCallId,
@@ -314,6 +318,7 @@ namespace DataAnalysis_Assistant.Services.Agent
                             RawOutputPath = rawPath,
                             MirroredPath = mirrorPath,
                             Success = execResult.Success,
+                            RetryCount = currentToolRetryCount,
                             ArtifactPaths = new List<string>(execResult.GeneratedArtifacts),
                             Timestamp = DateTime.Now
                         });
@@ -333,9 +338,30 @@ namespace DataAnalysis_Assistant.Services.Agent
                         };
                     }
 
-                    // 4. 自主反思与错误计数
+                    // 4. 自主反思、局部重试与按轮次连续错误计数
+                    bool producedNewArtifacts = allGeneratedArtifacts.Count > artifactCountStart;
+
                     if (anyToolFailed)
                     {
+                        // 判定是否具备局部自愈重试配额（可重试的代码问题且未生成产物，且未超过局部上限）
+                        if (!producedNewArtifacts && currentToolRetryCount < PerToolMaxRetry)
+                        {
+                            currentToolRetryCount++;
+                            progress?.Report(new AgentProgressUpdate
+                            {
+                                CurrentIteration = iteration,
+                                MaxIterations = maxIterations,
+                                Phase = "reflecting",
+                                StatusMessage = $"第 {iteration}/{maxIterations} 轮 (自愈微调 {currentToolRetryCount}/{PerToolMaxRetry})：检测到代码异常，Agent 正在局部调整自愈...",
+                                GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts),
+                                IntermediateReasoning = accumulatedReasoning.ToString()
+                            });
+                            // 允许局部自愈，不消耗全局 iteration 轮次，不增加整轮熔断计数，直接进入下一轮调用大模型微调
+                            continue;
+                        }
+
+                        // 已耗尽局部重试配额或持续无进展：重置局部重试，累加 1 次整轮连续失败计数
+                        currentToolRetryCount = 0;
                         consecutiveFailures++;
 
                         progress?.Report(new AgentProgressUpdate
@@ -343,7 +369,7 @@ namespace DataAnalysis_Assistant.Services.Agent
                             CurrentIteration = iteration,
                             MaxIterations = maxIterations,
                             Phase = "reflecting",
-                            StatusMessage = $"第 {iteration}/{maxIterations} 轮：检测到执行异常，Agent 正在自主反思调整代码...",
+                            StatusMessage = $"第 {iteration}/{maxIterations} 轮：连续执行异常 ({consecutiveFailures}/{MaxConsecutiveFailures})，Agent 正在反思调整方案...",
                             GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts),
                             IntermediateReasoning = accumulatedReasoning.ToString()
                         });
@@ -370,6 +396,8 @@ namespace DataAnalysis_Assistant.Services.Agent
                     }
                     else
                     {
+                        // 本轮工具全部成功或生成了有效产物，清零局部重试与连续失败计数
+                        currentToolRetryCount = 0;
                         consecutiveFailures = 0;
                     }
 
@@ -516,13 +544,16 @@ namespace DataAnalysis_Assistant.Services.Agent
                 IntermediateReasoning = accumulatedReasoning.ToString()
             });
 
-            // 注入终轮强制收敛指令
+            // 注入终轮强制收敛指令（在单次请求临时副本中附加，严禁污染持久化 loopHistory）
             string synthesisPrompt = BuildFinalSynthesisPrompt(failedToolSummaries.Count > 0, failedToolSummaries, allGeneratedArtifacts);
-            loopHistory.Add(new ChatTurn
+            var synthesisTurns = new List<ChatTurn>(loopHistory)
             {
-                Role = "system",
-                Content = synthesisPrompt
-            });
+                new ChatTurn
+                {
+                    Role = "system",
+                    Content = synthesisPrompt
+                }
+            };
 
             ChatToolResponse finalResponse;
             try
@@ -530,7 +561,7 @@ namespace DataAnalysis_Assistant.Services.Agent
                 // 终轮强制设定 toolChoice = "none"，且工具列表置空
                 finalResponse = await RequestChatTurnAsync(
                     settings,
-                    loopHistory,
+                    synthesisTurns,
                     documentContext,
                     userQuestion,
                     toolDefs: Enumerable.Empty<ToolDefinition>(),
@@ -627,7 +658,7 @@ namespace DataAnalysis_Assistant.Services.Agent
             if (hasFailedTools && failedToolSummaries.Count > 0)
             {
                 sb.AppendLine("说明：在探索演算过程中，以下部分步骤遭遇客观异常：");
-                foreach (var err in failedToolSummaries.Take(3))
+                foreach (var err in failedToolSummaries.TakeLast(3))
                 {
                     sb.AppendLine($"- {err}");
                 }
@@ -719,6 +750,8 @@ namespace DataAnalysis_Assistant.Services.Agent
             var curTurnReasoning = new StringBuilder();
             var toolCalls = new List<ToolCallItem>();
             bool streamSucceeded = false;
+            string baseReasoning = accumulatedReasoning.ToString();
+            var lastReportTime = DateTime.UtcNow;
 
             try
             {
@@ -736,45 +769,55 @@ namespace DataAnalysis_Assistant.Services.Agent
                     {
                         curTurnReasoning.Append(chunk.Text);
 
-                        string combinedReasoning = accumulatedReasoning.ToString();
-                        if (curTurnReasoning.Length > 0)
+                        var now = DateTime.UtcNow;
+                        if ((now - lastReportTime).TotalMilliseconds >= 80)
                         {
-                            combinedReasoning += (combinedReasoning.Length > 0 ? "\n" : "") + curTurnReasoning.ToString();
-                        }
+                            lastReportTime = now;
+                            string combinedReasoning = baseReasoning;
+                            if (curTurnReasoning.Length > 0)
+                            {
+                                combinedReasoning += (combinedReasoning.Length > 0 ? "\n" : "") + curTurnReasoning.ToString();
+                            }
 
-                        progress?.Report(new AgentProgressUpdate
-                        {
-                            CurrentIteration = iteration,
-                            MaxIterations = maxIterations,
-                            Phase = "thinking",
-                            StatusMessage = iteration == 1
-                                ? "正在拆解任务并规划分析路径..."
-                                : $"第 {iteration}/{maxIterations} 轮：正在评估工具执行结果并推导下一步...",
-                            IntermediateReasoning = combinedReasoning,
-                            IntermediateContent = curTurnContent.ToString(),
-                            GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts)
-                        });
+                            progress?.Report(new AgentProgressUpdate
+                            {
+                                CurrentIteration = iteration,
+                                MaxIterations = maxIterations,
+                                Phase = "thinking",
+                                StatusMessage = iteration == 1
+                                    ? "正在拆解任务并规划分析路径..."
+                                    : $"第 {iteration}/{maxIterations} 轮：正在评估工具执行结果并推导下一步...",
+                                IntermediateReasoning = combinedReasoning,
+                                IntermediateContent = curTurnContent.ToString(),
+                                GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts)
+                            });
+                        }
                     }
                     else if (chunk.Type == StreamChunkType.Content)
                     {
                         curTurnContent.Append(chunk.Text);
 
-                        string combinedReasoning = accumulatedReasoning.ToString();
-                        if (curTurnReasoning.Length > 0)
+                        var now = DateTime.UtcNow;
+                        if ((now - lastReportTime).TotalMilliseconds >= 80)
                         {
-                            combinedReasoning += (combinedReasoning.Length > 0 ? "\n" : "") + curTurnReasoning.ToString();
-                        }
+                            lastReportTime = now;
+                            string combinedReasoning = baseReasoning;
+                            if (curTurnReasoning.Length > 0)
+                            {
+                                combinedReasoning += (combinedReasoning.Length > 0 ? "\n" : "") + curTurnReasoning.ToString();
+                            }
 
-                        progress?.Report(new AgentProgressUpdate
-                        {
-                            CurrentIteration = iteration,
-                            MaxIterations = maxIterations,
-                            Phase = "streaming",
-                            StatusMessage = "正在生成回答与数据洞察...",
-                            IntermediateReasoning = combinedReasoning,
-                            IntermediateContent = curTurnContent.ToString(),
-                            GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts)
-                        });
+                            progress?.Report(new AgentProgressUpdate
+                            {
+                                CurrentIteration = iteration,
+                                MaxIterations = maxIterations,
+                                Phase = "streaming",
+                                StatusMessage = "正在生成回答与数据洞察...",
+                                IntermediateReasoning = combinedReasoning,
+                                IntermediateContent = curTurnContent.ToString(),
+                                GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts)
+                            });
+                        }
                     }
                     else if (chunk.Type == StreamChunkType.ToolCall && chunk.ToolCall != null)
                     {
@@ -782,12 +825,38 @@ namespace DataAnalysis_Assistant.Services.Agent
                     }
                 }
 
+                // 推流完成时，派发一次最终状态同步确保界面完整
+                string finalCombined = baseReasoning;
+                if (curTurnReasoning.Length > 0)
+                {
+                    finalCombined += (finalCombined.Length > 0 ? "\n" : "") + curTurnReasoning.ToString();
+                }
+                progress?.Report(new AgentProgressUpdate
+                {
+                    CurrentIteration = iteration,
+                    MaxIterations = maxIterations,
+                    Phase = toolCalls.Count > 0 ? "executing_tool" : "streaming",
+                    StatusMessage = toolCalls.Count > 0 ? $"第 {iteration}/{maxIterations} 轮：已发起工具调用决策..." : "正在完成数据洞察...",
+                    IntermediateReasoning = finalCombined,
+                    IntermediateContent = curTurnContent.ToString(),
+                    GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts)
+                });
+
                 streamSucceeded = true;
             }
-            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
-                // 若流式接口在部分特殊代理或本地模型上遇阻，静默降级回退至非流式请求保障可用性
+                // 若流式接口在部分特殊代理或本地模型上遇阻，记录警告并向用户上报降级状态
                 streamSucceeded = false;
+                progress?.Report(new AgentProgressUpdate
+                {
+                    CurrentIteration = iteration,
+                    MaxIterations = maxIterations,
+                    Phase = "warning",
+                    StatusMessage = $"[流式连接暂态波动] 检测到推流中断 ({ex.Message})，正在自动切换至阻塞请求以继续任务...",
+                    IntermediateReasoning = accumulatedReasoning.ToString(),
+                    GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts)
+                });
             }
 
             if (streamSucceeded)
@@ -822,28 +891,44 @@ namespace DataAnalysis_Assistant.Services.Agent
 
             if (!string.IsNullOrWhiteSpace(arguments))
             {
+                // 支持 savefig('xxx.png') 与 savefig(fname='xxx.png') 等多种显式调用形式
                 var match = System.Text.RegularExpressions.Regex.Match(
                     arguments,
-                    @"savefig\s*\(\s*['""]([^'""]+)['""]",
+                    @"savefig\s*\(\s*(?:fname\s*=\s*)?['""]([^'""]+)['""]",
                     System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
                 if (match.Success)
                 {
                     raw = match.Groups[1].Value.Trim();
                 }
-                else if (!string.IsNullOrEmpty(mirror))
+            }
+
+            // 若代码中未能通过首参字面量直接正则命中（如使用变量或 Path 拼接），且系统捕获到了镜像产物，
+            // 则从镜像文件名契约（{stem}_{timestamp}_{hex6}{ext}）进行逆向精准无损还原原始文件名
+            if (string.IsNullOrEmpty(raw) && !string.IsNullOrEmpty(mirror))
+            {
+                string fname = Path.GetFileName(mirror);
+                int lastDot = fname.LastIndexOf('.');
+                if (lastDot > 0)
                 {
-                    string fname = Path.GetFileName(mirror);
-                    int firstUnderscore = fname.IndexOf('_');
-                    int lastDot = fname.LastIndexOf('.');
-                    if (firstUnderscore > 0 && lastDot > firstUnderscore)
+                    string nameNoExt = fname[..lastDot];
+                    string ext = fname[lastDot..];
+
+                    // 镜像名尾部为 _{timestamp}_{hex6}，向前寻找倒数第一个（hex6前）与倒数第二个（timestamp前）下划线
+                    int lastUnder = nameNoExt.LastIndexOf('_');
+                    if (lastUnder > 0)
                     {
-                        raw = fname.Substring(0, firstUnderscore) + fname.Substring(lastDot);
+                        int secondLastUnder = nameNoExt.LastIndexOf('_', lastUnder - 1);
+                        if (secondLastUnder > 0)
+                        {
+                            raw = nameNoExt[..secondLastUnder] + ext;
+                        }
                     }
-                    else
-                    {
-                        raw = fname;
-                    }
+                }
+
+                if (string.IsNullOrEmpty(raw))
+                {
+                    raw = fname;
                 }
             }
 

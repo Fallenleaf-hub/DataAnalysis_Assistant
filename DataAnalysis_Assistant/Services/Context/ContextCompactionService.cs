@@ -220,7 +220,7 @@ namespace DataAnalysis_Assistant.Services.Context
             return stripped;
         }
 
-        private static string SummarizeText(string text, int maxLen = 120)
+        public static string SummarizeText(string text, int maxLen = 120)
         {
             if (string.IsNullOrWhiteSpace(text)) return string.Empty;
             string singleLine = Regex.Replace(text, @"\s+", " ").Trim();

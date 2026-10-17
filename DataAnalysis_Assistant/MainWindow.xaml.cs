@@ -500,11 +500,11 @@ namespace DataAnalysis_Assistant
                     normPath = plot.FilePath;
                 }
 
-                // 统一安全过滤：若图片位于 scratch 体系内，必须位于 agent_sandbox 目录下（带唯一编号），杜绝根目录无编号临时图入画廊
+                // 统一安全过滤：若图片位于 scratch 体系内，必须严格位于 agent_sandbox 目录下（带唯一编号），杜绝根目录无编号临时图入画廊
                 string scratchDir = PythonExecutionService.LocateOrInitScratchDirectory();
-                string sandboxDir = Path.Combine(scratchDir, "agent_sandbox");
-                if (normPath.StartsWith(scratchDir, StringComparison.OrdinalIgnoreCase) &&
-                    !normPath.StartsWith(sandboxDir, StringComparison.OrdinalIgnoreCase))
+                string scratchPrefix = scratchDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                if (normPath.StartsWith(scratchPrefix, StringComparison.OrdinalIgnoreCase) &&
+                    !PythonExecutionService.IsInSandboxDirectory(normPath))
                 {
                     return;
                 }
@@ -875,100 +875,7 @@ fig.tight_layout()
             }
         }
 
-        /// <summary>
-        /// 智能探查 AI 回答中包含的 Python 绘图代码并受控执行，捕获生成的图表呈现至消息卡片与看板
-        /// </summary>
-        private async Task TryExecutePythonPlotsAsync(ChatMessageItem assistantMessage, string responseContent, CancellationToken cancellationToken)
-        {
-            if (string.IsNullOrWhiteSpace(responseContent)) return;
 
-            // 匹配 ```python 或 ```py 代码块
-            var codeBlocks = ExtractPythonCodeBlocks(responseContent);
-            if (codeBlocks.Count == 0) return;
-
-            foreach (var code in codeBlocks)
-            {
-                if (cancellationToken.IsCancellationRequested) break;
-
-                // 检查是否包含绘图特征 (plt, matplotlib, seaborn, barplot, savefig 等)
-                bool isPlottingCode = code.Contains("plt.") ||
-                                      code.Contains("matplotlib") ||
-                                      code.Contains("savefig") ||
-                                      code.Contains(".plot(") ||
-                                      code.Contains("seaborn");
-
-                if (!isPlottingCode) continue;
-
-                try
-                {
-                    var execOptions = new PythonExecutionOptions
-                    {
-                        TimeoutSeconds = Math.Max(60, _settings.PythonTimeoutSeconds)
-                    };
-                    var result = await _pythonExecService.ExecuteCodeAsync(code, _settings.PythonPath, options: execOptions, cancellationToken: cancellationToken);
-                    if (result.Success && result.GeneratedArtifacts.Count > 0)
-                    {
-                        string scratchDir = PythonExecutionService.LocateOrInitScratchDirectory();
-                        string sandboxDir = Path.Combine(scratchDir, "agent_sandbox");
-                        foreach (var artifact in result.GeneratedArtifacts)
-                        {
-                            string normArt;
-                            try { normArt = Path.GetFullPath(artifact); }
-                            catch { normArt = artifact; }
-
-                            if (normArt.StartsWith(scratchDir, StringComparison.OrdinalIgnoreCase) &&
-                                !normArt.StartsWith(sandboxDir, StringComparison.OrdinalIgnoreCase))
-                            {
-                                continue;
-                            }
-
-                            string ext = Path.GetExtension(normArt).ToLowerInvariant();
-                            if (ext is ".png" or ".jpg" or ".jpeg" or ".svg")
-                            {
-                                var plotItem = new ChartArtifactItem
-                                {
-                                    FilePath = normArt,
-                                    Title = "数据分析结果图",
-                                    CreatedAt = DateTime.Now
-                                };
-
-                                DispatcherQueue.TryEnqueue(() =>
-                                {
-                                    assistantMessage.GeneratedPlots.Add(plotItem);
-                                    AddPlotToGallery(plotItem, switchToVis: false);
-                                });
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"[TryExecutePythonPlotsAsync] 执行失败: {ex.Message}");
-                }
-            }
-        }
-
-        private static List<string> ExtractPythonCodeBlocks(string markdown)
-        {
-            var list = new List<string>();
-            var matches = System.Text.RegularExpressions.Regex.Matches(
-                markdown,
-                @"```(?:python|py)\s*([\s\S]*?)```",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-            foreach (System.Text.RegularExpressions.Match match in matches)
-            {
-                if (match.Groups.Count > 1)
-                {
-                    string block = match.Groups[1].Value.Trim();
-                    if (!string.IsNullOrEmpty(block))
-                    {
-                        list.Add(block);
-                    }
-                }
-            }
-            return list;
-        }
 
         #endregion
 
@@ -2712,7 +2619,7 @@ def analyze_document_metrics(file_path: str):
                 {
                     string content = msg.Content ?? string.Empty;
 
-                    // 针对历史不同任务批次进行上下文动态净化：
+                    // 针对历史不同任务批次进行上下文动态净化 (PRD 4(3) 规范：上一批次调试日志与 Traceback 进修剪区)：
                     // 若属于过去的 AgentTaskId / TaskSequenceNumber，确保保留核心研报与结论，同时补充已生成图表的事实记录，杜绝遗漏已有成果
                     bool isPastTask = (!string.IsNullOrEmpty(msg.AgentTaskId) && msg.AgentTaskId != currentAgentTaskId) ||
                                       (msg.TaskSequenceNumber > 0 && msg.TaskSequenceNumber < currentTaskSeq);
@@ -2727,9 +2634,16 @@ def analyze_document_metrics(file_path: str):
                                 content = $"{content}\n\n> 📊 **[已生成图表产物记录]**：已成功在本地渲染生成 {plotSummary}。后续分析应以此为基础推进，无需重复绘图。";
                             }
                         }
+
+                        // 核心净化规则：若过往批次已具备完整业务研报正文，直接以研报正文作为上下文，彻底剪除中间几十轮调试与中间日志
+                        if (!string.IsNullOrWhiteSpace(content))
+                        {
+                            historyTurns.Add(new ChatTurn { Role = "assistant", Content = content });
+                            continue;
+                        }
                     }
 
-                    // 协议标准重建：若历史消息包含结构化 ToolCalls 记录，完整还原 assistant(tool_calls) 与 tool 回合对
+                    // 协议标准重建：当前批次内或过往未产出研报的消息，若包含 ToolCalls，按 OpenAI 协议配对还原
                     if (msg.ToolCalls != null && msg.ToolCalls.Count > 0)
                     {
                         // 1. 还原 assistant 发起的标准 tool_calls 决策回合
@@ -2756,11 +2670,23 @@ def analyze_document_metrics(file_path: str):
                         {
                             var tc = msg.ToolCalls[i];
                             string callId = toolCallItems[i].Id;
+                            string toolOutput = tc.Output ?? string.Empty;
+
+                            if (isPastTask && toolOutput.Length > 300)
+                            {
+                                // 历史未结任务的超长中间输出截断为前 300 字符摘要
+                                toolOutput = toolOutput[..300] + "...\n[历史过往日志已折叠]";
+                            }
+                            else if (string.IsNullOrWhiteSpace(toolOutput))
+                            {
+                                toolOutput = "工具执行完成。";
+                            }
+
                             historyTurns.Add(new ChatTurn
                             {
                                 Role = "tool",
                                 ToolCallId = callId,
-                                Content = string.IsNullOrWhiteSpace(tc.Output) ? "工具执行完成。" : tc.Output
+                                Content = toolOutput
                             });
                         }
 
@@ -2806,16 +2732,13 @@ def analyze_document_metrics(file_path: str):
                     // 实时同步挂接新生成的图表产物至消息气泡与画廊 (全量标准化去重，严格限制在 agent_sandbox)
                     if (update.GeneratedArtifactsSoFar.Count > 0)
                     {
-                        string scratchDir = PythonExecutionService.LocateOrInitScratchDirectory();
-                        string sandboxDir = Path.Combine(scratchDir, "agent_sandbox");
                         foreach (var artPath in update.GeneratedArtifactsSoFar)
                         {
                             string normArt;
                             try { normArt = Path.GetFullPath(artPath); }
                             catch { normArt = artPath; }
 
-                            if (normArt.StartsWith(scratchDir, StringComparison.OrdinalIgnoreCase) &&
-                                !normArt.StartsWith(sandboxDir, StringComparison.OrdinalIgnoreCase))
+                            if (!PythonExecutionService.IsInSandboxDirectory(normArt))
                             {
                                 continue;
                             }
@@ -2921,16 +2844,13 @@ def analyze_document_metrics(file_path: str):
                         // 补充挂接所有产物图表（严格限定在 agent_sandbox 目录）
                         if (loopResult.GeneratedArtifactPaths.Count > 0)
                         {
-                            string scratchDir = PythonExecutionService.LocateOrInitScratchDirectory();
-                            string sandboxDir = Path.Combine(scratchDir, "agent_sandbox");
                             foreach (var artPath in loopResult.GeneratedArtifactPaths)
                             {
                                 string normArt;
                                 try { normArt = Path.GetFullPath(artPath); }
                                 catch { normArt = artPath; }
 
-                                if (normArt.StartsWith(scratchDir, StringComparison.OrdinalIgnoreCase) &&
-                                    !normArt.StartsWith(sandboxDir, StringComparison.OrdinalIgnoreCase))
+                                if (!PythonExecutionService.IsInSandboxDirectory(normArt))
                                 {
                                     continue;
                                 }
@@ -2963,23 +2883,24 @@ def analyze_document_metrics(file_path: str):
                 });
 
                 // 核心同步闸门：等待 UI 队列完成数据绑定与图表挂接，设置 2 秒安全超时防止 UI 队列死锁
-                await Task.WhenAny(uiUpdateTcs.Task, Task.Delay(2000));
-
-                // 实体保底同步：在后台 Task 线程上直接确保关键数据字段 100% 写入实体，彻底消除写盘竞态覆盖！
-                assistantMessage.TerminationReason = loopResult.TerminationReason;
-                if (loopResult.ExecutedToolCalls != null && loopResult.ExecutedToolCalls.Count > 0)
+                using var delayCts = new CancellationTokenSource();
+                var completedTask = await Task.WhenAny(uiUpdateTcs.Task, Task.Delay(2000, delayCts.Token));
+                if (completedTask == uiUpdateTcs.Task)
                 {
-                    assistantMessage.ToolCalls = new List<ToolCallRecordItem>(loopResult.ExecutedToolCalls);
+                    delayCts.Cancel();
                 }
-                if (assistantMessage.ThinkingSeconds <= 0 && totalThinkingTime > 0)
+                else
                 {
-                    assistantMessage.ThinkingSeconds = totalThinkingTime;
-                }
-
-                // 兜底图表捕获：若最终文本中仍然包含 Python 绘图代码块，继续受控执行
-                if (loopResult.Success && !string.IsNullOrWhiteSpace(loopResult.FinalContent) && !cancellationToken.IsCancellationRequested)
-                {
-                    await TryExecutePythonPlotsAsync(assistantMessage, loopResult.FinalContent, cancellationToken);
+                    // 实体保底同步：UI 队列繁忙或未在 2 秒内响应时，在后台 Task 线程直接确保关键数据字段写入实体
+                    assistantMessage.TerminationReason = loopResult.TerminationReason;
+                    if (loopResult.ExecutedToolCalls != null && loopResult.ExecutedToolCalls.Count > 0)
+                    {
+                        assistantMessage.ToolCalls = new List<ToolCallRecordItem>(loopResult.ExecutedToolCalls);
+                    }
+                    if (assistantMessage.ThinkingSeconds <= 0 && totalThinkingTime > 0)
+                    {
+                        assistantMessage.ThinkingSeconds = totalThinkingTime;
+                    }
                 }
             }
             catch (OperationCanceledException)
@@ -3074,14 +2995,6 @@ def analyze_document_metrics(file_path: str):
             {
                 // 过滤开篇演示欢迎消息，仅收容真实用户问答与产物
                 var realMessages = ChatMessages.Where(m => !m.Content.Contains("欢迎使用 AI 数据分析与文档伴读看板")).ToList();
-                foreach (var m in realMessages)
-                {
-                    m.IsThinking = false;
-                    if (!_isChatGenerating)
-                    {
-                        m.IsReasoningExpanded = false;
-                    }
-                }
                 _currentSession.Messages = realMessages;
                 _currentSession.LastActiveAt = DateTime.Now;
 
@@ -4079,10 +3992,10 @@ def analyze_document_metrics(file_path: str):
                     if (msg.GeneratedPlots != null && msg.GeneratedPlots.Count > 0)
                     {
                         string scratchDir = PythonExecutionService.LocateOrInitScratchDirectory();
-                        string sandboxDir = Path.Combine(scratchDir, "agent_sandbox");
+                        string scratchPrefix = scratchDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
                         var invalidPlots = msg.GeneratedPlots.Where(p =>
-                            (p.FilePath.StartsWith(scratchDir, StringComparison.OrdinalIgnoreCase) &&
-                            !p.FilePath.StartsWith(sandboxDir, StringComparison.OrdinalIgnoreCase)) ||
+                            (p.FilePath.StartsWith(scratchPrefix, StringComparison.OrdinalIgnoreCase) &&
+                            !PythonExecutionService.IsInSandboxDirectory(p.FilePath)) ||
                             System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileNameWithoutExtension(p.FilePath), @"^chart_\d{10,}_\d+$")).ToList();
                         foreach (var inv in invalidPlots)
                         {

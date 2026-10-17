@@ -108,8 +108,8 @@ namespace DataAnalysis_Assistant.Services.Tools
                 // (后续在 AgentRuntime 主循环中可在此处挂起并触发 UI 审批弹窗)
             }
 
-            // 2. 调用受控执行引擎执行（支持 heavy_work 扩展超时，硬上限锁死 120s；向下兼容 60s 基准保底）
-            int baseTimeout = Math.Max(60, settings.PythonTimeoutSeconds > 0 ? settings.PythonTimeoutSeconds : 60);
+            // 2. 调用受控执行引擎执行（支持 30~120s 用户配置，支持 heavy_work 扩展超时）
+            int baseTimeout = settings.PythonTimeoutSeconds >= 30 ? settings.PythonTimeoutSeconds : 60;
             int effectiveTimeout = isHeavyWork ? Math.Min(120, Math.Max(baseTimeout, 90)) : baseTimeout;
 
             var options = new PythonExecutionOptions

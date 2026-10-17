@@ -52,15 +52,14 @@ namespace DataAnalysis_Assistant.Services.Python
 
             // 2. 准备执行沙盒与产物收容目录 (遵循 scratch 隔离纪律，统一收容至 AppData/scratch)
             string scratchDir = LocateOrInitScratchDirectory();
-            string sandboxDir = Path.Combine(scratchDir, "agent_sandbox");
-            Directory.CreateDirectory(sandboxDir);
+            string sandboxDir = LocateOrInitSandboxDirectory();
 
             string scriptFileName = $"agent_exec_{Guid.NewGuid():N}.py";
             string scriptFilePath = Path.Combine(sandboxDir, scriptFileName);
 
-            // 3. 记录执行前 agent_sandbox 与 scratch 根目录内的已有图表文件，以便精确捕捉新生成的图表资产 (全量路径标准化)
+            // 3. 记录执行前 agent_sandbox 与 scratch 根目录内的已有图表文件，以便精确捕捉新生成的图表资产 (全量路径标准化，仅限顶层扫描)
             var existingFiles = new HashSet<string>(
-                Directory.GetFiles(sandboxDir, "*.*", SearchOption.AllDirectories).Select(Path.GetFullPath),
+                Directory.GetFiles(sandboxDir, "*.*", SearchOption.TopDirectoryOnly).Select(Path.GetFullPath),
                 StringComparer.OrdinalIgnoreCase);
 
             var existingScratchRootFiles = new HashSet<string>(
@@ -122,7 +121,8 @@ namespace DataAnalysis_Assistant.Services.Python
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
 
-                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(60, options.TimeoutSeconds)));
+                int effectiveTimeoutSeconds = Math.Max(30, options.TimeoutSeconds);
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(effectiveTimeoutSeconds));
                 using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
                 try
@@ -155,7 +155,7 @@ namespace DataAnalysis_Assistant.Services.Python
                             : "若涉及多文件批处理或大数据高密渲染，请在 run_python 参数中声明 heavy_work=true 或在设置中延长超时时间。";
 
                         return ToolExecutionResult.CreateFailure(
-                            $"[ERR_TYPE:Timeout] 代码执行超时（超过限制 {options.TimeoutSeconds} 秒）。{heavyHint}",
+                            $"[ERR_TYPE:Timeout] 代码执行超时（超过限制 {effectiveTimeoutSeconds} 秒）。{heavyHint}",
                             TruncateOutput(stdoutBuilder.ToString(), options));
                     }
 
@@ -187,9 +187,9 @@ namespace DataAnalysis_Assistant.Services.Python
                 try
                 {
                     string fullPath = Path.GetFullPath(rawPath);
-                    // 关键约束：必须存在物理文件、必须位于 agent_sandbox 目录下、且不重复
+                    // 关键约束：必须存在物理文件、必须严格位于 agent_sandbox 目录下、且不重复
                     if (File.Exists(fullPath) &&
-                        fullPath.StartsWith(sandboxDir, StringComparison.OrdinalIgnoreCase) &&
+                        IsInSandboxDirectory(fullPath) &&
                         seenArtifacts.Add(fullPath))
                     {
                         generatedArtifacts.Add(fullPath);
@@ -202,8 +202,8 @@ namespace DataAnalysis_Assistant.Services.Python
 
             try
             {
-                // 仅扫描 agent_sandbox 目录，彻底忽略 scratch 根目录下的无编号原图
-                var currentFiles = Directory.GetFiles(sandboxDir, "*.*", SearchOption.AllDirectories);
+                // 仅扫描 agent_sandbox 目录顶层（消除递归遍历整棵树的累积开销），彻底忽略 scratch 根目录下的无编号原图
+                var currentFiles = Directory.GetFiles(sandboxDir, "*.*", SearchOption.TopDirectoryOnly);
                 foreach (var file in currentFiles)
                 {
                     string fullPath = Path.GetFullPath(file);
@@ -257,7 +257,8 @@ namespace DataAnalysis_Assistant.Services.Python
                         if (ext is ".png" or ".jpg" or ".jpeg" or ".svg" or ".pdf" or ".csv" or ".xlsx" or ".html")
                         {
                             string rawName = Path.GetFileNameWithoutExtension(fullPath);
-                            string uniqueName = $"{rawName}_{DateTimeOffset.Now.ToUnixTimeSeconds()}_{Guid.NewGuid():N.Substring(0, 6)}{ext}";
+                            string hex6 = Guid.NewGuid().ToString("N")[..6];
+                            string uniqueName = $"{rawName}_{DateTimeOffset.Now.ToUnixTimeSeconds()}_{hex6}{ext}";
                             string mirrorPath = Path.Combine(sandboxDir, uniqueName);
                             try
                             {
@@ -294,6 +295,18 @@ namespace DataAnalysis_Assistant.Services.Python
 
             // 6. 执行上下文截断保护 (Compaction Gate: 防止 10 万行 print 打爆 Token)
             string safeStdout = TruncateOutput(rawStdout, options);
+
+            // 7. 清理临时执行脚本，严格遵循工作区与沙盒隔离及卫生纪律
+            try
+            {
+                if (File.Exists(scriptFilePath))
+                {
+                    File.Delete(scriptFilePath);
+                }
+            }
+            catch
+            {
+            }
 
             if (exitCode == 0)
             {
@@ -379,6 +392,36 @@ namespace DataAnalysis_Assistant.Services.Python
         }
 
         /// <summary>
+        /// 定位或初始化 agent_sandbox 目录（即 scratch/agent_sandbox）
+        /// </summary>
+        public static string LocateOrInitSandboxDirectory()
+        {
+            string scratchDir = LocateOrInitScratchDirectory();
+            string sandboxDir = Path.Combine(scratchDir, "agent_sandbox");
+            Directory.CreateDirectory(sandboxDir);
+            return sandboxDir;
+        }
+
+        /// <summary>
+        /// 严格校验给定文件路径是否位于 agent_sandbox 目录内（杜绝 scratch 根目录无编号临时文件或外部路径）
+        /// </summary>
+        public static bool IsInSandboxDirectory(string? filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath)) return false;
+            try
+            {
+                string fullPath = Path.GetFullPath(filePath);
+                string sandboxDir = Path.GetFullPath(LocateOrInitSandboxDirectory());
+                string sandboxPrefix = sandboxDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                return fullPath.StartsWith(sandboxPrefix, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// 预处理 Python 执行脚本：自动注入中文字体防乱码补丁、Agg离线后端阻断阻塞式 plt.show()，并自动拦截 savefig 镜像及兜底导出未保存的 Figure
         /// </summary>
         public static string PreprocessPythonCode(string rawCode, string outputPlotDir)
@@ -386,8 +429,25 @@ namespace DataAnalysis_Assistant.Services.Python
             var sb = new StringBuilder();
             string safePlotDir = outputPlotDir.Replace("\\", "/");
 
-            // 1. 顶部无感知注入 Matplotlib 中文适配、show 屏蔽钩子与 Universal savefig Monkey-Patch
+            // 1. 顶部无感知注入结构化异常钩子 (精确产出 ERR_TYPE 结构化标记)
             sb.AppendLine("# === [DataAnalysis_Assistant Auto Plot & Font Header] ===");
+            sb.AppendLine("import sys");
+            sb.AppendLine("def _data_analysis_excepthook(exctype, value, tb):");
+            sb.AppendLine("    try:");
+            sb.AppendLine("        if issubclass(exctype, FileNotFoundError):");
+            sb.AppendLine("            sys.stderr.write('\\n[ERR_TYPE:FileNotFound]\\n')");
+            sb.AppendLine("        elif issubclass(exctype, (SyntaxError, IndentationError)):");
+            sb.AppendLine("            sys.stderr.write('\\n[ERR_TYPE:SyntaxError]\\n')");
+            sb.AppendLine("        elif issubclass(exctype, ModuleNotFoundError):");
+            sb.AppendLine("            sys.stderr.write('\\n[ERR_TYPE:ModuleNotFound]\\n')");
+            sb.AppendLine("        elif issubclass(exctype, KeyError):");
+            sb.AppendLine("            sys.stderr.write('\\n[ERR_TYPE:KeyError]\\n')");
+            sb.AppendLine("    except Exception:");
+            sb.AppendLine("        pass");
+            sb.AppendLine("    sys.__excepthook__(exctype, value, tb)");
+            sb.AppendLine("sys.excepthook = _data_analysis_excepthook");
+            sb.AppendLine();
+            sb.AppendLine("# 基础离线绘图环境与中文字体配置 (高优先级独立保护)");
             sb.AppendLine("try:");
             sb.AppendLine("    import matplotlib");
             sb.AppendLine("    matplotlib.use('Agg')  # 强制无 GUI 离线渲染后端，彻底避免弹窗阻塞卡死");
@@ -396,10 +456,14 @@ namespace DataAnalysis_Assistant.Services.Python
             sb.AppendLine("    plt.rcParams['axes.unicode_minus'] = False");
             sb.AppendLine("    _orig_show = plt.show");
             sb.AppendLine("    plt.show = lambda *args, **kwargs: None");
-            sb.AppendLine("    import os, shutil, uuid, time, sys");
-            sb.AppendLine($"    _target_scratch = r'{safePlotDir}'");
+            sb.AppendLine("except Exception:");
+            sb.AppendLine("    pass");
+            sb.AppendLine();
+            sb.AppendLine("# 图表产物自动镜像捕获代理");
+            sb.AppendLine("try:");
+            sb.AppendLine("    import os, shutil, uuid, time, matplotlib.figure");
+            sb.AppendLine($"    _target_scratch = r\"\"\"{safePlotDir}\"\"\"");
             sb.AppendLine("    os.makedirs(_target_scratch, exist_ok=True)");
-            sb.AppendLine("    import matplotlib.figure");
             sb.AppendLine("    _orig_fig_savefig = matplotlib.figure.Figure.savefig");
             sb.AppendLine("    _orig_plt_savefig = plt.savefig");
             sb.AppendLine("    _in_savefig_interceptor = False");
@@ -446,10 +510,6 @@ namespace DataAnalysis_Assistant.Services.Python
             sb.AppendLine("            if not was_in:");
             sb.AppendLine("                fname = args[0] if len(args) > 0 else kwargs.get('fname', None)");
             sb.AppendLine("                _do_mirror_artifact(fname)");
-            sb.AppendLine("            try:");
-            sb.AppendLine("                plt.close('all')");
-            sb.AppendLine("            except Exception:");
-            sb.AppendLine("                pass");
             sb.AppendLine("            return res");
             sb.AppendLine("        finally:");
             sb.AppendLine("            _in_savefig_interceptor = was_in");
