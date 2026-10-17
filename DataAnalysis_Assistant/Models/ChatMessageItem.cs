@@ -257,6 +257,11 @@ namespace DataAnalysis_Assistant.Models
         public string? AgentTaskId { get; set; }
 
         /// <summary>
+        /// 会话级别的单调递增任务序号（用于追问净化与最新任务判定，默认为 0）
+        /// </summary>
+        public int TaskSequenceNumber { get; set; } = 0;
+
+        /// <summary>
         /// 结构化 Agent 终止原因（默认为 None）
         /// </summary>
         public AgentTerminationReason TerminationReason { get; set; } = AgentTerminationReason.None;

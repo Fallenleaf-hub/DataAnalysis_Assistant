@@ -217,8 +217,6 @@ namespace DataAnalysis_Assistant.Services.Agent
                         string fnName = tc.Function.Name;
                         string fnArgs = tc.Function.Arguments;
 
-                        accumulatedReasoning.AppendLine($"\n> 🛠️ **[Agent 工具决策]** 轮次 {iteration}/{maxIterations}：调用 `{fnName}`");
-
                         progress?.Report(new AgentProgressUpdate
                         {
                             CurrentIteration = iteration,
@@ -269,41 +267,52 @@ namespace DataAnalysis_Assistant.Services.Agent
                             string truncatedErr = TruncateErrorForPrompt(execResult.ErrorMessage);
                             failedToolSummaries.Add($"[{fnName}] {truncatedErr}");
 
-                            bool isNonRetryable = IsNonRetryableError(execResult.ErrorMessage);
-                            if (isNonRetryable)
+                            if (IsNonRetryableError(execResult.ErrorMessage))
                             {
-                                accumulatedReasoning.AppendLine($"> ⚠️ **[工具执行异常 · 语法/路径硬伤]**：{execResult.ErrorMessage} (不可重试，已记录未决项)");
+                                consecutiveFailures++;
+                            }
+                        }
+
+                        // 格式化工具输出并回填至上下文 (包含保真事实标记与产物接管确认)
+                        string toolResultContent;
+                        if (execResult.Success)
+                        {
+                            string baseOutput = string.IsNullOrWhiteSpace(execResult.Output) ? "工具执行成功，但无文本输出。" : execResult.Output;
+                            if (execResult.GeneratedArtifacts.Count > 0)
+                            {
+                                string artList = string.Join(", ", execResult.GeneratedArtifacts.Select(Path.GetFileName));
+                                toolResultContent = $"{baseOutput}\n\n[ARTIFACT_CONFIRMED]: 分析图表 ({artList}) 已成功生成并由系统前端画廊与卡片安全接管展示。该可视化目标已 100% 达成，严禁因微小排版偏好推翻重绘相同图表，请直接结合已有图表成果与计算指标撰写最终研报结论。";
                             }
                             else
                             {
-                                accumulatedReasoning.AppendLine($"> ⚠️ **[工具执行异常]**：{execResult.ErrorMessage} (触发受控反思自愈)");
+                                toolResultContent = baseOutput;
                             }
                         }
                         else
                         {
-                            string artNote = execResult.GeneratedArtifacts.Count > 0 ? $" (生成 {execResult.GeneratedArtifacts.Count} 幅图表)" : string.Empty;
-                            accumulatedReasoning.AppendLine($"> ✅ **[工具执行成功]**{artNote}");
+                            toolResultContent = $"[工具执行异常 Traceback/Error]\n{execResult.ErrorMessage}\n部分输出: {execResult.Output}\n提示：请结合报错信息自主反思代码或参数问题，修正后再次尝试。";
                         }
 
-                        // 格式化工具输出并回填至上下文 (包含保真事实标记)
-                        string toolResultContent = execResult.Success
-                            ? (string.IsNullOrWhiteSpace(execResult.Output) ? "工具执行成功，但无文本输出。" : execResult.Output)
-                            : $"[工具执行异常 Traceback/Error]\n{execResult.ErrorMessage}\n部分输出: {execResult.Output}\n提示：请结合报错信息自主反思代码或参数问题，修正后再次尝试。";
+                        string effectiveCallId = string.IsNullOrWhiteSpace(tc.Id) ? $"call_{Guid.NewGuid():N}" : tc.Id;
 
                         loopHistory.Add(new ChatTurn
                         {
                             Role = "tool",
-                            ToolCallId = tc.Id,
+                            ToolCallId = effectiveCallId,
                             Content = toolResultContent
                         });
 
-                        // 结构化落盘记录
+                        var (rawPath, mirrorPath) = ExtractPathInfo(fnName, fnArgs, execResult.GeneratedArtifacts);
+
+                        // 结构化落盘记录 (完整承载协议ID、原始路径与沙盒镜像路径)
                         executedToolCalls.Add(new ToolCallRecordItem
                         {
-                            CallId = tc.Id,
+                            CallId = effectiveCallId,
                             ToolName = fnName,
                             Arguments = fnArgs,
                             Output = execResult.Output,
+                            RawOutputPath = rawPath,
+                            MirroredPath = mirrorPath,
                             Success = execResult.Success,
                             ArtifactPaths = new List<string>(execResult.GeneratedArtifacts),
                             Timestamp = DateTime.Now
@@ -328,7 +337,6 @@ namespace DataAnalysis_Assistant.Services.Agent
                     if (anyToolFailed)
                     {
                         consecutiveFailures++;
-                        accumulatedReasoning.AppendLine($"> 🔄 **[自主反思中]** 正在调整代码与参数并规划自愈路径 (失败重试 {consecutiveFailures}/{MaxConsecutiveFailures})...");
 
                         progress?.Report(new AgentProgressUpdate
                         {
@@ -402,11 +410,13 @@ namespace DataAnalysis_Assistant.Services.Agent
                         GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts)
                     });
 
+                    string cleanedContent = SanitizeMarkdownImageLinks(response.Content);
+
                     return new AgentLoopResult
                     {
                         Success = true,
                         TerminationReason = AgentTerminationReason.NormalCompleted,
-                        FinalContent = response.Content,
+                        FinalContent = cleanedContent,
                         ReasoningContent = accumulatedReasoning.ToString(),
                         TotalIterations = iteration,
                         GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
@@ -576,7 +586,7 @@ namespace DataAnalysis_Assistant.Services.Agent
                 accumulatedReasoning.Append(finalResponse.ReasoningContent);
             }
 
-            string finalMarkdown = finalResponse.Content;
+            string finalMarkdown = SanitizeMarkdownImageLinks(finalResponse.Content);
             if (string.IsNullOrWhiteSpace(finalMarkdown))
             {
                 finalMarkdown = $"### 📊 业务数据分析综合研报\n\n本次多步分析推导已全部完成（共执行 {iteration} 轮 Agent 决策）。\n系统已全量采集并挂接 **{allGeneratedArtifacts.Count}** 组图表成果至右侧画廊与卡片，所有指标与明细已在上方计算完毕，请结合图表展开决策。";
@@ -628,7 +638,8 @@ namespace DataAnalysis_Assistant.Services.Agent
                 {
                     sb.AppendLine($"3. 结合已成功生成的 {generatedArtifacts.Count} 组图表成果进行深入业务解读与决策建议；");
                 }
-                sb.AppendLine("4. 对上述遇到异常或超时的未决项，如实向用户客观说明困难并给出后续建议。");
+                sb.AppendLine("4. 对上述遇到异常或超时的未决项，如实向用户客观说明困难并给出后续建议；");
+                sb.AppendLine("5. 严禁在 Markdown 正文中输出形如 ![...](xxx.png) 的相对路径图片语法（所有生成图表已由前端系统画廊与卡片高清呈现，正文引用相对路径会导致裂图）。");
             }
             else
             {
@@ -637,8 +648,9 @@ namespace DataAnalysis_Assistant.Services.Agent
                 sb.AppendLine("2. 汇总整理全部分析成果，呈现计算出的 Ground-Truth 核心指标；");
                 if (generatedArtifacts.Count > 0)
                 {
-                    sb.AppendLine($"3. 结合已成功生成的全部分析图表进行深入洞察与结论阐述。");
+                    sb.AppendLine($"3. 结合已成功生成的全部分析图表进行深入洞察与结论阐述；");
                 }
+                sb.AppendLine("4. 严禁在 Markdown 正文中输出形如 ![...](xxx.png) 的相对路径图片语法（所有生成图表已由前端系统画廊与卡片高清呈现，正文引用相对路径会导致裂图）。");
             }
             return sb.ToString();
         }
@@ -798,6 +810,64 @@ namespace DataAnalysis_Assistant.Services.Agent
                 toolChoice: toolChoice,
                 activeSkillInstruction: activeSkillInstruction,
                 cancellationToken: cancellationToken);
+        }
+
+        /// <summary>
+        /// 提取模型代码尝试写入的原始路径与沙盒镜像路径
+        /// </summary>
+        private static (string? rawPath, string? mirrorPath) ExtractPathInfo(string toolName, string arguments, List<string> artifacts)
+        {
+            string? mirror = artifacts != null && artifacts.Count > 0 ? artifacts[0] : null;
+            string? raw = null;
+
+            if (!string.IsNullOrWhiteSpace(arguments))
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(
+                    arguments,
+                    @"savefig\s*\(\s*['""]([^'""]+)['""]",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                if (match.Success)
+                {
+                    raw = match.Groups[1].Value.Trim();
+                }
+                else if (!string.IsNullOrEmpty(mirror))
+                {
+                    string fname = Path.GetFileName(mirror);
+                    int firstUnderscore = fname.IndexOf('_');
+                    int lastDot = fname.LastIndexOf('.');
+                    if (firstUnderscore > 0 && lastDot > firstUnderscore)
+                    {
+                        raw = fname.Substring(0, firstUnderscore) + fname.Substring(lastDot);
+                    }
+                    else
+                    {
+                        raw = fname;
+                    }
+                }
+            }
+
+            return (raw, mirror);
+        }
+
+        /// <summary>
+        /// 清洗正文中大模型可能误用的本地相对路径图片引用语法，杜绝前端 Markdown 裂图
+        /// </summary>
+        private static string SanitizeMarkdownImageLinks(string? markdown)
+        {
+            if (string.IsNullOrWhiteSpace(markdown)) return string.Empty;
+
+            // 匹配 ! [alt](path) 且 path 不是 http/https/data 开头的相对路径图片
+            return System.Text.RegularExpressions.Regex.Replace(
+                markdown,
+                @"!\[([^\]]*)\]\((?!(?:https?:\/\/|\/|data:))([^\)]+)\)",
+                match =>
+                {
+                    string altText = match.Groups[1].Value.Trim();
+                    string fileName = Path.GetFileName(match.Groups[2].Value.Trim());
+                    string label = string.IsNullOrEmpty(altText) ? fileName : $"{altText} ({fileName})";
+                    return $"> 📊 **[可视化图表：{label}]** *(已由系统自动挂载至上方消息卡片与右侧画廊，请查阅对应高清图件)*";
+                });
         }
     }
 }

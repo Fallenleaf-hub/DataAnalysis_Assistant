@@ -58,9 +58,13 @@ namespace DataAnalysis_Assistant.Services.Python
             string scriptFileName = $"agent_exec_{Guid.NewGuid():N}.py";
             string scriptFilePath = Path.Combine(sandboxDir, scriptFileName);
 
-            // 3. 记录执行前 agent_sandbox 目录内的已有图表文件，以便精确捕捉新生成的图表资产 (全量路径标准化)
+            // 3. 记录执行前 agent_sandbox 与 scratch 根目录内的已有图表文件，以便精确捕捉新生成的图表资产 (全量路径标准化)
             var existingFiles = new HashSet<string>(
                 Directory.GetFiles(sandboxDir, "*.*", SearchOption.AllDirectories).Select(Path.GetFullPath),
+                StringComparer.OrdinalIgnoreCase);
+
+            var existingScratchRootFiles = new HashSet<string>(
+                Directory.GetFiles(scratchDir, "*.*", SearchOption.TopDirectoryOnly).Select(Path.GetFullPath),
                 StringComparer.OrdinalIgnoreCase);
 
             // 4. 对代码进行智能预处理：注入中文字体补丁、Agg离线渲染后端与图表自动落地保护钩子
@@ -118,7 +122,7 @@ namespace DataAnalysis_Assistant.Services.Python
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
 
-                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(5, options.TimeoutSeconds)));
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(60, options.TimeoutSeconds)));
                 using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
                 try
@@ -232,6 +236,42 @@ namespace DataAnalysis_Assistant.Services.Python
                 {
                     string capturedPath = match.Groups[1].Value.Trim().Trim('"', '\'', '\r');
                     TryAddArtifact(capturedPath);
+                }
+            }
+            catch
+            {
+            }
+
+            // 三保险兜底收容：若模型使用面向对象未拦截手段或其他库（如 PIL、cv2、表格导出等）将产物直接写入工作目录 (scratch 根目录)，
+            // 自动将其迁移/镜像至 agent_sandbox 目录并生成唯一编号，确保 100% 捕获入画廊与卡片，绝不漏图
+            try
+            {
+                var currentScratchRootFiles = Directory.GetFiles(scratchDir, "*.*", SearchOption.TopDirectoryOnly);
+                foreach (var file in currentScratchRootFiles)
+                {
+                    string fullPath = Path.GetFullPath(file);
+                    // 仅收容执行期间新生成的文件，严格排除原有文件与临时脚本
+                    if (!existingScratchRootFiles.Contains(fullPath))
+                    {
+                        string ext = Path.GetExtension(fullPath).ToLowerInvariant();
+                        if (ext is ".png" or ".jpg" or ".jpeg" or ".svg" or ".pdf" or ".csv" or ".xlsx" or ".html")
+                        {
+                            string rawName = Path.GetFileNameWithoutExtension(fullPath);
+                            string uniqueName = $"{rawName}_{DateTimeOffset.Now.ToUnixTimeSeconds()}_{Guid.NewGuid():N.Substring(0, 6)}{ext}";
+                            string mirrorPath = Path.Combine(sandboxDir, uniqueName);
+                            try
+                            {
+                                File.Copy(fullPath, mirrorPath, overwrite: true);
+                                // 安全清理 scratch 根目录遗留的原文件，保持工作区清爽
+                                try { File.Delete(fullPath); } catch { }
+                                TryAddArtifact(mirrorPath);
+                            }
+                            catch
+                            {
+                                TryAddArtifact(fullPath);
+                            }
+                        }
+                    }
                 }
             }
             catch
@@ -359,9 +399,12 @@ namespace DataAnalysis_Assistant.Services.Python
             sb.AppendLine("    import os, shutil, uuid, time, sys");
             sb.AppendLine($"    _target_scratch = r'{safePlotDir}'");
             sb.AppendLine("    os.makedirs(_target_scratch, exist_ok=True)");
-            sb.AppendLine("    _orig_savefig = plt.savefig");
-            sb.AppendLine("    def _safe_intercept_savefig(fname, *args, **kwargs):");
-            sb.AppendLine("        res = _orig_savefig(fname, *args, **kwargs)");
+            sb.AppendLine("    import matplotlib.figure");
+            sb.AppendLine("    _orig_fig_savefig = matplotlib.figure.Figure.savefig");
+            sb.AppendLine("    _orig_plt_savefig = plt.savefig");
+            sb.AppendLine("    _in_savefig_interceptor = False");
+            sb.AppendLine("    def _do_mirror_artifact(fname):");
+            sb.AppendLine("        if not fname: return");
             sb.AppendLine("        try:");
             sb.AppendLine("            abs_fname = os.path.abspath(str(fname))");
             sb.AppendLine("            abs_scratch = os.path.abspath(_target_scratch)");
@@ -382,12 +425,36 @@ namespace DataAnalysis_Assistant.Services.Python
             sb.AppendLine("                print(f'[ARTIFACT_CAPTURED]: {mirror_path}')");
             sb.AppendLine("        except Exception as e:");
             sb.AppendLine("            sys.stderr.write(f'[ARTIFACT_COPY_WARNING]: 产物镜像失败: {str(e)}\\n')");
+            sb.AppendLine("    def _safe_intercept_fig_savefig(self, *args, **kwargs):");
+            sb.AppendLine("        global _in_savefig_interceptor");
+            sb.AppendLine("        was_in = _in_savefig_interceptor");
+            sb.AppendLine("        _in_savefig_interceptor = True");
             sb.AppendLine("        try:");
-            sb.AppendLine("            plt.close('all')");
-            sb.AppendLine("        except Exception:");
-            sb.AppendLine("            pass");
-            sb.AppendLine("        return res");
-            sb.AppendLine("    plt.savefig = _safe_intercept_savefig");
+            sb.AppendLine("            res = _orig_fig_savefig(self, *args, **kwargs)");
+            sb.AppendLine("            if not was_in:");
+            sb.AppendLine("                fname = args[0] if len(args) > 0 else kwargs.get('fname', None)");
+            sb.AppendLine("                _do_mirror_artifact(fname)");
+            sb.AppendLine("            return res");
+            sb.AppendLine("        finally:");
+            sb.AppendLine("            _in_savefig_interceptor = was_in");
+            sb.AppendLine("    def _safe_intercept_plt_savefig(*args, **kwargs):");
+            sb.AppendLine("        global _in_savefig_interceptor");
+            sb.AppendLine("        was_in = _in_savefig_interceptor");
+            sb.AppendLine("        _in_savefig_interceptor = True");
+            sb.AppendLine("        try:");
+            sb.AppendLine("            res = _orig_plt_savefig(*args, **kwargs)");
+            sb.AppendLine("            if not was_in:");
+            sb.AppendLine("                fname = args[0] if len(args) > 0 else kwargs.get('fname', None)");
+            sb.AppendLine("                _do_mirror_artifact(fname)");
+            sb.AppendLine("            try:");
+            sb.AppendLine("                plt.close('all')");
+            sb.AppendLine("            except Exception:");
+            sb.AppendLine("                pass");
+            sb.AppendLine("            return res");
+            sb.AppendLine("        finally:");
+            sb.AppendLine("            _in_savefig_interceptor = was_in");
+            sb.AppendLine("    matplotlib.figure.Figure.savefig = _safe_intercept_fig_savefig");
+            sb.AppendLine("    plt.savefig = _safe_intercept_plt_savefig");
             sb.AppendLine("except Exception:");
             sb.AppendLine("    pass");
             sb.AppendLine("# === [User Generated Code Start] ===");

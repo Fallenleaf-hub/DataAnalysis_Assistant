@@ -2550,8 +2550,13 @@ def analyze_document_metrics(file_path: str):
                 return;
             }
 
-            // 1. 生成本次任务独立批次标识，添加用户消息到列表并清空输入框
+            // 1. 生成本次任务独立批次标识与单调递增序号，添加用户消息到列表并清空输入框
             string currentAgentTaskId = Guid.NewGuid().ToString("N");
+            int currentTaskSeq = 1;
+            if (ChatMessages.Count > 0)
+            {
+                currentTaskSeq = ChatMessages.Max(m => m.TaskSequenceNumber) + 1;
+            }
 
             // 记录本次提问挂载的技能扩展并重置输入框胶囊状态
             var currentSkill = _activeMountedSkill;
@@ -2563,6 +2568,7 @@ def analyze_document_metrics(file_path: str):
                 Content = question,
                 Timestamp = DateTime.Now,
                 AgentTaskId = currentAgentTaskId,
+                TaskSequenceNumber = currentTaskSeq,
                 ActiveSkillName = currentSkill?.Name
             };
             ChatMessages.Add(userMessage);
@@ -2581,6 +2587,10 @@ def analyze_document_metrics(file_path: str):
                         var sbSkill = new StringBuilder();
                         sbSkill.AppendLine($"【🎯 已启用专属专业扩展技能 (Specialized Skill: {currentSkill.Name})】");
                         sbSkill.AppendLine("在执行本次数据分析与推演任务时，请务必严格遵循以下技能指南的专业角色、工作流程与输出规范：");
+                        sbSkill.AppendLine("【⚠️ 系统受控沙盒环境边界约束 (最高执行红线)】：");
+                        sbSkill.AppendLine("1. 当前任务运行在本地独立数据分析沙盒中。技能指南中引用的内部配置文件与脚本（如 manifest.yaml、static/*、scripts/* 等）属于技能系统元架构，在当前沙盒执行环境中【物理不可达】；");
+                        sbSkill.AppendLine("2. 严禁调用 read_document 或编写 Python 代码尝试定位、搜索、遍历或读取这些技能内部文件与脚本！若尝试读取必然报错并浪费轮次；");
+                        sbSkill.AppendLine("3. 请直接吸收并贯彻技能指南中的专业设计哲学、配色方案（克制专业）、图表排版契约与分析框架，针对当前用户上传的真实业务数据编写本地 Python 分析脚本；");
                         sbSkill.AppendLine("==================== [SKILL GUIDE START] ====================");
                         sbSkill.AppendLine(skillFullMarkdown.Trim());
                         sbSkill.AppendLine("==================== [SKILL GUIDE END] ======================");
@@ -2616,7 +2626,8 @@ def analyze_document_metrics(file_path: str):
                 IsReasoningExpanded = true, // 思考阶段初始即刻展开
                 ThinkingSeconds = 0,
                 Timestamp = DateTime.Now,
-                AgentTaskId = currentAgentTaskId
+                AgentTaskId = currentAgentTaskId,
+                TaskSequenceNumber = currentTaskSeq
             };
             ChatMessages.Add(assistantMessage);
 
@@ -2675,7 +2686,7 @@ def analyze_document_metrics(file_path: str):
             foreach (var msg in ChatMessages)
             {
                 // 跳过开篇大篇幅的欢迎与系统演示消息
-                if (msg.Content.Contains("欢迎使用 AI 数据分析与文档伴读看板"))
+                if (msg.Content?.Contains("欢迎使用 AI 数据分析与文档伴读看板") == true)
                 {
                     continue;
                 }
@@ -2695,15 +2706,17 @@ def analyze_document_metrics(file_path: str):
                         continue;
                     }
 
-                    historyTurns.Add(new ChatTurn { Role = "user", Content = msg.Content });
+                    historyTurns.Add(new ChatTurn { Role = "user", Content = msg.Content ?? string.Empty });
                 }
-                else if (msg.IsAssistant && !string.IsNullOrWhiteSpace(msg.Content))
+                else if (msg.IsAssistant)
                 {
-                    string content = msg.Content;
+                    string content = msg.Content ?? string.Empty;
 
                     // 针对历史不同任务批次进行上下文动态净化：
-                    // 若属于过去的 AgentTaskId，确保保留核心研报与结论，同时补充已生成图表的事实记录，杜绝遗漏已有成果
-                    if (!string.IsNullOrEmpty(msg.AgentTaskId) && msg.AgentTaskId != currentAgentTaskId)
+                    // 若属于过去的 AgentTaskId / TaskSequenceNumber，确保保留核心研报与结论，同时补充已生成图表的事实记录，杜绝遗漏已有成果
+                    bool isPastTask = (!string.IsNullOrEmpty(msg.AgentTaskId) && msg.AgentTaskId != currentAgentTaskId) ||
+                                      (msg.TaskSequenceNumber > 0 && msg.TaskSequenceNumber < currentTaskSeq);
+                    if (isPastTask)
                     {
                         if (msg.GeneratedPlots != null && msg.GeneratedPlots.Count > 0)
                         {
@@ -2716,7 +2729,51 @@ def analyze_document_metrics(file_path: str):
                         }
                     }
 
-                    historyTurns.Add(new ChatTurn { Role = "assistant", Content = content });
+                    // 协议标准重建：若历史消息包含结构化 ToolCalls 记录，完整还原 assistant(tool_calls) 与 tool 回合对
+                    if (msg.ToolCalls != null && msg.ToolCalls.Count > 0)
+                    {
+                        // 1. 还原 assistant 发起的标准 tool_calls 决策回合
+                        var toolCallItems = msg.ToolCalls.Select(tc => new ToolCallItem
+                        {
+                            Id = string.IsNullOrWhiteSpace(tc.CallId) ? $"call_{Guid.NewGuid():N}" : tc.CallId,
+                            Type = "function",
+                            Function = new ToolCallFunction
+                            {
+                                Name = tc.ToolName,
+                                Arguments = tc.Arguments
+                            }
+                        }).ToList();
+
+                        historyTurns.Add(new ChatTurn
+                        {
+                            Role = "assistant",
+                            Content = string.Empty,
+                            ToolCalls = toolCallItems
+                        });
+
+                        // 2. 依次还原每个 tool 工具执行输出回合（严格通过 ToolCallId 对齐）
+                        for (int i = 0; i < msg.ToolCalls.Count; i++)
+                        {
+                            var tc = msg.ToolCalls[i];
+                            string callId = toolCallItems[i].Id;
+                            historyTurns.Add(new ChatTurn
+                            {
+                                Role = "tool",
+                                ToolCallId = callId,
+                                Content = string.IsNullOrWhiteSpace(tc.Output) ? "工具执行完成。" : tc.Output
+                            });
+                        }
+
+                        // 3. 还原 assistant 最终交付的研报正文结论回合
+                        if (!string.IsNullOrWhiteSpace(content))
+                        {
+                            historyTurns.Add(new ChatTurn { Role = "assistant", Content = content });
+                        }
+                    }
+                    else if (!string.IsNullOrWhiteSpace(content))
+                    {
+                        historyTurns.Add(new ChatTurn { Role = "assistant", Content = content });
+                    }
                 }
             }
 
@@ -2807,94 +2864,117 @@ def analyze_document_metrics(file_path: str):
                 thinkingWatch.Stop();
                 double totalThinkingTime = thinkingWatch.Elapsed.TotalSeconds;
 
+                var uiUpdateTcs = new TaskCompletionSource<bool>();
                 DispatcherQueue.TryEnqueue(() =>
                 {
-                    assistantMessage.IsThinking = false;
-                    assistantMessage.ThinkingSeconds = totalThinkingTime;
-                    assistantMessage.IsReasoningExpanded = false; // 生成完成后默认折叠思考
-
-                    assistantMessage.TerminationReason = loopResult.TerminationReason;
-                    if (loopResult.ExecutedToolCalls != null && loopResult.ExecutedToolCalls.Count > 0)
+                    try
                     {
-                        assistantMessage.ToolCalls = new List<ToolCallRecordItem>(loopResult.ExecutedToolCalls);
-                    }
+                        assistantMessage.IsThinking = false;
+                        assistantMessage.ThinkingSeconds = totalThinkingTime;
+                        assistantMessage.IsReasoningExpanded = false; // 生成完成后默认折叠思考
 
-                    if (!string.IsNullOrWhiteSpace(loopResult.ReasoningContent))
-                    {
-                        assistantMessage.ReasoningContent = loopResult.ReasoningContent;
-                    }
-
-                    if (loopResult.Success)
-                    {
-                        assistantMessage.Content = loopResult.FinalContent;
-                        if (loopResult.TerminationReason == AgentTerminationReason.MaxIterationsReached)
+                        assistantMessage.TerminationReason = loopResult.TerminationReason;
+                        if (loopResult.ExecutedToolCalls != null && loopResult.ExecutedToolCalls.Count > 0)
                         {
-                            tbChatRunStatus.Text = $"分析完毕 (达到探索上限 {loopResult.TotalIterations} 轮，已生成综合研报)";
+                            assistantMessage.ToolCalls = new List<ToolCallRecordItem>(loopResult.ExecutedToolCalls);
                         }
-                        else if (loopResult.TerminationReason == AgentTerminationReason.ConsecutiveErrorsTripped)
+
+                        if (!string.IsNullOrWhiteSpace(loopResult.ReasoningContent))
                         {
-                            tbChatRunStatus.Text = "分析完毕 (触发连续报错熔断，已汇聚阶段性研报)";
+                            assistantMessage.ReasoningContent = loopResult.ReasoningContent;
+                        }
+
+                        if (loopResult.Success)
+                        {
+                            assistantMessage.Content = loopResult.FinalContent;
+                            if (loopResult.TerminationReason == AgentTerminationReason.MaxIterationsReached)
+                            {
+                                tbChatRunStatus.Text = $"分析完毕 (达到探索上限 {loopResult.TotalIterations} 轮，已生成综合研报)";
+                            }
+                            else if (loopResult.TerminationReason == AgentTerminationReason.ConsecutiveErrorsTripped)
+                            {
+                                tbChatRunStatus.Text = "分析完毕 (触发连续报错熔断，已汇聚阶段性研报)";
+                            }
+                            else
+                            {
+                                tbChatRunStatus.Text = $"分析完毕 (共 {loopResult.TotalIterations} 轮 Agent 决策)";
+                            }
                         }
                         else
                         {
-                            tbChatRunStatus.Text = $"分析完毕 (共 {loopResult.TotalIterations} 轮 Agent 决策)";
-                        }
-                    }
-                    else
-                    {
-                        if (cancellationToken.IsCancellationRequested || loopResult.TerminationReason == AgentTerminationReason.UserCancelled)
-                        {
-                            assistantMessage.IsStopped = true;
-                            if (string.IsNullOrEmpty(assistantMessage.Content))
+                            if (cancellationToken.IsCancellationRequested || loopResult.TerminationReason == AgentTerminationReason.UserCancelled)
                             {
-                                assistantMessage.Content = "*(已手动中止生成)*";
-                            }
-                            tbChatRunStatus.Text = "已停止";
-                        }
-                        else
-                        {
-                            assistantMessage.Content = $"⚠️ 分析过程中出现异常：{loopResult.ErrorMessage}";
-                            tbChatRunStatus.Text = "分析异常";
-                        }
-                    }
-
-                    // 补充挂接所有产物图表（严格限定在 agent_sandbox 目录）
-                    if (loopResult.GeneratedArtifactPaths.Count > 0)
-                    {
-                        string scratchDir = PythonExecutionService.LocateOrInitScratchDirectory();
-                        string sandboxDir = Path.Combine(scratchDir, "agent_sandbox");
-                        foreach (var artPath in loopResult.GeneratedArtifactPaths)
-                        {
-                            string normArt;
-                            try { normArt = Path.GetFullPath(artPath); }
-                            catch { normArt = artPath; }
-
-                            if (normArt.StartsWith(scratchDir, StringComparison.OrdinalIgnoreCase) &&
-                                !normArt.StartsWith(sandboxDir, StringComparison.OrdinalIgnoreCase))
-                            {
-                                continue;
-                            }
-
-                            if (!assistantMessage.GeneratedPlots.Any(p =>
-                            {
-                                try { return Path.GetFullPath(p.FilePath).Equals(normArt, StringComparison.OrdinalIgnoreCase); }
-                                catch { return p.FilePath.Equals(normArt, StringComparison.OrdinalIgnoreCase); }
-                            }))
-                            {
-                                var plotItem = new ChartArtifactItem
+                                assistantMessage.IsStopped = true;
+                                if (string.IsNullOrEmpty(assistantMessage.Content))
                                 {
-                                    FilePath = normArt,
-                                    Title = Path.GetFileNameWithoutExtension(normArt),
-                                    CreatedAt = DateTime.Now
-                                };
-                                assistantMessage.GeneratedPlots.Add(plotItem);
-                                AddPlotToGallery(plotItem, switchToVis: false);
+                                    assistantMessage.Content = "*(已手动中止生成)*";
+                                }
+                                tbChatRunStatus.Text = "已停止";
+                            }
+                            else
+                            {
+                                assistantMessage.Content = $"⚠️ 分析过程中出现异常：{loopResult.ErrorMessage}";
+                                tbChatRunStatus.Text = "分析异常";
                             }
                         }
-                    }
 
-                    svChatList.ChangeView(null, svChatList.ScrollableHeight, null);
+                        // 补充挂接所有产物图表（严格限定在 agent_sandbox 目录）
+                        if (loopResult.GeneratedArtifactPaths.Count > 0)
+                        {
+                            string scratchDir = PythonExecutionService.LocateOrInitScratchDirectory();
+                            string sandboxDir = Path.Combine(scratchDir, "agent_sandbox");
+                            foreach (var artPath in loopResult.GeneratedArtifactPaths)
+                            {
+                                string normArt;
+                                try { normArt = Path.GetFullPath(artPath); }
+                                catch { normArt = artPath; }
+
+                                if (normArt.StartsWith(scratchDir, StringComparison.OrdinalIgnoreCase) &&
+                                    !normArt.StartsWith(sandboxDir, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    continue;
+                                }
+
+                                if (!assistantMessage.GeneratedPlots.Any(p =>
+                                {
+                                    try { return Path.GetFullPath(p.FilePath).Equals(normArt, StringComparison.OrdinalIgnoreCase); }
+                                    catch { return p.FilePath.Equals(normArt, StringComparison.OrdinalIgnoreCase); }
+                                }))
+                                {
+                                    var plotItem = new ChartArtifactItem
+                                    {
+                                        FilePath = normArt,
+                                        Title = Path.GetFileNameWithoutExtension(normArt),
+                                        CreatedAt = DateTime.Now
+                                    };
+                                    assistantMessage.GeneratedPlots.Add(plotItem);
+                                    AddPlotToGallery(plotItem, switchToVis: false);
+                                }
+                            }
+                        }
+
+                        svChatList.ChangeView(null, svChatList.ScrollableHeight, null);
+                        uiUpdateTcs.TrySetResult(true);
+                    }
+                    catch (Exception ex)
+                    {
+                        uiUpdateTcs.TrySetException(ex);
+                    }
                 });
+
+                // 核心同步闸门：等待 UI 队列完成数据绑定与图表挂接，设置 2 秒安全超时防止 UI 队列死锁
+                await Task.WhenAny(uiUpdateTcs.Task, Task.Delay(2000));
+
+                // 实体保底同步：在后台 Task 线程上直接确保关键数据字段 100% 写入实体，彻底消除写盘竞态覆盖！
+                assistantMessage.TerminationReason = loopResult.TerminationReason;
+                if (loopResult.ExecutedToolCalls != null && loopResult.ExecutedToolCalls.Count > 0)
+                {
+                    assistantMessage.ToolCalls = new List<ToolCallRecordItem>(loopResult.ExecutedToolCalls);
+                }
+                if (assistantMessage.ThinkingSeconds <= 0 && totalThinkingTime > 0)
+                {
+                    assistantMessage.ThinkingSeconds = totalThinkingTime;
+                }
 
                 // 兜底图表捕获：若最终文本中仍然包含 Python 绘图代码块，继续受控执行
                 if (loopResult.Success && !string.IsNullOrWhiteSpace(loopResult.FinalContent) && !cancellationToken.IsCancellationRequested)

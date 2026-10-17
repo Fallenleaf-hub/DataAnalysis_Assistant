@@ -327,6 +327,11 @@ namespace DataAnalysis_Assistant.Services
                             {
                                 toolCallItem.Id = idElem.GetString() ?? string.Empty;
                             }
+                            // 协议防断裂兜底：若大模型或代理未下发 id，自动补齐唯一 call_{guid}
+                            if (string.IsNullOrWhiteSpace(toolCallItem.Id))
+                            {
+                                toolCallItem.Id = $"call_{Guid.NewGuid():N}";
+                            }
                             if (tc.TryGetProperty("type", out var typeElem))
                             {
                                 toolCallItem.Type = typeElem.GetString() ?? "function";
@@ -513,9 +518,13 @@ namespace DataAnalysis_Assistant.Services
                         // 流式结束，若有累积的 tool_calls，一次性产出
                         foreach (var kvp in accumulatedToolCalls.OrderBy(k => k.Key))
                         {
+                            string finalId = string.IsNullOrWhiteSpace(kvp.Value.id)
+                                ? $"call_{Guid.NewGuid():N}"
+                                : kvp.Value.id;
+
                             var item = new ToolCallItem
                             {
-                                Id = kvp.Value.id,
+                                Id = finalId,
                                 Type = kvp.Value.type,
                                 Function = new ToolCallFunction
                                 {
@@ -694,9 +703,13 @@ namespace DataAnalysis_Assistant.Services
             // 流式自然结束兜底：若流已关闭但未显式收到 [DONE]，补齐产出累积的 tool_calls
             foreach (var kvp in accumulatedToolCalls.OrderBy(k => k.Key))
             {
+                string finalId = string.IsNullOrWhiteSpace(kvp.Value.id)
+                    ? $"call_{Guid.NewGuid():N}"
+                    : kvp.Value.id;
+
                 var item = new ToolCallItem
                 {
-                    Id = kvp.Value.id,
+                    Id = finalId,
                     Type = kvp.Value.type,
                     Function = new ToolCallFunction
                     {
