@@ -51,6 +51,13 @@ namespace DataAnalysis_Assistant
         private ChatSessionItem? _currentSession;
         private ChartArtifactItem? _activeDashboardPlot;
         private ChartArtifactItem? _viewingPlot;
+        private bool _isViewerFullscreen = false;
+        private double _savedViewerWidth = 1050;
+        private double _savedViewerHeight = 720;
+        private bool _isResizingViewerLeft = false;
+        private bool _isResizingViewerRight = false;
+        private bool _isPanningViewer = false;
+        private Windows.Foundation.Point _lastPanPointerPos;
         private readonly PythonEnvironmentService _pythonEnvService = new();
         private readonly PythonExecutionService _pythonExecService = new();
         private readonly SkillManagerService _skillManager = new();
@@ -501,10 +508,10 @@ namespace DataAnalysis_Assistant
                 }
 
                 // 统一安全过滤：若图片位于 scratch 体系内，必须严格位于 agent_sandbox 目录下（带唯一编号），杜绝根目录无编号临时图入画廊
-                string scratchDir = PythonExecutionService.LocateOrInitScratchDirectory();
+                string scratchDir = PythonExecutionService.LocateOrInitScratchDirectory(_currentGroup?.GroupId);
                 string scratchPrefix = scratchDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
                 if (normPath.StartsWith(scratchPrefix, StringComparison.OrdinalIgnoreCase) &&
-                    !PythonExecutionService.IsInSandboxDirectory(normPath))
+                    !PythonExecutionService.IsInSandboxDirectory(normPath, _currentGroup?.GroupId))
                 {
                     return;
                 }
@@ -542,10 +549,34 @@ namespace DataAnalysis_Assistant
             });
         }
 
+        /// <summary>
+        /// 全局清空可视化大屏与图表画廊状态（彻底消除切换文档组或新建会话后的图表幽灵残留）
+        /// </summary>
+        private void ClearPlotVisualizationDashboard()
+        {
+            PlotGallery.Clear();
+            _activeDashboardPlot = null;
+            if (imgActiveDashboardPlot != null)
+            {
+                imgActiveDashboardPlot.Source = null;
+            }
+            if (tbActivePlotHeader != null)
+            {
+                tbActivePlotHeader.Text = "数据可视化大屏展示";
+            }
+            if (tbActivePlotMeta != null)
+            {
+                tbActivePlotMeta.Text = "高清 PNG";
+            }
+            UpdateVisualizationDashboardUI();
+        }
+
         private void UpdateVisualizationDashboardUI()
         {
             if (PlotGallery.Count == 0)
             {
+                _activeDashboardPlot = null;
+                if (imgActiveDashboardPlot != null) imgActiveDashboardPlot.Source = null;
                 if (spEmptyVisGallery != null) spEmptyVisGallery.Visibility = Visibility.Visible;
                 if (gridActivePlotContent != null) gridActivePlotContent.Visibility = Visibility.Collapsed;
                 if (tbVisTotalPlots != null) tbVisTotalPlots.Text = "0 幅图表";
@@ -704,7 +735,39 @@ namespace DataAnalysis_Assistant
             {
                 imgViewerLargePlot.Source = plot.Bitmap ?? (plot.ImageUri != null ? new BitmapImage(plot.ImageUri) : null);
             }
+
+            // 每次打开放大窗口均重置为默认尺寸与居中位置（不记忆上次拉伸调整后的宽高与全屏状态）
+            _isViewerFullscreen = false;
+            _savedViewerWidth = 1050;
+            _savedViewerHeight = 720;
+            if (cardPlotViewerContainer != null)
+            {
+                cardPlotViewerContainer.HorizontalAlignment = HorizontalAlignment.Center;
+                cardPlotViewerContainer.VerticalAlignment = VerticalAlignment.Center;
+                cardPlotViewerContainer.Width = 1050;
+                cardPlotViewerContainer.Height = 720;
+                cardPlotViewerContainer.Margin = new Thickness(24, 20, 24, 20);
+            }
+            if (btnViewerToggleFullscreen != null)
+            {
+                btnViewerToggleFullscreen.Content = "全屏";
+            }
+            if (borderViewerResizeGripLeft != null)
+            {
+                borderViewerResizeGripLeft.Visibility = Visibility.Visible;
+            }
+            if (borderViewerResizeGripRight != null)
+            {
+                borderViewerResizeGripRight.Visibility = Visibility.Visible;
+            }
+
             if (gridPlotImageViewer != null) gridPlotImageViewer.Visibility = Visibility.Visible;
+
+            // 每次打开放大查看器时，异步排队确保布局尺寸就绪后 100% 完全展示整张图表全貌 (Fit to Viewport)
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                FitPlotImageToViewport(resetView: true);
+            });
         }
 
         private void btnClosePlotViewer_Click(object sender, RoutedEventArgs e)
@@ -712,22 +775,323 @@ namespace DataAnalysis_Assistant
             if (gridPlotImageViewer != null) gridPlotImageViewer.Visibility = Visibility.Collapsed;
         }
 
-        private async void btnViewerCopy_Click(object sender, RoutedEventArgs e)
+        #region 高清大图查看器交互控制 (自适应完全适屏显示、缩放、全屏切换、双侧跟手尺寸调节、自由平移与文件定位)
+
+        /// <summary>
+        /// 自适应将高清大图完整适配呈现于当前视口内（每次打开 100% 完整显示图表全貌，四周留出舒适呼吸边距，杜绝局部裁切截断）
+        /// </summary>
+        private void FitPlotImageToViewport(bool resetView = true)
         {
-            if (_viewingPlot != null)
+            if (imgViewerLargePlot == null || svLargePlotViewer == null) return;
+
+            double availWidth = svLargePlotViewer.ActualWidth;
+            double availHeight = svLargePlotViewer.ActualHeight;
+            if (availWidth <= 0 || availHeight <= 0) return;
+
+            // 留出适当内边距
+            availWidth = Math.Max(100, availWidth - 28);
+            availHeight = Math.Max(100, availHeight - 28);
+
+            double naturalWidth = 0;
+            double naturalHeight = 0;
+
+            if (imgViewerLargePlot.Source is BitmapSource bs && bs.PixelWidth > 0 && bs.PixelHeight > 0)
             {
-                await CopyImageToClipboardAsync(_viewingPlot.FilePath);
-                ShowGlobalToast("已复制到剪贴板");
+                naturalWidth = bs.PixelWidth;
+                naturalHeight = bs.PixelHeight;
+            }
+            else if (_viewingPlot?.Bitmap != null && _viewingPlot.Bitmap.PixelWidth > 0)
+            {
+                naturalWidth = _viewingPlot.Bitmap.PixelWidth;
+                naturalHeight = _viewingPlot.Bitmap.PixelHeight;
+            }
+
+            if (naturalWidth > 0 && naturalHeight > 0)
+            {
+                double scaleW = availWidth / naturalWidth;
+                double scaleH = availHeight / naturalHeight;
+                double fitScale = Math.Min(scaleW, scaleH);
+
+                imgViewerLargePlot.Width = Math.Round(naturalWidth * fitScale);
+                imgViewerLargePlot.Height = Math.Round(naturalHeight * fitScale);
+            }
+            else
+            {
+                imgViewerLargePlot.Width = availWidth;
+                imgViewerLargePlot.Height = availHeight;
+            }
+
+            if (resetView)
+            {
+                svLargePlotViewer.ChangeView(0, 0, 1.0f, disableAnimation: true);
+                UpdateViewerZoomRatioText(1.0f);
             }
         }
 
-        private async void btnViewerSaveAs_Click(object sender, RoutedEventArgs e)
+        private void imgViewerLargePlot_ImageOpened(object sender, RoutedEventArgs e)
         {
-            if (_viewingPlot != null)
+            FitPlotImageToViewport(resetView: true);
+        }
+
+        private void svLargePlotViewer_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (gridPlotImageViewer != null && gridPlotImageViewer.Visibility == Visibility.Visible)
             {
-                await SavePlotAsAsync(_viewingPlot.FilePath, _viewingPlot.Title);
+                // 若当前未放大浏览局部细节（ZoomFactor 接近 1.0），窗口拉伸时自适应保持整图完全显示
+                if (svLargePlotViewer != null && Math.Abs(svLargePlotViewer.ZoomFactor - 1.0f) < 0.05f)
+                {
+                    FitPlotImageToViewport(resetView: false);
+                }
             }
         }
+
+        /// <summary>
+        /// 在 Windows 资源管理器中打开并高亮定位当前大图文件
+        /// </summary>
+        private void btnViewerOpenFolder_Click(object sender, RoutedEventArgs e)
+        {
+            if (_viewingPlot != null && !string.IsNullOrWhiteSpace(_viewingPlot.FilePath) && File.Exists(_viewingPlot.FilePath))
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{_viewingPlot.FilePath}\"") { UseShellExecute = true });
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"打开资源管理器定位文件失败: {ex.Message}");
+                }
+            }
+        }
+
+        private void svLargePlotViewer_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
+        {
+            var ctrlState = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control);
+            bool isCtrlDown = (ctrlState & Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down;
+
+            if (isCtrlDown && svLargePlotViewer != null)
+            {
+                e.Handled = true;
+                var delta = e.GetCurrentPoint(svLargePlotViewer).Properties.MouseWheelDelta;
+                if (delta != 0)
+                {
+                    float currentZoom = svLargePlotViewer.ZoomFactor;
+                    float factor = delta > 0 ? 1.15f : 0.87f;
+                    float targetZoom = Math.Clamp(currentZoom * factor, 0.2f, 5.0f);
+                    svLargePlotViewer.ChangeView(null, null, targetZoom, disableAnimation: false);
+                    UpdateViewerZoomRatioText(targetZoom);
+                }
+            }
+        }
+
+        private void svLargePlotViewer_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
+        {
+            if (svLargePlotViewer != null)
+            {
+                UpdateViewerZoomRatioText(svLargePlotViewer.ZoomFactor);
+            }
+        }
+
+        /// <summary>
+        /// 更新缩放比例显示 (严格采用纯文本如 100%、125%，严禁携带装饰性 Emoji/图标)
+        /// </summary>
+        private void UpdateViewerZoomRatioText(float zoomFactor)
+        {
+            if (btnViewerZoomReset != null)
+            {
+                int percent = (int)Math.Round(zoomFactor * 100);
+                btnViewerZoomReset.Content = $"{percent}%";
+            }
+        }
+
+        private void btnViewerZoomReset_Click(object sender, RoutedEventArgs e)
+        {
+            // 点击复位按钮，瞬间恢复为 100% 完整适屏显示全貌
+            FitPlotImageToViewport(resetView: true);
+        }
+
+        private void btnViewerToggleFullscreen_Click(object sender, RoutedEventArgs e)
+        {
+            if (cardPlotViewerContainer == null) return;
+
+            _isViewerFullscreen = !_isViewerFullscreen;
+            if (_isViewerFullscreen)
+            {
+                if (!double.IsNaN(cardPlotViewerContainer.Width)) _savedViewerWidth = cardPlotViewerContainer.Width;
+                if (!double.IsNaN(cardPlotViewerContainer.Height)) _savedViewerHeight = cardPlotViewerContainer.Height;
+
+                cardPlotViewerContainer.HorizontalAlignment = HorizontalAlignment.Stretch;
+                cardPlotViewerContainer.VerticalAlignment = VerticalAlignment.Stretch;
+                cardPlotViewerContainer.Width = double.NaN;
+                cardPlotViewerContainer.Height = double.NaN;
+                cardPlotViewerContainer.Margin = new Thickness(24, 20, 24, 20);
+
+                if (btnViewerToggleFullscreen != null) btnViewerToggleFullscreen.Content = "还原";
+                if (borderViewerResizeGripLeft != null) borderViewerResizeGripLeft.Visibility = Visibility.Collapsed;
+                if (borderViewerResizeGripRight != null) borderViewerResizeGripRight.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                cardPlotViewerContainer.HorizontalAlignment = HorizontalAlignment.Center;
+                cardPlotViewerContainer.VerticalAlignment = VerticalAlignment.Center;
+                cardPlotViewerContainer.Width = _savedViewerWidth;
+                cardPlotViewerContainer.Height = _savedViewerHeight;
+                cardPlotViewerContainer.Margin = new Thickness(24, 20, 24, 20);
+
+                if (btnViewerToggleFullscreen != null) btnViewerToggleFullscreen.Content = "全屏";
+                if (borderViewerResizeGripLeft != null) borderViewerResizeGripLeft.Visibility = Visibility.Visible;
+                if (borderViewerResizeGripRight != null) borderViewerResizeGripRight.Visibility = Visibility.Visible;
+            }
+
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                FitPlotImageToViewport(resetView: true);
+            });
+        }
+
+        #region 双侧透明边角热区与 1:1 绝对中心跟手拉伸 (系统原生双向箭头光标，如实拍照)
+
+        private void borderViewerResizeGripRight_PointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            if (_isViewerFullscreen) return;
+            if (sender is UIElement elem && e.GetCurrentPoint(elem).Properties.IsLeftButtonPressed)
+            {
+                _isResizingViewerRight = true;
+                elem.CapturePointer(e.Pointer);
+                e.Handled = true;
+            }
+        }
+
+        private void borderViewerResizeGripRight_PointerMoved(object sender, PointerRoutedEventArgs e)
+        {
+            if (!_isResizingViewerRight || cardPlotViewerContainer == null || gridPlotImageViewer == null) return;
+
+            // 绝对中心跟手算法：鼠标移动到哪里，容器边缘以中心对称精确紧跟鼠标指针
+            double centerX = gridPlotImageViewer.ActualWidth / 2.0;
+            double centerY = gridPlotImageViewer.ActualHeight / 2.0;
+            var mousePos = e.GetCurrentPoint(gridPlotImageViewer).Position;
+
+            double targetWidth = 2.0 * Math.Max(0, mousePos.X - centerX);
+            double targetHeight = 2.0 * Math.Max(0, mousePos.Y - centerY);
+
+            double maxWidth = Math.Max(cardPlotViewerContainer.MinWidth, gridPlotImageViewer.ActualWidth - 48);
+            double maxHeight = Math.Max(cardPlotViewerContainer.MinHeight, gridPlotImageViewer.ActualHeight - 48);
+
+            cardPlotViewerContainer.Width = Math.Clamp(targetWidth, cardPlotViewerContainer.MinWidth, maxWidth);
+            cardPlotViewerContainer.Height = Math.Clamp(targetHeight, cardPlotViewerContainer.MinHeight, maxHeight);
+            _savedViewerWidth = cardPlotViewerContainer.Width;
+            _savedViewerHeight = cardPlotViewerContainer.Height;
+
+            if (svLargePlotViewer != null && Math.Abs(svLargePlotViewer.ZoomFactor - 1.0f) < 0.05f)
+            {
+                FitPlotImageToViewport(resetView: false);
+            }
+
+            e.Handled = true;
+        }
+
+        private void borderViewerResizeGripRight_PointerReleased(object sender, PointerRoutedEventArgs e)
+        {
+            if (_isResizingViewerRight)
+            {
+                _isResizingViewerRight = false;
+                (sender as UIElement)?.ReleasePointerCapture(e.Pointer);
+                e.Handled = true;
+            }
+        }
+
+        private void borderViewerResizeGripLeft_PointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            if (_isViewerFullscreen) return;
+            if (sender is UIElement elem && e.GetCurrentPoint(elem).Properties.IsLeftButtonPressed)
+            {
+                _isResizingViewerLeft = true;
+                elem.CapturePointer(e.Pointer);
+                e.Handled = true;
+            }
+        }
+
+        private void borderViewerResizeGripLeft_PointerMoved(object sender, PointerRoutedEventArgs e)
+        {
+            if (!_isResizingViewerLeft || cardPlotViewerContainer == null || gridPlotImageViewer == null) return;
+
+            // 绝对中心跟手算法（左下角拉手）：以中心为锚点对称延伸
+            double centerX = gridPlotImageViewer.ActualWidth / 2.0;
+            double centerY = gridPlotImageViewer.ActualHeight / 2.0;
+            var mousePos = e.GetCurrentPoint(gridPlotImageViewer).Position;
+
+            double targetWidth = 2.0 * Math.Max(0, centerX - mousePos.X);
+            double targetHeight = 2.0 * Math.Max(0, mousePos.Y - centerY);
+
+            double maxWidth = Math.Max(cardPlotViewerContainer.MinWidth, gridPlotImageViewer.ActualWidth - 48);
+            double maxHeight = Math.Max(cardPlotViewerContainer.MinHeight, gridPlotImageViewer.ActualHeight - 48);
+
+            cardPlotViewerContainer.Width = Math.Clamp(targetWidth, cardPlotViewerContainer.MinWidth, maxWidth);
+            cardPlotViewerContainer.Height = Math.Clamp(targetHeight, cardPlotViewerContainer.MinHeight, maxHeight);
+            _savedViewerWidth = cardPlotViewerContainer.Width;
+            _savedViewerHeight = cardPlotViewerContainer.Height;
+
+            if (svLargePlotViewer != null && Math.Abs(svLargePlotViewer.ZoomFactor - 1.0f) < 0.05f)
+            {
+                FitPlotImageToViewport(resetView: false);
+            }
+
+            e.Handled = true;
+        }
+
+        private void borderViewerResizeGripLeft_PointerReleased(object sender, PointerRoutedEventArgs e)
+        {
+            if (_isResizingViewerLeft)
+            {
+                _isResizingViewerLeft = false;
+                (sender as UIElement)?.ReleasePointerCapture(e.Pointer);
+                e.Handled = true;
+            }
+        }
+
+        #endregion
+
+        #region 鼠标左键按压自由拖动图表平移 (Pan)
+
+        private void gridViewerImageCanvas_PointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            if (e.GetCurrentPoint(gridViewerImageCanvas).Properties.IsLeftButtonPressed)
+            {
+                _isPanningViewer = true;
+                gridViewerImageCanvas.CapturePointer(e.Pointer);
+                _lastPanPointerPos = e.GetCurrentPoint(svLargePlotViewer).Position;
+                e.Handled = true;
+            }
+        }
+
+        private void gridViewerImageCanvas_PointerMoved(object sender, PointerRoutedEventArgs e)
+        {
+            if (_isPanningViewer && svLargePlotViewer != null)
+            {
+                var currentPos = e.GetCurrentPoint(svLargePlotViewer).Position;
+                double deltaX = currentPos.X - _lastPanPointerPos.X;
+                double deltaY = currentPos.Y - _lastPanPointerPos.Y;
+                _lastPanPointerPos = currentPos;
+
+                svLargePlotViewer.ChangeView(svLargePlotViewer.HorizontalOffset - deltaX, svLargePlotViewer.VerticalOffset - deltaY, null, disableAnimation: true);
+                e.Handled = true;
+            }
+        }
+
+        private void gridViewerImageCanvas_PointerReleased(object sender, PointerRoutedEventArgs e)
+        {
+            if (_isPanningViewer)
+            {
+                _isPanningViewer = false;
+                gridViewerImageCanvas?.ReleasePointerCapture(e.Pointer);
+                e.Handled = true;
+            }
+        }
+
+        #endregion
+
+        #endregion
+
+
 
         private static async Task CopyImageToClipboardAsync(string filePath)
         {
@@ -793,7 +1157,7 @@ namespace DataAnalysis_Assistant
                 }
 
                 // 3. 兜底打开实际的 scratch 图表产物收容根目录（与 Python 引擎真实收容路径完全一致）
-                string scratchDir = PythonExecutionService.LocateOrInitScratchDirectory();
+                string scratchDir = PythonExecutionService.LocateOrInitScratchDirectory(_currentGroup?.GroupId);
                 if (Directory.Exists(scratchDir))
                 {
                     Process.Start(new ProcessStartInfo("explorer.exe", $"\"{scratchDir}\"") { UseShellExecute = true });
@@ -2711,7 +3075,7 @@ def analyze_document_metrics(file_path: str):
             var thinkingWatch = new Stopwatch();
 
             // 注册工具集 (本地 Python 引擎、非结构化/表格数据精细提取器)
-            var pythonTool = new RunPythonTool(() => _settings, _pythonExecService, _safetyGate);
+            var pythonTool = new RunPythonTool(() => _settings, _pythonExecService, _safetyGate, () => _currentGroup?.GroupId);
             var docReaderTool = new DocumentReaderTool(() => Documents.Select(d => d.Path));
             var agentLoopService = new AgentQueryLoopService(chatService, new IAgentTool[] { pythonTool, docReaderTool });
 
@@ -2741,7 +3105,7 @@ def analyze_document_metrics(file_path: str):
                             try { normArt = Path.GetFullPath(artPath); }
                             catch { normArt = artPath; }
 
-                            if (!PythonExecutionService.IsInSandboxDirectory(normArt))
+                            if (!PythonExecutionService.IsInSandboxDirectory(normArt, _currentGroup?.GroupId))
                             {
                                 continue;
                             }
@@ -2866,7 +3230,7 @@ def analyze_document_metrics(file_path: str):
                                 try { normArt = Path.GetFullPath(artPath); }
                                 catch { normArt = artPath; }
 
-                                if (!PythonExecutionService.IsInSandboxDirectory(normArt))
+                                if (!PythonExecutionService.IsInSandboxDirectory(normArt, _currentGroup?.GroupId))
                                 {
                                     continue;
                                 }
@@ -3309,10 +3673,24 @@ def analyze_document_metrics(file_path: str):
                 var targetDocs = new List<DocumentItem>();
                 foreach (var docId in group.DocumentIds)
                 {
-                    var doc = await LibraryPersistenceService.Instance.LoadDocumentMetaAsync(docId);
+                    var doc = await LibraryPersistenceService.Instance.LoadDocumentMetaAsync(docId, group.GroupId);
                     if (doc != null && !targetDocs.Any(d => d.DocId == doc.DocId))
                     {
                         targetDocs.Add(doc);
+                    }
+                }
+
+                // 补充扫描本组专属 documents 目录，防止遗漏
+                var groupDocsOnDisk = await LibraryPersistenceService.Instance.ListAllDocumentsAsync(group.GroupId);
+                foreach (var doc in groupDocsOnDisk)
+                {
+                    if (!targetDocs.Any(d => d.DocId == doc.DocId))
+                    {
+                        targetDocs.Add(doc);
+                        if (!group.DocumentIds.Contains(doc.DocId))
+                        {
+                            group.DocumentIds.Add(doc.DocId);
+                        }
                     }
                 }
 
@@ -3437,7 +3815,7 @@ def analyze_document_metrics(file_path: str):
             }
         }
 
-        // 删除文档组 (支持仅删除组定义，以及彻底删除组定义、本地原始数据文件与文档元数据)
+        // 删除文档组 (彻底物理删除整座文档组容器：包括 group.json、名下 documents、sessions 与 scratch)
         private async void btnDeleteGroup_Click(object sender, RoutedEventArgs e)
         {
             if (sender is Button btn && btn.Tag is DocumentGroup group)
@@ -3449,186 +3827,93 @@ def analyze_document_metrics(file_path: str):
                         Title = "删除文档组",
                         Content = new TextBlock
                         {
-                            Text = $"确定要删除文档组【{group.GroupName}】吗？\n\n• 确定删除：仅解散组定义，保留文档元数据与对话历史\n• 彻底删除组及对话与图表：删除组配置、名下所有对话记录与生成图表缓存\n\n（提示：无论哪种选项，您电脑上的本地原始数据文件均完好保留，绝不删除）",
+                            Text = $"确定要删除文档组【{group.GroupName}】吗？\n\n将执行彻底物理清理：\n• 销毁该文档组容器目录及其名下所有历史对话记录\n• 清理该组专属运行沙盒与图表缓存\n\n（安全提示：您电脑上的本地原始数据文件完好保留，绝不删除）",
                             TextWrapping = TextWrapping.Wrap,
                             Margin = new Thickness(0, 10, 0, 0)
                         },
-                        PrimaryButtonText = "确定删除",
-                        SecondaryButtonText = "彻底删除组及对话与图表",
+                        PrimaryButtonText = "确认删除",
                         CloseButtonText = "取消",
                         DefaultButton = ContentDialogButton.Close,
                         XamlRoot = this.Content.XamlRoot
                     };
 
                     var result = await dialog.ShowAsync();
+                    if (result != ContentDialogResult.Primary) return;
 
-                    if (result == ContentDialogResult.Primary)
+                    // 1. 物理抹除整座 document_groups/{groupId}/ 容器（原子删除：group.json, documents/, sessions/, scratch/）
+                    await LibraryPersistenceService.Instance.DeleteGroupAsync(group.GroupId);
+
+                    // 2. 清理专属的 Schema 探查缓存（仅当无其他组共用该 docId 时）
+                    foreach (var docId in group.DocumentIds.ToList())
                     {
-                        // 1. 仅删除组定义
-                        await LibraryPersistenceService.Instance.DeleteGroupAsync(group.GroupId);
-                        DocumentGroups.Remove(group);
-                        if (_currentGroup == group)
+                        bool isShared = DocumentGroups.Any(g => g.GroupId != group.GroupId && g.DocumentIds.Contains(docId));
+                        if (!isShared)
                         {
-                            _currentGroup = DocumentGroups.FirstOrDefault();
-                            if (_currentGroup != null)
-                            {
-                                _isSelectingGroupProgrammatically = true;
-                                try
-                                {
-                                    lvDocumentGroups.SelectedItem = _currentGroup;
-                                }
-                                finally
-                                {
-                                    _isSelectingGroupProgrammatically = false;
-                                }
-                                await ReloadCurrentGroupDocsAsync();
-                            }
-                        }
-                        UpdateDocCountDisplay();
-                        SyncGroupSessions();
-                    }
-                    else if (result == ContentDialogResult.Secondary)
-                    {
-                        // 2. 彻底删除：再提示一遍二次确认，待用户确定后级联彻底删除
-                        var secondDialog = new ContentDialog
-                        {
-                            Title = "⚠️ 确认彻底删除文档组、对话及图表缓存",
-                            Content = new TextBlock
-                            {
-                                Text = $"您即将彻底销毁文档组【{group.GroupName}】！\n\n将执行清理：\n1. 清理应用库中该组文档的元数据与数据画像缓存（安全提示：您的电脑本地原始文件将完好保留，绝不删除）\n2. 彻底删除该组名下绑定的所有历史会话对话记录\n3. 物理抹除对话演算过程中生成的所有图表图片与临时缓存\n\n注意：被删除的应用内对话记录与图表缓存无法找回，请再次确认是否彻底删除？",
-                                TextWrapping = TextWrapping.Wrap,
-                                Margin = new Thickness(0, 10, 0, 0)
-                            },
-                            PrimaryButtonText = "确认彻底删除",
-                            CloseButtonText = "取消",
-                            DefaultButton = ContentDialogButton.Close,
-                            XamlRoot = this.Content.XamlRoot
-                        };
-
-                        var secondResult = await secondDialog.ShowAsync();
-                        if (secondResult == ContentDialogResult.Primary)
-                        {
-                            // 1. 遍历组内所有文档，仅清理应用内部元数据与 Schema 缓存（绝不删除用户本地原始数据文件！）
-                            foreach (var docId in group.DocumentIds.ToList())
-                            {
-                                // 删除文档元数据与 Schema 缓存
-                                await LibraryPersistenceService.Instance.DeleteDocumentMetaAsync(docId);
-
-                                // 从内存列表中移除
-                                var memDoc = Documents.FirstOrDefault(d => d.DocId == docId);
-                                if (memDoc != null)
-                                {
-                                    Documents.Remove(memDoc);
-                                }
-                            }
-
-                            // 2. 级联彻底删除该组名下的所有对话会话及对话生成的图表文件
-                            var sessionsToDelete = ChatSessions.Where(s => s.BindGroupId == group.GroupId).ToList();
-                            var allPersistedSessions = await LibraryPersistenceService.Instance.ListAllSessionsAsync();
-                            foreach (var ps in allPersistedSessions)
-                            {
-                                if (ps.BindGroupId == group.GroupId && !sessionsToDelete.Any(s => s.Id == ps.Id))
-                                {
-                                    sessionsToDelete.Add(ps);
-                                }
-                            }
-
-                            bool currentSessionDeleted = false;
-                            foreach (var session in sessionsToDelete)
-                            {
-                                // A. 物理抹除该会话在分析过程中生成的所有图表图片文件
-                                var fullSession = await LibraryPersistenceService.Instance.LoadSessionAsync(session.Id) ?? session;
-                                if (fullSession.Messages != null)
-                                {
-                                    foreach (var msg in fullSession.Messages)
-                                    {
-                                        if (msg.GeneratedPlots != null)
-                                        {
-                                            foreach (var plot in msg.GeneratedPlots)
-                                            {
-                                                if (!string.IsNullOrWhiteSpace(plot.FilePath) && File.Exists(plot.FilePath))
-                                                {
-                                                    try
-                                                    {
-                                                        File.Delete(plot.FilePath);
-                                                    }
-                                                    catch (Exception plotEx)
-                                                    {
-                                                        Debug.WriteLine($"删除图表产物失败: {plot.FilePath}, {plotEx.Message}");
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // B. 从磁盘物理删除会话 JSON
-                                await LibraryPersistenceService.Instance.DeleteSessionAsync(session.Id);
-
-                                // C. 从内存会话列表中移除
-                                var memSession = ChatSessions.FirstOrDefault(s => s.Id == session.Id);
-                                if (memSession != null)
-                                {
-                                    ChatSessions.Remove(memSession);
-                                }
-
-                                if (_currentSession?.Id == session.Id)
-                                {
-                                    currentSessionDeleted = true;
-                                }
-                            }
-
-                            // 3. 删除文档组定义
-                            await LibraryPersistenceService.Instance.DeleteGroupAsync(group.GroupId);
-                            DocumentGroups.Remove(group);
-
-                            // 4. 若当前处于被删除的组，切换到首个可用组或置空
-                            if (_currentGroup == group)
-                            {
-                                _currentGroup = DocumentGroups.FirstOrDefault();
-                                if (_currentGroup != null)
-                                {
-                                    _isSelectingGroupProgrammatically = true;
-                                    try
-                                    {
-                                        lvDocumentGroups.SelectedItem = _currentGroup;
-                                    }
-                                    finally
-                                    {
-                                        _isSelectingGroupProgrammatically = false;
-                                    }
-                                    await ReloadCurrentGroupDocsAsync();
-                                }
-                                else
-                                {
-                                    Documents.Clear();
-                                    DisplayDocument(null);
-                                }
-                            }
-
-                            // 5. 若当前激活会话被级联删除，自动重置或切换到剩余可用会话
-                            if (currentSessionDeleted || _currentSession == null)
-                            {
-                                _currentSession = _currentGroup != null
-                                    ? ChatSessions.Where(s => s.BindGroupId == _currentGroup.GroupId).OrderByDescending(s => s.LastActiveAt).FirstOrDefault()
-                                    : ChatSessions.FirstOrDefault();
-
-                                if (_currentSession != null)
-                                {
-                                    SelectSession(_currentSession);
-                                }
-                                else
-                                {
-                                    // 若没有剩余会话，初始化默认会话
-                                    btnNewChat_Click(this, new RoutedEventArgs());
-                                }
-                            }
-
-                            UpdateDocCountDisplay();
-                            UpdateHistoryCountDisplay();
-                            SyncGroupSessions();
+                            LibraryPersistenceService.Instance.DeleteSchemaProfileCache(docId);
                         }
                     }
+
+                    // 3. 内存集合清理：移除组对象与名下全部会话
+                    DocumentGroups.Remove(group);
+
+                    var sessionsToDelete = ChatSessions.Where(s => s.BindGroupId == group.GroupId).ToList();
+                    bool currentSessionDeleted = false;
+                    foreach (var session in sessionsToDelete)
+                    {
+                        ChatSessions.Remove(session);
+                        if (_currentSession?.Id == session.Id)
+                        {
+                            currentSessionDeleted = true;
+                        }
+                    }
+
+                    // 4. 若当前激活的组是被删除的组，切换到下一个可用组或重置为空
+                    if (_currentGroup == group)
+                    {
+                        _currentGroup = DocumentGroups.FirstOrDefault();
+                        if (_currentGroup != null)
+                        {
+                            _isSelectingGroupProgrammatically = true;
+                            try
+                            {
+                                lvDocumentGroups.SelectedItem = _currentGroup;
+                            }
+                            finally
+                            {
+                                _isSelectingGroupProgrammatically = false;
+                            }
+                            await SelectDocumentGroupAsync(_currentGroup, switchSessionIfNeeded: true);
+                        }
+                        else
+                        {
+                            Documents.Clear();
+                            _currentDoc = null;
+                            DisplayDocument(null);
+                            ChatMessages.Clear();
+                            ClearPlotVisualizationDashboard();
+                            btnNewChat_Click(this, new RoutedEventArgs());
+                        }
+                    }
+                    else if (currentSessionDeleted || _currentSession == null)
+                    {
+                        // 若仅当前会话归属于被删除组，切换到当前组最近活跃会话或新建独立会话
+                        _currentSession = _currentGroup != null
+                            ? ChatSessions.Where(s => s.BindGroupId == _currentGroup.GroupId).OrderByDescending(s => s.LastActiveAt).FirstOrDefault()
+                            : ChatSessions.FirstOrDefault();
+
+                        if (_currentSession != null)
+                        {
+                            SelectSession(_currentSession);
+                        }
+                        else
+                        {
+                            btnNewChat_Click(this, new RoutedEventArgs());
+                        }
+                    }
+
+                    UpdateDocCountDisplay();
+                    UpdateHistoryCountDisplay();
+                    SyncGroupSessions();
                 }
                 catch (Exception ex)
                 {
@@ -3703,38 +3988,15 @@ def analyze_document_metrics(file_path: str):
             }
         }
 
-        // 鼠标左键双击文档组：自动跳到右侧【工作区文档】处正确显示当前文档组包含的所有文件
+        // 鼠标左键双击文档组：统一选中文档组并联动右侧工作区与对应会话/可视化画廊
         private async void DocGroupItem_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
             var group = (sender as FrameworkElement)?.Tag as DocumentGroup
                         ?? (sender as FrameworkElement)?.DataContext as DocumentGroup;
             if (group != null)
             {
-                // 1. 激活该组选中状态 (带防重入保护)
-                _currentGroup = group;
-                foreach (var g in DocumentGroups)
-                {
-                    g.IsSelected = (g == group);
-                }
-                if (lvDocumentGroups != null && lvDocumentGroups.SelectedItem != group)
-                {
-                    _isSelectingGroupProgrammatically = true;
-                    try
-                    {
-                        lvDocumentGroups.SelectedItem = group;
-                    }
-                    finally
-                    {
-                        _isSelectingGroupProgrammatically = false;
-                    }
-                }
-
-                // 2. 自动切换到右侧【工作区文档】视角
+                await SelectDocumentGroupAsync(group, switchSessionIfNeeded: true);
                 btnViewAllDocs_Click(this, new RoutedEventArgs());
-
-                // 3. 统一互斥幂等加载该组文档
-                await LoadGroupDocumentsAsync(group, selectAndPreviewFirstDoc: true);
-
                 btnTabDocPreview_Click(this, new RoutedEventArgs());
                 e.Handled = true;
             }
@@ -3865,9 +4127,10 @@ def analyze_document_metrics(file_path: str):
             UpdateHistoryCountDisplay();
             btnTabDocPreview_Click(this, new RoutedEventArgs());
 
-            // 清空右侧当前消息流并重置，准备开始新会话
+            // 清空右侧当前消息流与图表画廊大屏，准备开始新会话
             RemoveActiveSkill();
             ChatMessages.Clear();
+            ClearPlotVisualizationDashboard();
             tbChatRunStatus.Text = "";
             tbQuestion.Focus(FocusState.Programmatic);
         }
@@ -3937,9 +4200,10 @@ def analyze_document_metrics(file_path: str):
             SyncGroupSessions();
             UpdateHistoryCountDisplay();
 
-            // 清空并初始化欢迎消息
+            // 清空并初始化欢迎消息与图表大屏
             RemoveActiveSkill();
             ChatMessages.Clear();
+            ClearPlotVisualizationDashboard();
             InitializeWelcomeChatMessage();
         }
 
@@ -3970,6 +4234,35 @@ def analyze_document_metrics(file_path: str):
             }
             if (lvHistorySessions != null) lvHistorySessions.SelectedItem = session;
 
+            // 若所选会话绑定了文档组，且当前激活组与其不一致，联动切换当前文档组与工作区文件
+            if (!string.IsNullOrEmpty(session.BindGroupId) && (_currentGroup == null || _currentGroup.GroupId != session.BindGroupId))
+            {
+                var targetGroup = DocumentGroups.FirstOrDefault(g => g.GroupId == session.BindGroupId);
+                if (targetGroup != null)
+                {
+                    _currentGroup = targetGroup;
+                    foreach (var g in DocumentGroups)
+                    {
+                        g.IsSelected = (g == targetGroup);
+                    }
+                    if (lvDocumentGroups != null && lvDocumentGroups.SelectedItem != targetGroup)
+                    {
+                        _isSelectingGroupProgrammatically = true;
+                        try { lvDocumentGroups.SelectedItem = targetGroup; }
+                        finally { _isSelectingGroupProgrammatically = false; }
+                    }
+                    _ = LoadGroupDocumentsAsync(targetGroup, selectAndPreviewFirstDoc: true);
+                }
+            }
+            else if (string.IsNullOrEmpty(session.BindGroupId) && _currentGroup != null)
+            {
+                // 自由独立会话（未绑定任何文档组）
+                _currentGroup = null;
+                foreach (var g in DocumentGroups) g.IsSelected = false;
+                if (lvDocumentGroups != null) lvDocumentGroups.SelectedItem = null;
+                _ = LoadGroupDocumentsAsync(null, selectAndPreviewFirstDoc: false);
+            }
+
             // 载入所选会话内容
             LoadSessionChat(session);
         }
@@ -3989,12 +4282,12 @@ def analyze_document_metrics(file_path: str):
             _currentSession = session;
 
             // 1. 从磁盘读取最新持久化的完整会话记录（包含 messages 与图表）
-            var persisted = await LibraryPersistenceService.Instance.LoadSessionAsync(session.Id);
+            var persisted = await LibraryPersistenceService.Instance.LoadSessionAsync(session.Id, session.BindGroupId);
             var messagesToLoad = persisted?.Messages ?? session.Messages;
 
             // 2. 清空界面并复原消息流与图表画廊
             ChatMessages.Clear();
-            PlotGallery.Clear();
+            ClearPlotVisualizationDashboard();
 
             if (messagesToLoad != null && messagesToLoad.Count > 0)
             {
@@ -4008,11 +4301,11 @@ def analyze_document_metrics(file_path: str):
                     // 深度复原画廊中的图表（自动净化历史中残留的未带编号根目录临时图，并校验物理文件是否存在）
                     if (msg.GeneratedPlots != null && msg.GeneratedPlots.Count > 0)
                     {
-                        string scratchDir = PythonExecutionService.LocateOrInitScratchDirectory();
+                        string scratchDir = PythonExecutionService.LocateOrInitScratchDirectory(session.BindGroupId ?? _currentGroup?.GroupId);
                         string scratchPrefix = scratchDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
                         var invalidPlots = msg.GeneratedPlots.Where(p =>
                             (p.FilePath.StartsWith(scratchPrefix, StringComparison.OrdinalIgnoreCase) &&
-                            !PythonExecutionService.IsInSandboxDirectory(p.FilePath)) ||
+                            !PythonExecutionService.IsInSandboxDirectory(p.FilePath, session.BindGroupId ?? _currentGroup?.GroupId)) ||
                             System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileNameWithoutExtension(p.FilePath), @"^chart_\d{10,}_\d+$")).ToList();
                         foreach (var inv in invalidPlots)
                         {
@@ -4028,10 +4321,21 @@ def analyze_document_metrics(file_path: str):
                         }
                     }
                 }
+
+                if (PlotGallery.Count > 0)
+                {
+                    _activeDashboardPlot = PlotGallery.FirstOrDefault();
+                    UpdateVisualizationDashboardUI();
+                }
+                else
+                {
+                    ClearPlotVisualizationDashboard();
+                }
             }
             else
             {
-                // 若为空对话，初始化首屏引导
+                // 若为空对话，初始化首屏引导并清空可视化大屏
+                ClearPlotVisualizationDashboard();
                 InitializeWelcomeChatMessage();
             }
 
@@ -4123,7 +4427,7 @@ def analyze_document_metrics(file_path: str):
             bool confirm = await ShowConfirmDialogAsync("删除会话", $"确定要删除会话【{session.Title}】吗？删除后不可恢复。");
             if (confirm)
             {
-                await LibraryPersistenceService.Instance.DeleteSessionAsync(session.Id);
+                await LibraryPersistenceService.Instance.DeleteSessionAsync(session.Id, session.BindGroupId);
                 ChatSessions.Remove(session);
 
                 if (_currentSession == session)
@@ -4452,6 +4756,21 @@ def analyze_document_metrics(file_path: str):
                 if (prop != null && borderSplitterContainer != null)
                 {
                     prop.SetValue(borderSplitterContainer, cursor);
+                }
+                var diagCursorRight = Microsoft.UI.Input.InputSystemCursor.Create(Microsoft.UI.Input.InputSystemCursorShape.SizeNorthwestSoutheast);
+                if (prop != null && borderViewerResizeGripRight != null)
+                {
+                    prop.SetValue(borderViewerResizeGripRight, diagCursorRight);
+                }
+                var diagCursorLeft = Microsoft.UI.Input.InputSystemCursor.Create(Microsoft.UI.Input.InputSystemCursorShape.SizeNortheastSouthwest);
+                if (prop != null && borderViewerResizeGripLeft != null)
+                {
+                    prop.SetValue(borderViewerResizeGripLeft, diagCursorLeft);
+                }
+                var handCursor = Microsoft.UI.Input.InputSystemCursor.Create(Microsoft.UI.Input.InputSystemCursorShape.Hand);
+                if (prop != null && gridViewerImageCanvas != null)
+                {
+                    prop.SetValue(gridViewerImageCanvas, handCursor);
                 }
             }
             catch (Exception ex)

@@ -14,9 +14,14 @@ using DataAnalysis_Assistant.Models;
 namespace DataAnalysis_Assistant.Services.Persistence
 {
     /// <summary>
-    /// 本地持久化文档库与会话管理引擎：
-    /// 负责文档元数据 CRUD、文档组管理、会话历史存取、Schema 探查缓存以及物理源文件可达性核验。
-    /// 遵循“原始用户文件不复制，仅收容元数据、文本缓存与会话状态”的架构铁律。
+    /// 本地持久化文档库与会话管理引擎（重构版）：
+    /// 采用【文档组自治物理容器】架构：
+    /// document_groups/
+    /// └── {GroupId}/ (对话组随机编号)
+    ///     ├── group.json (对话组元数据)
+    ///     ├── documents/ (本组专属文档元数据)
+    ///     ├── sessions/  (本组专属会话历史)
+    ///     └── scratch/   (本组专属 Python 执行产物与沙盒)
     /// </summary>
     public class LibraryPersistenceService
     {
@@ -35,26 +40,39 @@ namespace DataAnalysis_Assistant.Services.Persistence
 
         private readonly SemaphoreSlim _lock = new(1, 1);
 
-        public string BasePath { get; }
-        public string DocumentsDirectory => Path.Combine(BasePath, "documents");
-        public string GroupsDirectory => Path.Combine(BasePath, "document_groups");
-        public string SessionsDirectory => Path.Combine(BasePath, "sessions");
-        public string CacheDirectory => Path.Combine(BasePath, "cache");
+        /// <summary>
+        /// 独立自由会话专区 ID（未绑定任何文档的自由对话）
+        /// </summary>
+        public const string StandaloneGroupId = "group_standalone";
+
+        public string DataDirectory { get; }
+        public string GroupsDirectory { get; }
+        public string CacheDirectory { get; }
         public string SchemaCacheDirectory => Path.Combine(CacheDirectory, "schema_profiles");
+
+        // 兼容旧属性 BasePath
+        public string BasePath => GroupsDirectory;
+        public string DocumentsDirectory => GetGroupDocumentsDirectory(StandaloneGroupId);
+        public string SessionsDirectory => GetGroupSessionsDirectory(StandaloneGroupId);
 
         public LibraryPersistenceService(string? customBasePath = null)
         {
             if (string.IsNullOrWhiteSpace(customBasePath))
             {
                 string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-                BasePath = Path.Combine(appData, "DataAnalysis_Assistant", "library");
+                DataDirectory = Path.Combine(appData, "DataAnalysis_Assistant");
+                GroupsDirectory = Path.Combine(DataDirectory, "document_groups");
+                CacheDirectory = Path.Combine(DataDirectory, "cache");
             }
             else
             {
-                BasePath = customBasePath;
+                DataDirectory = customBasePath;
+                GroupsDirectory = Path.Combine(DataDirectory, "document_groups");
+                CacheDirectory = Path.Combine(DataDirectory, "cache");
             }
 
             EnsureDirectories();
+            MigrateLegacyStorageIfNeeded();
         }
 
         /// <summary>
@@ -62,26 +80,323 @@ namespace DataAnalysis_Assistant.Services.Persistence
         /// </summary>
         public void EnsureDirectories()
         {
-            Directory.CreateDirectory(BasePath);
-            Directory.CreateDirectory(DocumentsDirectory);
+            Directory.CreateDirectory(DataDirectory);
             Directory.CreateDirectory(GroupsDirectory);
-            Directory.CreateDirectory(SessionsDirectory);
             Directory.CreateDirectory(CacheDirectory);
             Directory.CreateDirectory(SchemaCacheDirectory);
+            EnsureGroupDirectories(StandaloneGroupId);
         }
 
-        #region 1. 文档元数据 CRUD (DocumentItem)
+        #region 0. 组专属目录与路径计算器 (Group Directory Scoping)
+
+        public string GetGroupDirectory(string groupId)
+        {
+            string safeId = string.IsNullOrWhiteSpace(groupId) ? StandaloneGroupId : groupId.Trim();
+            return Path.Combine(GroupsDirectory, safeId);
+        }
+
+        public string GetGroupMetaFilePath(string groupId)
+        {
+            string groupDir = GetGroupDirectory(groupId);
+            string standardPath = Path.Combine(groupDir, "group.json");
+            if (!File.Exists(standardPath))
+            {
+                // 兼容旧命名 group_{groupId}.json
+                string legacyPath = Path.Combine(groupDir, $"group_{groupId}.json");
+                if (File.Exists(legacyPath)) return legacyPath;
+            }
+            return standardPath;
+        }
+
+        public string GetGroupDocumentsDirectory(string groupId) =>
+            Path.Combine(GetGroupDirectory(groupId), "documents");
+
+        public string GetGroupSessionsDirectory(string groupId) =>
+            Path.Combine(GetGroupDirectory(groupId), "sessions");
+
+        public string GetGroupScratchDirectory(string groupId) =>
+            Path.Combine(GetGroupDirectory(groupId), "scratch");
+
+        public string GetGroupSandboxDirectory(string groupId) =>
+            Path.Combine(GetGroupScratchDirectory(groupId), "agent_sandbox");
+
+        public void EnsureGroupDirectories(string groupId)
+        {
+            Directory.CreateDirectory(GetGroupDirectory(groupId));
+            Directory.CreateDirectory(GetGroupDocumentsDirectory(groupId));
+            Directory.CreateDirectory(GetGroupSessionsDirectory(groupId));
+            Directory.CreateDirectory(GetGroupScratchDirectory(groupId));
+            Directory.CreateDirectory(GetGroupSandboxDirectory(groupId));
+        }
 
         /// <summary>
-        /// 保存或更新单个文档元数据
+        /// 获取指定组专属的 Scratch 沙盒目录（若未指定或为空，回退到 standalone 组专属沙盒）
         /// </summary>
-        public async Task SaveDocumentMetaAsync(DocumentItem doc)
+        public string GetScratchDirectoryForGroup(string? groupId)
+        {
+            string targetId = string.IsNullOrWhiteSpace(groupId) ? StandaloneGroupId : groupId.Trim();
+            EnsureGroupDirectories(targetId);
+            return GetGroupScratchDirectory(targetId);
+        }
+
+        /// <summary>
+        /// 获取指定组专属的 agent_sandbox 沙盒目录（若未指定或为空，回退到 standalone 组专属沙盒）
+        /// </summary>
+        public string GetSandboxDirectoryForGroup(string? groupId)
+        {
+            string targetId = string.IsNullOrWhiteSpace(groupId) ? StandaloneGroupId : groupId.Trim();
+            EnsureGroupDirectories(targetId);
+            return GetGroupSandboxDirectory(targetId);
+        }
+
+        #endregion
+
+        #region 1. 文档组 CRUD (DocumentGroup 自治容器)
+
+        /// <summary>
+        /// 快速创建一个新的文档组自治目录并持久化
+        /// </summary>
+        public async Task<DocumentGroup> CreateGroupAsync(string groupName, IEnumerable<string>? docIds = null)
+        {
+            // 生成带日期与随机哈希的组标识符（如 group_20261020_a1b2c3d4）
+            string randomCode = Guid.NewGuid().ToString("N")[..8];
+            string groupId = $"group_{DateTime.Now:yyyyMMdd}_{randomCode}";
+
+            var group = new DocumentGroup
+            {
+                GroupId = groupId,
+                GroupName = string.IsNullOrWhiteSpace(groupName) ? "新建文档组" : groupName.Trim(),
+                CreatedAt = DateTime.Now,
+                LastActiveAt = DateTime.Now
+            };
+
+            EnsureGroupDirectories(group.GroupId);
+
+            if (docIds != null)
+            {
+                var distinctDocIds = docIds.Distinct().ToList();
+                group.DocumentIds.AddRange(distinctDocIds);
+
+                // 若导入前文档元数据暂存在独立区或其他位置，归拢同步进本组专属 documents/ 目录
+                foreach (var docId in distinctDocIds)
+                {
+                    var existingDoc = await LoadDocumentMetaAsync(docId);
+                    if (existingDoc != null)
+                    {
+                        await SaveDocumentMetaInternalAsync(existingDoc, group.GroupId);
+                        // 若原先暂存在 standalone 目录下，清理独立区临时条目
+                        string standaloneDocPath = Path.Combine(GetGroupDocumentsDirectory(StandaloneGroupId), $"doc_meta_{docId}.json");
+                        if (File.Exists(standaloneDocPath))
+                        {
+                            try { File.Delete(standaloneDocPath); } catch { }
+                        }
+                    }
+                }
+            }
+
+            await SaveGroupAsync(group);
+            return group;
+        }
+
+        /// <summary>
+        /// 保存或更新文档组定义（写入对应组目录下的 group.json）
+        /// </summary>
+        public async Task SaveGroupAsync(DocumentGroup group)
+        {
+            if (group == null || string.IsNullOrWhiteSpace(group.GroupId)) return;
+
+            EnsureGroupDirectories(group.GroupId);
+            string filePath = Path.Combine(GetGroupDirectory(group.GroupId), "group.json");
+            string json = JsonSerializer.Serialize(group, JsonOptions);
+
+            await _lock.WaitAsync();
+            try
+            {
+                await File.WriteAllTextAsync(filePath, json);
+            }
+            finally
+            {
+                _lock.Release();
+            }
+        }
+
+        /// <summary>
+        /// 加载指定 ID 的文档组定义
+        /// </summary>
+        public async Task<DocumentGroup?> LoadGroupAsync(string groupId)
+        {
+            if (string.IsNullOrWhiteSpace(groupId)) return null;
+
+            string filePath = GetGroupMetaFilePath(groupId);
+            if (!File.Exists(filePath)) return null;
+
+            await _lock.WaitAsync();
+            try
+            {
+                string json = await File.ReadAllTextAsync(filePath);
+                return SafeDeserializeOrQuarantine<DocumentGroup>(filePath, json);
+            }
+            catch
+            {
+                return null;
+            }
+            finally
+            {
+                _lock.Release();
+            }
+        }
+
+        /// <summary>
+        /// 获取所有已创建的有效文档组清单（扫描 document_groups 下含 group.json 的目录）
+        /// </summary>
+        public async Task<List<DocumentGroup>> ListAllGroupsAsync()
+        {
+            var list = new List<DocumentGroup>();
+            if (!Directory.Exists(GroupsDirectory)) return list;
+
+            string[] subDirs = Directory.GetDirectories(GroupsDirectory);
+            foreach (string dir in subDirs)
+            {
+                string folderName = Path.GetFileName(dir);
+                // 自由对话专区不作为常规文档组在列表中呈现
+                if (string.Equals(folderName, StandaloneGroupId, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                string metaPath = Path.Combine(dir, "group.json");
+                if (!File.Exists(metaPath))
+                {
+                    // 兼容旧命名 group_*.json
+                    string[] legacyFiles = Directory.GetFiles(dir, "group_*.json");
+                    metaPath = legacyFiles.FirstOrDefault() ?? string.Empty;
+                }
+
+                if (File.Exists(metaPath))
+                {
+                    try
+                    {
+                        string json = await File.ReadAllTextAsync(metaPath);
+                        var group = SafeDeserializeOrQuarantine<DocumentGroup>(metaPath, json);
+                        if (group != null)
+                        {
+                            list.Add(group);
+                        }
+                    }
+                    catch
+                    {
+                        // 忽略单个损坏定义
+                    }
+                }
+            }
+
+            return list.OrderByDescending(g => g.LastActiveAt).ToList();
+        }
+
+        /// <summary>
+        /// 删除指定文档组容器（一键物理彻底删除整组文件夹，包括其 group.json、documents、sessions 与 scratch）
+        /// </summary>
+        public async Task<bool> DeleteGroupAsync(string groupId)
+        {
+            if (string.IsNullOrWhiteSpace(groupId)) return false;
+
+            string groupDir = GetGroupDirectory(groupId);
+            await _lock.WaitAsync();
+            try
+            {
+                if (Directory.Exists(groupDir))
+                {
+                    Directory.Delete(groupDir, recursive: true);
+                    return true;
+                }
+                return false;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[LibraryPersistenceService] DeleteGroupAsync 失败: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                _lock.Release();
+            }
+        }
+
+        /// <summary>
+        /// 将指定文档加入文档组
+        /// </summary>
+        public async Task AddDocumentToGroupAsync(string groupId, string docId)
+        {
+            var group = await LoadGroupAsync(groupId);
+            if (group != null && !group.DocumentIds.Contains(docId))
+            {
+                group.DocumentIds.Add(docId);
+                group.LastActiveAt = DateTime.Now;
+
+                // 同步将文档元数据同步一份至该组 documents 目录
+                var doc = await LoadDocumentMetaAsync(docId);
+                if (doc != null)
+                {
+                    await SaveDocumentMetaInternalAsync(doc, groupId);
+                }
+
+                await SaveGroupAsync(group);
+            }
+        }
+
+        /// <summary>
+        /// 将指定文档从文档组中移除
+        /// </summary>
+        public async Task RemoveDocumentFromGroupAsync(string groupId, string docId)
+        {
+            var group = await LoadGroupAsync(groupId);
+            if (group != null && group.DocumentIds.Remove(docId))
+            {
+                group.LastActiveAt = DateTime.Now;
+                await SaveGroupAsync(group);
+
+                // 移除组专属目录下的文档元数据
+                string docMetaPath = Path.Combine(GetGroupDocumentsDirectory(groupId), $"doc_meta_{docId}.json");
+                if (File.Exists(docMetaPath))
+                {
+                    try { File.Delete(docMetaPath); } catch { }
+                }
+            }
+        }
+
+        private string? FindGroupIdForDocument(string docId)
+        {
+            if (!Directory.Exists(GroupsDirectory)) return null;
+
+            foreach (var dir in Directory.GetDirectories(GroupsDirectory))
+            {
+                string p = Path.Combine(dir, "documents", $"doc_meta_{docId}.json");
+                if (File.Exists(p)) return Path.GetFileName(dir);
+            }
+            return null;
+        }
+
+        #endregion
+
+        #region 2. 文档元数据 CRUD (DocumentItem)
+
+        /// <summary>
+        /// 保存或更新文档元数据（可指定归属组，未指定时智能归类到对应组或暂存 standalone）
+        /// </summary>
+        public async Task SaveDocumentMetaAsync(DocumentItem doc, string? groupId = null)
         {
             if (doc == null || string.IsNullOrWhiteSpace(doc.Id)) return;
 
-            CheckDocumentFileExists(doc);
+            string targetGroup = !string.IsNullOrWhiteSpace(groupId) ? groupId : FindGroupIdForDocument(doc.Id) ?? StandaloneGroupId;
+            await SaveDocumentMetaInternalAsync(doc, targetGroup);
+        }
 
-            string filePath = GetDocumentMetaFilePath(doc.Id);
+        private async Task SaveDocumentMetaInternalAsync(DocumentItem doc, string targetGroupId)
+        {
+            CheckDocumentFileExists(doc);
+            EnsureGroupDirectories(targetGroupId);
+
+            string filePath = Path.Combine(GetGroupDocumentsDirectory(targetGroupId), $"doc_meta_{doc.Id}.json");
             string json = JsonSerializer.Serialize(doc, JsonOptions);
 
             await _lock.WaitAsync();
@@ -94,7 +409,7 @@ namespace DataAnalysis_Assistant.Services.Persistence
                 _lock.Release();
             }
 
-            // 若包含 SchemaProfile，自动同步写入 Schema 探查缓存
+            // 同步全局 Schema 探查缓存
             if (doc.SchemaProfile != null)
             {
                 await SaveSchemaProfileCacheAsync(doc.Id, doc.SchemaProfile);
@@ -102,24 +417,42 @@ namespace DataAnalysis_Assistant.Services.Persistence
         }
 
         /// <summary>
-        /// 加载指定 ID 的文档元数据
+        /// 加载指定 ID 的文档元数据（支持指定组精准读取或全局各组跨目录探查）
         /// </summary>
-        public async Task<DocumentItem?> LoadDocumentMetaAsync(string docId)
+        public async Task<DocumentItem?> LoadDocumentMetaAsync(string docId, string? groupId = null)
         {
             if (string.IsNullOrWhiteSpace(docId)) return null;
 
-            string filePath = GetDocumentMetaFilePath(docId);
-            if (!File.Exists(filePath)) return null;
+            string? targetFile = null;
+            if (!string.IsNullOrWhiteSpace(groupId))
+            {
+                string p = Path.Combine(GetGroupDocumentsDirectory(groupId), $"doc_meta_{docId}.json");
+                if (File.Exists(p)) targetFile = p;
+            }
+
+            if (targetFile == null && Directory.Exists(GroupsDirectory))
+            {
+                foreach (var dir in Directory.GetDirectories(GroupsDirectory))
+                {
+                    string p = Path.Combine(dir, "documents", $"doc_meta_{docId}.json");
+                    if (File.Exists(p))
+                    {
+                        targetFile = p;
+                        break;
+                    }
+                }
+            }
+
+            if (targetFile == null || !File.Exists(targetFile)) return null;
 
             await _lock.WaitAsync();
             try
             {
-                string json = await File.ReadAllTextAsync(filePath);
-                var doc = SafeDeserializeOrQuarantine<DocumentItem>(filePath, json);
+                string json = await File.ReadAllTextAsync(targetFile);
+                var doc = SafeDeserializeOrQuarantine<DocumentItem>(targetFile, json);
                 if (doc != null)
                 {
                     CheckDocumentFileExists(doc);
-                    // 若本身未挂载 SchemaProfile，尝试从本地缓存补充
                     if (doc.SchemaProfile == null && doc.IsTabularData)
                     {
                         doc.SchemaProfile = await LoadSchemaProfileCacheInternalAsync(doc.Id);
@@ -138,29 +471,44 @@ namespace DataAnalysis_Assistant.Services.Persistence
         }
 
         /// <summary>
-        /// 获取所有已持久化的文档元数据清单
+        /// 获取文档清单（若指定 groupId 则返回组内文档，否则返回全部文档并去重）
         /// </summary>
-        public async Task<List<DocumentItem>> ListAllDocumentsAsync()
+        public async Task<List<DocumentItem>> ListAllDocumentsAsync(string? groupId = null)
         {
             var list = new List<DocumentItem>();
-            if (!Directory.Exists(DocumentsDirectory)) return list;
+            var searchDirs = new List<string>();
 
-            string[] files = Directory.GetFiles(DocumentsDirectory, "doc_meta_*.json");
-            foreach (string file in files)
+            if (!string.IsNullOrWhiteSpace(groupId))
             {
-                try
+                searchDirs.Add(GetGroupDocumentsDirectory(groupId));
+            }
+            else if (Directory.Exists(GroupsDirectory))
+            {
+                foreach (var dir in Directory.GetDirectories(GroupsDirectory))
                 {
-                    string json = await File.ReadAllTextAsync(file);
-                    var doc = SafeDeserializeOrQuarantine<DocumentItem>(file, json);
-                    if (doc != null)
-                    {
-                        CheckDocumentFileExists(doc);
-                        list.Add(doc);
-                    }
+                    string docsDir = Path.Combine(dir, "documents");
+                    if (Directory.Exists(docsDir)) searchDirs.Add(docsDir);
                 }
-                catch
+            }
+
+            var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var dir in searchDirs)
+            {
+                if (!Directory.Exists(dir)) continue;
+                string[] files = Directory.GetFiles(dir, "doc_meta_*.json");
+                foreach (string file in files)
                 {
-                    // 忽略损坏的单个元数据
+                    try
+                    {
+                        string json = await File.ReadAllTextAsync(file);
+                        var doc = SafeDeserializeOrQuarantine<DocumentItem>(file, json);
+                        if (doc != null && seenIds.Add(doc.Id))
+                        {
+                            CheckDocumentFileExists(doc);
+                            list.Add(doc);
+                        }
+                    }
+                    catch { }
                 }
             }
 
@@ -168,24 +516,39 @@ namespace DataAnalysis_Assistant.Services.Persistence
         }
 
         /// <summary>
-        /// 删除指定文档元数据（同时清理其 Schema 缓存，但不影响组定义）
+        /// 删除指定文档元数据
         /// </summary>
-        public async Task<bool> DeleteDocumentMetaAsync(string docId)
+        public async Task<bool> DeleteDocumentMetaAsync(string docId, string? groupId = null)
         {
             if (string.IsNullOrWhiteSpace(docId)) return false;
 
-            string metaPath = GetDocumentMetaFilePath(docId);
-            string schemaPath = GetSchemaCacheFilePath(docId);
-
+            bool deleted = false;
             await _lock.WaitAsync();
             try
             {
-                bool deleted = false;
-                if (File.Exists(metaPath))
+                var targetFiles = new List<string>();
+                if (!string.IsNullOrWhiteSpace(groupId))
                 {
-                    File.Delete(metaPath);
-                    deleted = true;
+                    targetFiles.Add(Path.Combine(GetGroupDocumentsDirectory(groupId), $"doc_meta_{docId}.json"));
                 }
+                else if (Directory.Exists(GroupsDirectory))
+                {
+                    foreach (var dir in Directory.GetDirectories(GroupsDirectory))
+                    {
+                        targetFiles.Add(Path.Combine(dir, "documents", $"doc_meta_{docId}.json"));
+                    }
+                }
+
+                foreach (var f in targetFiles)
+                {
+                    if (File.Exists(f))
+                    {
+                        File.Delete(f);
+                        deleted = true;
+                    }
+                }
+
+                string schemaPath = GetSchemaCacheFilePath(docId);
                 if (File.Exists(schemaPath))
                 {
                     File.Delete(schemaPath);
@@ -209,182 +572,43 @@ namespace DataAnalysis_Assistant.Services.Persistence
             return exists;
         }
 
-        private string GetDocumentMetaFilePath(string docId) =>
-            Path.Combine(DocumentsDirectory, $"doc_meta_{docId}.json");
-
         #endregion
 
-        #region 2. 文档组 CRUD (DocumentGroup)
+        #region 3. 会话存储与组内归属 (ChatSessionItem)
 
         /// <summary>
-        /// 快速创建一个新的文档组并持久化
-        /// </summary>
-        public async Task<DocumentGroup> CreateGroupAsync(string groupName, IEnumerable<string>? docIds = null)
-        {
-            var group = new DocumentGroup
-            {
-                GroupName = string.IsNullOrWhiteSpace(groupName) ? "新建文档组" : groupName.Trim(),
-                CreatedAt = DateTime.Now,
-                LastActiveAt = DateTime.Now
-            };
-
-            if (docIds != null)
-            {
-                group.DocumentIds.AddRange(docIds.Distinct());
-            }
-
-            await SaveGroupAsync(group);
-            return group;
-        }
-
-        /// <summary>
-        /// 保存或更新文档组定义
-        /// </summary>
-        public async Task SaveGroupAsync(DocumentGroup group)
-        {
-            if (group == null || string.IsNullOrWhiteSpace(group.GroupId)) return;
-
-            string filePath = GetGroupFilePath(group.GroupId);
-            string json = JsonSerializer.Serialize(group, JsonOptions);
-
-            await _lock.WaitAsync();
-            try
-            {
-                await File.WriteAllTextAsync(filePath, json);
-            }
-            finally
-            {
-                _lock.Release();
-            }
-        }
-
-        /// <summary>
-        /// 加载指定 ID 的文档组
-        /// </summary>
-        public async Task<DocumentGroup?> LoadGroupAsync(string groupId)
-        {
-            if (string.IsNullOrWhiteSpace(groupId)) return null;
-
-            string filePath = GetGroupFilePath(groupId);
-            if (!File.Exists(filePath)) return null;
-
-            await _lock.WaitAsync();
-            try
-            {
-                string json = await File.ReadAllTextAsync(filePath);
-                return SafeDeserializeOrQuarantine<DocumentGroup>(filePath, json);
-            }
-            catch
-            {
-                return null;
-            }
-            finally
-            {
-                _lock.Release();
-            }
-        }
-
-        /// <summary>
-        /// 获取所有已创建的文档组清单
-        /// </summary>
-        public async Task<List<DocumentGroup>> ListAllGroupsAsync()
-        {
-            var list = new List<DocumentGroup>();
-            if (!Directory.Exists(GroupsDirectory)) return list;
-
-            string[] files = Directory.GetFiles(GroupsDirectory, "group_*.json");
-            foreach (string file in files)
-            {
-                try
-                {
-                    string json = await File.ReadAllTextAsync(file);
-                    var group = SafeDeserializeOrQuarantine<DocumentGroup>(file, json);
-                    if (group != null)
-                    {
-                        list.Add(group);
-                    }
-                }
-                catch
-                {
-                    // 忽略损坏的单个组定义
-                }
-            }
-
-            return list.OrderByDescending(g => g.LastActiveAt).ToList();
-        }
-
-        /// <summary>
-        /// 删除指定文档组（注意：不会删除组内的文档实体）
-        /// </summary>
-        public async Task<bool> DeleteGroupAsync(string groupId)
-        {
-            if (string.IsNullOrWhiteSpace(groupId)) return false;
-
-            string filePath = GetGroupFilePath(groupId);
-            await _lock.WaitAsync();
-            try
-            {
-                if (File.Exists(filePath))
-                {
-                    File.Delete(filePath);
-                    return true;
-                }
-                return false;
-            }
-            finally
-            {
-                _lock.Release();
-            }
-        }
-
-        /// <summary>
-        /// 将指定文档加入文档组
-        /// </summary>
-        public async Task AddDocumentToGroupAsync(string groupId, string docId)
-        {
-            var group = await LoadGroupAsync(groupId);
-            if (group != null && !group.DocumentIds.Contains(docId))
-            {
-                group.DocumentIds.Add(docId);
-                group.LastActiveAt = DateTime.Now;
-                await SaveGroupAsync(group);
-            }
-        }
-
-        /// <summary>
-        /// 将指定文档从文档组中移除
-        /// </summary>
-        public async Task RemoveDocumentFromGroupAsync(string groupId, string docId)
-        {
-            var group = await LoadGroupAsync(groupId);
-            if (group != null && group.DocumentIds.Remove(docId))
-            {
-                group.LastActiveAt = DateTime.Now;
-                await SaveGroupAsync(group);
-            }
-        }
-
-        private string GetGroupFilePath(string groupId) =>
-            Path.Combine(GroupsDirectory, $"group_{groupId}.json");
-
-        #endregion
-
-        #region 3. 会话存储与关联映射 (ChatSessionItem)
-
-        /// <summary>
-        /// 保存或增量更新会话
+        /// 保存或增量更新会话（自动存储至其 BindGroupId 所属的 sessions/ 目录中）
         /// </summary>
         public async Task SaveSessionAsync(ChatSessionItem session)
         {
             if (session == null || string.IsNullOrWhiteSpace(session.Id)) return;
 
-            string filePath = GetSessionFilePath(session.Id);
+            string targetGroupId = !string.IsNullOrWhiteSpace(session.BindGroupId)
+                ? session.BindGroupId.Trim()
+                : StandaloneGroupId;
+
+            EnsureGroupDirectories(targetGroupId);
+            string filePath = Path.Combine(GetGroupSessionsDirectory(targetGroupId), $"session_{session.Id}.json");
             string json = JsonSerializer.Serialize(session, JsonOptions);
 
             await _lock.WaitAsync();
             try
             {
                 await File.WriteAllTextAsync(filePath, json);
+
+                // 若原先存在于其他组目录（例如从 standalone 绑定到特定组），清理旧路径文件，杜绝冗余孤立会话
+                if (Directory.Exists(GroupsDirectory))
+                {
+                    foreach (var dir in Directory.GetDirectories(GroupsDirectory))
+                    {
+                        if (string.Equals(Path.GetFileName(dir), targetGroupId, StringComparison.OrdinalIgnoreCase)) continue;
+                        string oldPath = Path.Combine(dir, "sessions", $"session_{session.Id}.json");
+                        if (File.Exists(oldPath))
+                        {
+                            try { File.Delete(oldPath); } catch { }
+                        }
+                    }
+                }
             }
             finally
             {
@@ -393,20 +617,39 @@ namespace DataAnalysis_Assistant.Services.Persistence
         }
 
         /// <summary>
-        /// 加载指定 ID 的会话，完整包含历史消息列表
+        /// 加载指定 ID 的会话（支持指定组快速加载或全局各组跨目录探查）
         /// </summary>
-        public async Task<ChatSessionItem?> LoadSessionAsync(string sessionId)
+        public async Task<ChatSessionItem?> LoadSessionAsync(string sessionId, string? groupId = null)
         {
             if (string.IsNullOrWhiteSpace(sessionId)) return null;
 
-            string filePath = GetSessionFilePath(sessionId);
-            if (!File.Exists(filePath)) return null;
+            string? targetFile = null;
+            if (!string.IsNullOrWhiteSpace(groupId))
+            {
+                string p = Path.Combine(GetGroupSessionsDirectory(groupId), $"session_{sessionId}.json");
+                if (File.Exists(p)) targetFile = p;
+            }
+
+            if (targetFile == null && Directory.Exists(GroupsDirectory))
+            {
+                foreach (var dir in Directory.GetDirectories(GroupsDirectory))
+                {
+                    string p = Path.Combine(dir, "sessions", $"session_{sessionId}.json");
+                    if (File.Exists(p))
+                    {
+                        targetFile = p;
+                        break;
+                    }
+                }
+            }
+
+            if (targetFile == null || !File.Exists(targetFile)) return null;
 
             await _lock.WaitAsync();
             try
             {
-                string json = await File.ReadAllTextAsync(filePath);
-                return SafeDeserializeOrQuarantine<ChatSessionItem>(filePath, json);
+                string json = await File.ReadAllTextAsync(targetFile);
+                return SafeDeserializeOrQuarantine<ChatSessionItem>(targetFile, json);
             }
             catch
             {
@@ -419,28 +662,42 @@ namespace DataAnalysis_Assistant.Services.Persistence
         }
 
         /// <summary>
-        /// 获取所有历史会话清单（按最后活跃时间降序）
+        /// 获取会话清单（若指定 groupId 则返回组内会话，否则返回全部会话）
         /// </summary>
-        public async Task<List<ChatSessionItem>> ListAllSessionsAsync()
+        public async Task<List<ChatSessionItem>> ListAllSessionsAsync(string? groupId = null)
         {
             var list = new List<ChatSessionItem>();
-            if (!Directory.Exists(SessionsDirectory)) return list;
+            var searchDirs = new List<string>();
 
-            string[] files = Directory.GetFiles(SessionsDirectory, "session_*.json");
-            foreach (string file in files)
+            if (!string.IsNullOrWhiteSpace(groupId))
             {
-                try
+                searchDirs.Add(GetGroupSessionsDirectory(groupId));
+            }
+            else if (Directory.Exists(GroupsDirectory))
+            {
+                foreach (var dir in Directory.GetDirectories(GroupsDirectory))
                 {
-                    string json = await File.ReadAllTextAsync(file);
-                    var session = SafeDeserializeOrQuarantine<ChatSessionItem>(file, json);
-                    if (session != null)
-                    {
-                        list.Add(session);
-                    }
+                    string sesDir = Path.Combine(dir, "sessions");
+                    if (Directory.Exists(sesDir)) searchDirs.Add(sesDir);
                 }
-                catch
+            }
+
+            foreach (var dir in searchDirs)
+            {
+                if (!Directory.Exists(dir)) continue;
+                string[] files = Directory.GetFiles(dir, "session_*.json");
+                foreach (string file in files)
                 {
-                    // 忽略单个读取失败的会话
+                    try
+                    {
+                        string json = await File.ReadAllTextAsync(file);
+                        var session = SafeDeserializeOrQuarantine<ChatSessionItem>(file, json);
+                        if (session != null)
+                        {
+                            list.Add(session);
+                        }
+                    }
+                    catch { }
                 }
             }
 
@@ -448,35 +705,47 @@ namespace DataAnalysis_Assistant.Services.Persistence
         }
 
         /// <summary>
-        /// 检索指定文档组关联的所有历史会话
+        /// 直接检索指定文档组专属目录下的所有关联历史会话（O(1) 高效组内定位）
         /// </summary>
         public async Task<List<ChatSessionItem>> GetSessionsByGroupIdAsync(string groupId)
         {
             if (string.IsNullOrWhiteSpace(groupId)) return new List<ChatSessionItem>();
-
-            var allSessions = await ListAllSessionsAsync();
-            return allSessions.Where(s => string.Equals(s.BindGroupId, groupId, StringComparison.OrdinalIgnoreCase))
-                              .OrderByDescending(s => s.LastActiveAt)
-                              .ToList();
+            return await ListAllSessionsAsync(groupId);
         }
 
         /// <summary>
         /// 删除指定会话
         /// </summary>
-        public async Task<bool> DeleteSessionAsync(string sessionId)
+        public async Task<bool> DeleteSessionAsync(string sessionId, string? groupId = null)
         {
             if (string.IsNullOrWhiteSpace(sessionId)) return false;
 
-            string filePath = GetSessionFilePath(sessionId);
+            bool deleted = false;
             await _lock.WaitAsync();
             try
             {
-                if (File.Exists(filePath))
+                var targetFiles = new List<string>();
+                if (!string.IsNullOrWhiteSpace(groupId))
                 {
-                    File.Delete(filePath);
-                    return true;
+                    targetFiles.Add(Path.Combine(GetGroupSessionsDirectory(groupId), $"session_{sessionId}.json"));
                 }
-                return false;
+                else if (Directory.Exists(GroupsDirectory))
+                {
+                    foreach (var dir in Directory.GetDirectories(GroupsDirectory))
+                    {
+                        targetFiles.Add(Path.Combine(dir, "sessions", $"session_{sessionId}.json"));
+                    }
+                }
+
+                foreach (var f in targetFiles)
+                {
+                    if (File.Exists(f))
+                    {
+                        File.Delete(f);
+                        deleted = true;
+                    }
+                }
+                return deleted;
             }
             finally
             {
@@ -484,16 +753,10 @@ namespace DataAnalysis_Assistant.Services.Persistence
             }
         }
 
-        private string GetSessionFilePath(string sessionId) =>
-            Path.Combine(SessionsDirectory, $"session_{sessionId}.json");
-
         #endregion
 
-        #region 4. 表格结构探查结果本地缓存 (DataSchemaProfile)
+        #region 4. 表格结构探查结果全局缓存 (DataSchemaProfile)
 
-        /// <summary>
-        /// 缓存大表格的 Schema 探查结果，避免反复进行高耗时全表 I/O 扫描
-        /// </summary>
         public async Task SaveSchemaProfileCacheAsync(string docId, DataSchemaProfile profile)
         {
             if (string.IsNullOrWhiteSpace(docId) || profile == null) return;
@@ -505,15 +768,9 @@ namespace DataAnalysis_Assistant.Services.Persistence
             {
                 await File.WriteAllTextAsync(filePath, json);
             }
-            catch
-            {
-                // 缓存失败不阻断主流程
-            }
+            catch { }
         }
 
-        /// <summary>
-        /// 读取大表格已缓存的 Schema 探查结果
-        /// </summary>
         public async Task<DataSchemaProfile?> LoadSchemaProfileCacheAsync(string docId)
         {
             return await LoadSchemaProfileCacheInternalAsync(docId);
@@ -540,13 +797,20 @@ namespace DataAnalysis_Assistant.Services.Persistence
         private string GetSchemaCacheFilePath(string docId) =>
             Path.Combine(SchemaCacheDirectory, $"schema_{docId}.json");
 
+        public void DeleteSchemaProfileCache(string docId)
+        {
+            if (string.IsNullOrWhiteSpace(docId)) return;
+            string filePath = GetSchemaCacheFilePath(docId);
+            if (File.Exists(filePath))
+            {
+                try { File.Delete(filePath); } catch { }
+            }
+        }
+
         #endregion
 
-        #region 5. 文件去重与哈希辅助
+        #region 5. 文件去重与辅助检索
 
-        /// <summary>
-        /// 计算本地文件的 MD5 哈希值，用于同内容重复导入去重
-        /// </summary>
         public static string ComputeFileHash(string filePath)
         {
             if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath)) return string.Empty;
@@ -564,9 +828,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
             }
         }
 
-        /// <summary>
-        /// 检查指定物理文件路径是否已被持久化，返回已有文档实例（避免重复解析与存储）
-        /// </summary>
         public async Task<DocumentItem?> FindDocumentByPathAsync(string filePath)
         {
             if (string.IsNullOrWhiteSpace(filePath)) return null;
@@ -577,11 +838,8 @@ namespace DataAnalysis_Assistant.Services.Persistence
 
         #endregion
 
-        #region 6. 数据备份导出、恢复与临时缓存清理
+        #region 6. 数据备份导出、恢复与临时清理
 
-        /// <summary>
-        /// 将文档库元数据、文档组、会话历史与缓存完整打包导出为 ZIP 文件
-        /// </summary>
         public async Task<bool> ExportBackupAsync(string targetZipPath)
         {
             if (string.IsNullOrWhiteSpace(targetZipPath)) return false;
@@ -601,27 +859,24 @@ namespace DataAnalysis_Assistant.Services.Persistence
                 using (var zipStream = new FileStream(tempZip, FileMode.Create, FileAccess.Write, FileShare.None))
                 using (var archive = new ZipArchive(zipStream, ZipArchiveMode.Create, false))
                 {
-                    void AddDirectoryToZip(string dirPath)
+                    void AddDirectoryToZip(string dirPath, string baseDir)
                     {
                         if (!Directory.Exists(dirPath)) return;
                         var files = Directory.GetFiles(dirPath, "*", SearchOption.AllDirectories);
                         foreach (var file in files)
                         {
-                            // 过滤 .bak 和临时锁定文件
                             if (file.EndsWith(".bak", StringComparison.OrdinalIgnoreCase) ||
                                 file.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase))
                             {
                                 continue;
                             }
-                            string relPath = Path.GetRelativePath(BasePath, file).Replace('\\', '/');
+                            string relPath = Path.GetRelativePath(baseDir, file).Replace('\\', '/');
                             archive.CreateEntryFromFile(file, relPath, CompressionLevel.Optimal);
                         }
                     }
 
-                    AddDirectoryToZip(DocumentsDirectory);
-                    AddDirectoryToZip(GroupsDirectory);
-                    AddDirectoryToZip(SessionsDirectory);
-                    AddDirectoryToZip(CacheDirectory);
+                    AddDirectoryToZip(GroupsDirectory, DataDirectory);
+                    AddDirectoryToZip(CacheDirectory, DataDirectory);
                 }
 
                 if (File.Exists(targetZipPath))
@@ -642,9 +897,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
             }
         }
 
-        /// <summary>
-        /// 从指定 ZIP 备份文件恢复文档库，解压合并并校验结构
-        /// </summary>
         public async Task<int> ImportBackupAsync(string sourceZipPath)
         {
             if (string.IsNullOrWhiteSpace(sourceZipPath) || !File.Exists(sourceZipPath)) return 0;
@@ -660,14 +912,13 @@ namespace DataAnalysis_Assistant.Services.Persistence
                 {
                     foreach (var entry in archive.Entries)
                     {
-                        if (string.IsNullOrEmpty(entry.Name)) continue; // 目录项跳过
+                        if (string.IsNullOrEmpty(entry.Name)) continue;
 
-                        // 防止 Zip Slip 路径穿越
                         string entryRelPath = entry.FullName.Replace('/', Path.DirectorySeparatorChar);
-                        string destinationPath = Path.GetFullPath(Path.Combine(BasePath, entryRelPath));
-                        if (!destinationPath.StartsWith(Path.GetFullPath(BasePath), StringComparison.OrdinalIgnoreCase))
+                        string destinationPath = Path.GetFullPath(Path.Combine(DataDirectory, entryRelPath));
+                        if (!destinationPath.StartsWith(Path.GetFullPath(DataDirectory), StringComparison.OrdinalIgnoreCase))
                         {
-                            continue; // 非法跳出根目录的 entry，直接跳过
+                            continue;
                         }
 
                         string? parentDir = Path.GetDirectoryName(destinationPath);
@@ -694,35 +945,54 @@ namespace DataAnalysis_Assistant.Services.Persistence
             }
         }
 
-        /// <summary>
-        /// 临时产物安全清理：仅清理 CacheDirectory 中过期的临时文件与探查结果
-        /// 严格保证绝不触碰和删除 DocumentsDirectory、GroupsDirectory 与 SessionsDirectory
-        /// </summary>
         public async Task<int> CleanTemporaryScratchAsync(TimeSpan olderThan)
         {
             await _lock.WaitAsync();
             try
             {
                 int deletedCount = 0;
-                if (!Directory.Exists(CacheDirectory)) return 0;
-
                 DateTime threshold = DateTime.Now - olderThan;
-                var files = Directory.GetFiles(CacheDirectory, "*", SearchOption.AllDirectories);
 
-                foreach (var file in files)
+                // 1. 清理全局 CacheDirectory
+                if (Directory.Exists(CacheDirectory))
                 {
-                    try
+                    foreach (var file in Directory.GetFiles(CacheDirectory, "*", SearchOption.AllDirectories))
                     {
-                        var fi = new FileInfo(file);
-                        if (fi.LastWriteTime < threshold)
+                        try
                         {
-                            File.Delete(file);
-                            deletedCount++;
+                            var fi = new FileInfo(file);
+                            if (fi.LastWriteTime < threshold)
+                            {
+                                File.Delete(file);
+                                deletedCount++;
+                            }
                         }
+                        catch { }
                     }
-                    catch
+                }
+
+                // 2. 清理各组专属 scratch 目录下的临时非产物文件 (保留 agent_sandbox 中的图表)
+                if (Directory.Exists(GroupsDirectory))
+                {
+                    foreach (var groupDir in Directory.GetDirectories(GroupsDirectory))
                     {
-                        // 忽略被占用的临时文件
+                        string scratchDir = Path.Combine(groupDir, "scratch");
+                        if (Directory.Exists(scratchDir))
+                        {
+                            foreach (var file in Directory.GetFiles(scratchDir, "*", SearchOption.TopDirectoryOnly))
+                            {
+                                try
+                                {
+                                    var fi = new FileInfo(file);
+                                    if (fi.LastWriteTime < threshold)
+                                    {
+                                        File.Delete(file);
+                                        deletedCount++;
+                                    }
+                                }
+                                catch { }
+                            }
+                        }
                     }
                 }
 
@@ -736,11 +1006,119 @@ namespace DataAnalysis_Assistant.Services.Persistence
 
         #endregion
 
-        #region 7. 文件损坏容错与隔离辅助
+        #region 7. 向后兼容与数据无损自迁移 (Legacy Migration)
 
-        /// <summary>
-        /// 安全反序列化 JSON，若遇到空文件或语法损毁文件，优雅熔断并重命名为 .bak 隔离，杜绝启动闪退
-        /// </summary>
+        private void MigrateLegacyStorageIfNeeded()
+        {
+            try
+            {
+                string legacyBase = Path.Combine(DataDirectory, "library");
+                if (!Directory.Exists(legacyBase)) return;
+
+                string legacyGroups = Path.Combine(legacyBase, "document_groups");
+                string legacyDocs = Path.Combine(legacyBase, "documents");
+                string legacySessions = Path.Combine(legacyBase, "sessions");
+
+                if (!Directory.Exists(legacyGroups) && !Directory.Exists(legacyDocs) && !Directory.Exists(legacySessions))
+                {
+                    return;
+                }
+
+                // 1. 迁移已存在的每个旧组
+                if (Directory.Exists(legacyGroups))
+                {
+                    foreach (var groupFile in Directory.GetFiles(legacyGroups, "group_*.json"))
+                    {
+                        try
+                        {
+                            string json = File.ReadAllText(groupFile);
+                            var group = JsonSerializer.Deserialize<DocumentGroup>(json, JsonOptions);
+                            if (group != null && !string.IsNullOrWhiteSpace(group.GroupId))
+                            {
+                                EnsureGroupDirectories(group.GroupId);
+                                string newGroupMeta = Path.Combine(GetGroupDirectory(group.GroupId), "group.json");
+                                if (!File.Exists(newGroupMeta))
+                                {
+                                    File.WriteAllText(newGroupMeta, json);
+                                }
+
+                                // 搬运组关联文档
+                                if (group.DocumentIds != null && Directory.Exists(legacyDocs))
+                                {
+                                    foreach (var docId in group.DocumentIds)
+                                    {
+                                        string oldDocPath = Path.Combine(legacyDocs, $"doc_meta_{docId}.json");
+                                        string newDocPath = Path.Combine(GetGroupDocumentsDirectory(group.GroupId), $"doc_meta_{docId}.json");
+                                        if (File.Exists(oldDocPath) && !File.Exists(newDocPath))
+                                        {
+                                            File.Copy(oldDocPath, newDocPath, true);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                }
+
+                // 2. 搬运会话
+                if (Directory.Exists(legacySessions))
+                {
+                    foreach (var sesFile in Directory.GetFiles(legacySessions, "session_*.json"))
+                    {
+                        try
+                        {
+                            string json = File.ReadAllText(sesFile);
+                            var session = JsonSerializer.Deserialize<ChatSessionItem>(json, JsonOptions);
+                            if (session != null && !string.IsNullOrWhiteSpace(session.Id))
+                            {
+                                string targetGroup = !string.IsNullOrWhiteSpace(session.BindGroupId)
+                                    ? session.BindGroupId
+                                    : StandaloneGroupId;
+
+                                EnsureGroupDirectories(targetGroup);
+                                string newSesPath = Path.Combine(GetGroupSessionsDirectory(targetGroup), Path.GetFileName(sesFile));
+                                if (!File.Exists(newSesPath))
+                                {
+                                    File.WriteAllText(newSesPath, json);
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                }
+
+                // 3. 搬运未归组的孤儿文档至 standalone
+                if (Directory.Exists(legacyDocs))
+                {
+                    EnsureGroupDirectories(StandaloneGroupId);
+                    foreach (var docFile in Directory.GetFiles(legacyDocs, "doc_meta_*.json"))
+                    {
+                        string targetPath = Path.Combine(GetGroupDocumentsDirectory(StandaloneGroupId), Path.GetFileName(docFile));
+                        if (!File.Exists(targetPath))
+                        {
+                            try { File.Copy(docFile, targetPath, true); } catch { }
+                        }
+                    }
+                }
+
+                // 4. 将旧目录更名为备份
+                string backupDir = Path.Combine(DataDirectory, $"library_migrated_backup_{DateTime.Now:yyyyMMdd}");
+                if (!Directory.Exists(backupDir))
+                {
+                    Directory.Move(legacyBase, backupDir);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[LibraryPersistenceService] 迁移老版本数据警告: {ex.Message}");
+            }
+        }
+
+        #endregion
+
+        #region 8. 损坏熔断辅助
+
         private static T? SafeDeserializeOrQuarantine<T>(string filePath, string json) where T : class
         {
             if (string.IsNullOrWhiteSpace(json))
@@ -755,15 +1133,12 @@ namespace DataAnalysis_Assistant.Services.Persistence
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[LibraryPersistenceService] JSON 损坏熔断，已隔离为 .bak: {filePath}, 原因: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[LibraryPersistenceService] JSON 损坏熔断: {filePath}, 原因: {ex.Message}");
                 QuarantineCorruptedFile(filePath);
                 return null;
             }
         }
 
-        /// <summary>
-        /// 将损毁的持久化文件迁移重命名为 .bak，避免后续流程再次读盘抛错
-        /// </summary>
         private static void QuarantineCorruptedFile(string filePath)
         {
             try
@@ -775,13 +1150,9 @@ namespace DataAnalysis_Assistant.Services.Persistence
                     File.Move(filePath, bakPath);
                 }
             }
-            catch
-            {
-                // 忽略系统文件锁导致的隔离失败
-            }
+            catch { }
         }
 
         #endregion
     }
 }
-

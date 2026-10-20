@@ -50,9 +50,9 @@ namespace DataAnalysis_Assistant.Services.Python
                 return ToolExecutionResult.CreateFailure("执行失败：未在系统环境变量 PATH 或指定路径中找到 python.exe。请检查 Python 安装。");
             }
 
-            // 2. 准备执行沙盒与产物收容目录 (遵循 scratch 隔离纪律，统一收容至 AppData/scratch)
-            string scratchDir = LocateOrInitScratchDirectory();
-            string sandboxDir = LocateOrInitSandboxDirectory();
+            // 2. 准备执行沙盒与产物收容目录 (遵循对话组自治 scratch 隔离纪律，统一收容至对应组专属 scratch)
+            string scratchDir = LocateOrInitScratchDirectory(options.TargetGroupId);
+            string sandboxDir = LocateOrInitSandboxDirectory(options.TargetGroupId);
 
             string scriptFileName = $"agent_exec_{Guid.NewGuid():N}.py";
             string scriptFilePath = Path.Combine(sandboxDir, scriptFileName);
@@ -189,7 +189,7 @@ namespace DataAnalysis_Assistant.Services.Python
                     string fullPath = Path.GetFullPath(rawPath);
                     // 关键约束：必须存在物理文件、必须严格位于 agent_sandbox 目录下、且不重复
                     if (File.Exists(fullPath) &&
-                        IsInSandboxDirectory(fullPath) &&
+                        IsInSandboxDirectory(fullPath, options.TargetGroupId) &&
                         seenArtifacts.Add(fullPath))
                     {
                         generatedArtifacts.Add(fullPath);
@@ -396,54 +396,68 @@ namespace DataAnalysis_Assistant.Services.Python
 
         /// <summary>
         /// 定位或初始化 scratch 临时资产收容目录。
-        /// 统一固定收容于 %APPDATA%\DataAnalysis_Assistant\scratch，彻底避免污染工作区根目录。
+        /// 遵循对话组自治 scratch 隔离纪律：若提供 groupId，则路由至该组专属 scratch 目录；
+        /// 若未提供，则路由至 group_standalone 自由会话组专属 scratch 目录。
         /// </summary>
-        public static string LocateOrInitScratchDirectory(string? baseDir = null)
+        public static string LocateOrInitScratchDirectory(string? groupId = null)
         {
-            // 统一固定使用: AppData/DataAnalysis_Assistant/scratch (保证用户目录始终具有读写权限且与源码工程彻底隔离)
             try
             {
-                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-                string appScratch = Path.Combine(appData, "DataAnalysis_Assistant", "scratch");
-                Directory.CreateDirectory(appScratch);
-                return appScratch;
+                return Persistence.LibraryPersistenceService.Instance.GetScratchDirectoryForGroup(groupId);
             }
             catch
             {
-                string tempScratch = Path.Combine(Path.GetTempPath(), "DataAnalysis_Assistant", "scratch");
-                Directory.CreateDirectory(tempScratch);
-                return tempScratch;
+                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                string targetId = string.IsNullOrWhiteSpace(groupId) ? Persistence.LibraryPersistenceService.StandaloneGroupId : groupId.Trim();
+                string fallback = Path.Combine(appData, "DataAnalysis_Assistant", "document_groups", targetId, "scratch");
+                Directory.CreateDirectory(fallback);
+                return fallback;
             }
         }
 
         /// <summary>
-        /// 定位或初始化 agent_sandbox 目录（即 scratch/agent_sandbox）
+        /// 定位或初始化 agent_sandbox 目录（即对应组的 scratch/agent_sandbox）
         /// </summary>
-        public static string LocateOrInitSandboxDirectory()
+        public static string LocateOrInitSandboxDirectory(string? groupId = null)
         {
-            string scratchDir = LocateOrInitScratchDirectory();
-            string sandboxDir = Path.Combine(scratchDir, "agent_sandbox");
-            Directory.CreateDirectory(sandboxDir);
-            return sandboxDir;
+            try
+            {
+                return Persistence.LibraryPersistenceService.Instance.GetSandboxDirectoryForGroup(groupId);
+            }
+            catch
+            {
+                string scratchDir = LocateOrInitScratchDirectory(groupId);
+                string sandboxDir = Path.Combine(scratchDir, "agent_sandbox");
+                Directory.CreateDirectory(sandboxDir);
+                return sandboxDir;
+            }
         }
 
-        private static string? _cachedSandboxPrefix;
-
         /// <summary>
-        /// 严格校验给定文件路径是否位于 agent_sandbox 目录内（杜绝 scratch 根目录无编号临时文件或外部路径）
+        /// 严格校验给定文件路径是否位于合规的 agent_sandbox 目录内（杜绝 scratch 根目录无编号临时文件或外部路径）。
+        /// 若提供了 targetGroupId，则严格校验是否位于该组专属的 scratch/agent_sandbox 目录内；
+        /// 若未提供 targetGroupId，则只要路径规范化后位于任意有效 document_groups/{groupId}/scratch/agent_sandbox 目录或通用 agent_sandbox 目录即可。
         /// </summary>
-        public static bool IsInSandboxDirectory(string? filePath)
+        public static bool IsInSandboxDirectory(string? filePath, string? targetGroupId = null)
         {
             if (string.IsNullOrWhiteSpace(filePath)) return false;
             try
             {
-                if (_cachedSandboxPrefix == null)
-                {
-                    string sandboxDir = Path.GetFullPath(LocateOrInitSandboxDirectory());
-                    _cachedSandboxPrefix = sandboxDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
-                }
                 string fullPath = Path.GetFullPath(filePath);
-                return fullPath.StartsWith(_cachedSandboxPrefix, StringComparison.OrdinalIgnoreCase);
+
+                if (!string.IsNullOrWhiteSpace(targetGroupId))
+                {
+                    string groupSandbox = Path.GetFullPath(LocateOrInitSandboxDirectory(targetGroupId));
+                    string prefix = groupSandbox.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                    return fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+                }
+
+                // 未指定组时的通用判定：检查标准化路径中是否包含 "\scratch\agent_sandbox\" 或以此结尾
+                string normalized = fullPath.Replace('/', '\\');
+                string sep = Path.DirectorySeparatorChar.ToString();
+                return normalized.Contains($"{sep}scratch{sep}agent_sandbox{sep}", StringComparison.OrdinalIgnoreCase) ||
+                       normalized.EndsWith($"{sep}scratch{sep}agent_sandbox", StringComparison.OrdinalIgnoreCase) ||
+                       normalized.Contains($"{sep}agent_sandbox{sep}", StringComparison.OrdinalIgnoreCase);
             }
             catch
             {

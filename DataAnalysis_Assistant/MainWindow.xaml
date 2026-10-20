@@ -327,10 +327,10 @@
 
                                                     <!-- 右侧操作栏 (紧凑右对齐，绝不覆盖左侧文字) -->
                                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" VerticalAlignment="Center">
-                                                        <Button Click="btnExportDashboardReport_Click" Content="📄 导出研报" Padding="8,4" CornerRadius="6" Background="{StaticResource AccentWarmBrush}" Foreground="White" FontSize="11" ToolTipService.ToolTip="将当前看板激活图表与数据结论导出为专业 Word 或 Markdown 研报"/>
-                                                        <Button Click="btnActivePlotZoom_Click" Content="🔍 放大" Padding="8,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11" ToolTipService.ToolTip="全屏放大查看当前高清图表"/>
-                                                        <Button Click="btnActivePlotCopy_Click" Content="📋 复制" Padding="8,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11" ToolTipService.ToolTip="复制当前图表到剪贴板"/>
-                                                        <Button Click="btnActivePlotSave_Click" Content="💾 另存为" Padding="8,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11" ToolTipService.ToolTip="将当前图表另存为本地文件"/>
+                                                        <Button Click="btnExportDashboardReport_Click" Content="导出研报" Padding="8,4" CornerRadius="6" Background="{StaticResource AccentWarmBrush}" Foreground="White" FontSize="11" ToolTipService.ToolTip="将当前看板激活图表与数据结论导出为专业 Word 或 Markdown 研报"/>
+                                                        <Button Click="btnActivePlotZoom_Click" Content="放大" Padding="8,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11" ToolTipService.ToolTip="全屏放大查看当前高清图表"/>
+                                                        <Button Click="btnActivePlotCopy_Click" Content="复制" Padding="8,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11" ToolTipService.ToolTip="复制当前图表到剪贴板"/>
+                                                        <Button Click="btnActivePlotSave_Click" Content="另存为" Padding="8,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11" ToolTipService.ToolTip="将当前图表另存为本地文件"/>
                                                     </StackPanel>
                                                 </Grid>
 
@@ -1559,34 +1559,92 @@
 
         <!-- ==================== 全局高清图表全屏放大查看模态图层 ==================== -->
         <Grid x:Name="gridPlotImageViewer" Grid.Column="0" Grid.ColumnSpan="2" Background="#CC000000" Visibility="Collapsed" Canvas.ZIndex="999">
-            <Grid Margin="32,24" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="1100" MaxHeight="800">
+            <!-- 高清大图卡片容器 (支持双向 1:1 绝对跟手拖拽拉伸窗口尺寸与一键全屏切换) -->
+            <Grid x:Name="cardPlotViewerContainer"
+                  Width="1050" Height="720"
+                  MinWidth="520" MinHeight="380"
+                  Margin="24,20"
+                  HorizontalAlignment="Center" VerticalAlignment="Center">
                 <Grid.RowDefinitions>
+                    <!-- 顶栏双列物理隔离：左侧自适应截断防重叠，右侧固定操作区 -->
                     <RowDefinition Height="Auto"/>
+                    <!-- 中间大图容器 (占满剩余全部纵向空间) -->
                     <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- 弹窗顶栏 -->
+                <!-- 弹窗顶栏 (双列网格物理隔离防穿透重叠) -->
                 <Grid Grid.Row="0" Margin="0,0,0,10">
-                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                        <TextBlock x:Name="tbViewerPlotTitle" Text="高清图表查看器" FontSize="15" FontWeight="SemiBold" Foreground="White"/>
-                        <TextBlock x:Name="tbViewerPlotInfo" Text="" FontSize="11" Foreground="#CCCCCC" VerticalAlignment="Center"/>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- 左侧标题与文件地址：星号列，超出以省略号优雅截断，带完整 ToolTip -->
+                    <Grid Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="tbViewerPlotTitle" Grid.Column="0" Text="高清图表查看器" FontSize="15" FontWeight="SemiBold" Foreground="White" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="tbViewerPlotInfo" Grid.Column="1" Text="" FontSize="11" Foreground="#CCCCCC" VerticalAlignment="Center" Margin="10,0,0,0" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" ToolTipService.ToolTip="{x:Bind tbViewerPlotInfo.Text, Mode=OneWay}"/>
+                    </Grid>
+
+                    <!-- 右侧操作按钮组：一律采用严谨专业的纯文本，严禁任何装饰性 Emoji/图标 -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="6">
+                        <Button x:Name="btnViewerOpenFolder" Click="btnViewerOpenFolder_Click" Content="在资源管理器中打开" Padding="10,5" CornerRadius="6" Background="#33FFFFFF" Foreground="White" BorderThickness="0" FontSize="11" ToolTipService.ToolTip="在 Windows 资源管理器中定位并选中当前图表文件"/>
+                        <Button x:Name="btnViewerZoomReset" Click="btnViewerZoomReset_Click" Content="100%" Padding="8,5" CornerRadius="6" Background="#33FFFFFF" Foreground="White" BorderThickness="0" FontSize="11" ToolTipService.ToolTip="缩放比例 (支持按住 Ctrl 滚动鼠标滚轮缩放，点击一键复位为 100%)"/>
+                        <Button x:Name="btnViewerToggleFullscreen" Click="btnViewerToggleFullscreen_Click" Content="全屏" Padding="10,5" CornerRadius="6" Background="#33FFFFFF" Foreground="White" BorderThickness="0" FontSize="11" ToolTipService.ToolTip="全屏放大查看 / 还原窗口尺寸"/>
+                        <Button Click="btnClosePlotViewer_Click" Content="关闭" Padding="12,5" CornerRadius="6" Background="#33FFFFFF" Foreground="White" BorderThickness="0" FontSize="12"/>
                     </StackPanel>
-                    <Button Click="btnClosePlotViewer_Click" Content="✕ 关闭" HorizontalAlignment="Right" Padding="12,5" CornerRadius="6" Background="#33FFFFFF" Foreground="White" BorderThickness="0" FontSize="12"/>
                 </Grid>
 
-                <!-- 高清大图卡片 -->
-                <Border Grid.Row="1" Background="#FFFFFF" CornerRadius="12" Padding="12" BorderBrush="#44FFFFFF" BorderThickness="1">
-                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-                        <Image x:Name="imgViewerLargePlot" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </ScrollViewer>
+                <!-- 高清大图卡片 (支持 Control+滚轮缩放、鼠标左键自由平移，以及左右双侧边缘悬停弹出拉手) -->
+                <Border Grid.Row="1" Background="#FFFFFF" CornerRadius="12" Padding="8" BorderBrush="#44FFFFFF" BorderThickness="1">
+                    <Grid>
+                        <ScrollViewer x:Name="svLargePlotViewer"
+                                      ZoomMode="Enabled"
+                                      MinZoomFactor="0.2"
+                                      MaxZoomFactor="5.0"
+                                      HorizontalScrollBarVisibility="Auto"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollMode="Auto"
+                                      VerticalScrollMode="Auto"
+                                      SizeChanged="svLargePlotViewer_SizeChanged"
+                                      PointerWheelChanged="svLargePlotViewer_PointerWheelChanged"
+                                      ViewChanged="svLargePlotViewer_ViewChanged">
+                            <Grid x:Name="gridViewerImageCanvas"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  PointerPressed="gridViewerImageCanvas_PointerPressed"
+                                  PointerMoved="gridViewerImageCanvas_PointerMoved"
+                                  PointerReleased="gridViewerImageCanvas_PointerReleased">
+                                <Image x:Name="imgViewerLargePlot"
+                                       Stretch="Uniform"
+                                       ImageOpened="imgViewerLargePlot_ImageOpened"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Grid>
+                        </ScrollViewer>
+
+                        <!-- 左下角尺寸拉伸隐形热区 (鼠标移入呈现原生双向拉伸光标 ⤢，如实拍照) -->
+                        <Border x:Name="borderViewerResizeGripLeft"
+                                HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                                Width="36" Height="36"
+                                Background="Transparent"
+                                PointerPressed="borderViewerResizeGripLeft_PointerPressed"
+                                PointerMoved="borderViewerResizeGripLeft_PointerMoved"
+                                PointerReleased="borderViewerResizeGripLeft_PointerReleased"/>
+
+                        <!-- 右下角尺寸拉伸隐形热区 (鼠标移入呈现原生双向拉伸光标 ⤡，如实拍照) -->
+                        <Border x:Name="borderViewerResizeGripRight"
+                                HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                Width="36" Height="36"
+                                Background="Transparent"
+                                PointerPressed="borderViewerResizeGripRight_PointerPressed"
+                                PointerMoved="borderViewerResizeGripRight_PointerMoved"
+                                PointerReleased="borderViewerResizeGripRight_PointerReleased"/>
+                    </Grid>
                 </Border>
 
-                <!-- 底部操作按钮 -->
-                <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" Margin="0,12,0,0">
-                    <Button Click="btnViewerCopy_Click" Content="📋 复制图片" Padding="14,6" CornerRadius="8" Background="#33FFFFFF" Foreground="White" BorderThickness="0" FontSize="12"/>
-                    <Button Click="btnViewerSaveAs_Click" Content="💾 另存为..." Padding="14,6" CornerRadius="8" Background="{StaticResource AccentWarmBrush}" Foreground="White" BorderThickness="0" FontSize="12"/>
-                </StackPanel>
+
             </Grid>
         </Grid>
 

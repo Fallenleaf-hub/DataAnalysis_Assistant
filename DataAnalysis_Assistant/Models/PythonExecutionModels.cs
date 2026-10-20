@@ -67,6 +67,11 @@ namespace DataAnalysis_Assistant.Models
         public string WorkingDirectory { get; set; } = string.Empty;
         public string OutputArtifactsDirectory { get; set; } = string.Empty;
         public bool IsHeavyWork { get; set; } = false;
+
+        /// <summary>
+        /// 目标执行所属的文档组/对话组唯一编号（用于动态定位专属 scratch 隔离沙盒）
+        /// </summary>
+        public string? TargetGroupId { get; set; }
     }
 }
 

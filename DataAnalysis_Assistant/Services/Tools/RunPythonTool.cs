@@ -16,15 +16,18 @@ namespace DataAnalysis_Assistant.Services.Tools
         private readonly PythonExecutionService _execService;
         private readonly SafetyGateService _safetyGate;
         private readonly Func<AppSettings> _getSettings;
+        private readonly Func<string?>? _getActiveGroupId;
 
         public RunPythonTool(
             Func<AppSettings> getSettings,
             PythonExecutionService? execService = null,
-            SafetyGateService? safetyGate = null)
+            SafetyGateService? safetyGate = null,
+            Func<string?>? getActiveGroupId = null)
         {
             _getSettings = getSettings ?? throw new ArgumentNullException(nameof(getSettings));
             _execService = execService ?? new PythonExecutionService();
             _safetyGate = safetyGate ?? new SafetyGateService();
+            _getActiveGroupId = getActiveGroupId;
         }
 
         public string Name => "run_python";
@@ -115,7 +118,8 @@ namespace DataAnalysis_Assistant.Services.Tools
             var options = new PythonExecutionOptions
             {
                 TimeoutSeconds = effectiveTimeout,
-                IsHeavyWork = isHeavyWork
+                IsHeavyWork = isHeavyWork,
+                TargetGroupId = _getActiveGroupId?.Invoke()
             };
 
             var result = await _execService.ExecuteCodeAsync(code, settings.PythonPath, options, cancellationToken);
