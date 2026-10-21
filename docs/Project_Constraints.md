@@ -38,9 +38,9 @@
      - **右下角**：`InputSystemCursorShape.SizeNorthwestSoutheast`（$\nwsearrow$）
      - **左下角**：`InputSystemCursorShape.SizeNortheastSouthwest`（$\ne-sw$）
    - **1:1 绝对中心对称跟手拉伸**：采用几何中心对称数学算法（$\text{Width} = 2 \times |\text{MouseX} - \text{CenterX}|$），确保卡片边缘实时精准贴合鼠标指针，消除拖拽迟滞。
-2. **每次打开 100% 完整展示整图算法 (Fit to Viewport)**：
-   - 每次打开放大查看器，窗口**严格以默认 $1050 \times 720$ 尺寸在屏幕正中展开**；
-   - **绝不记忆上次关闭前拉伸调整过的宽高与全屏状态**；
+2. **每次打开默认全屏沉浸展示与 100% 完整适屏算法 (Fit to Viewport)**：
+   - 每次打开放大查看器，窗口**默认以全屏模式沉浸展开**，四周留有自适应呼吸边距，支持一键点击【还原】按钮切换为 $1050 \times 720$ 居中标准卡片；
+   - **绝不记忆上次关闭前拉伸调整过的宽高状态**，重新打开始终保持全屏首选态；
    - 结合自适应适屏居中算法（`FitPlotImageToViewport`），首帧必须 100% 完整展示整图全貌，四周留有均匀呼吸内边距，彻底杜绝图表被局部裁剪截断。
 3. **顶栏物理分列防穿透与自由平移**：
    - 顶栏双列网格物理隔离，左侧标题与文件路径带 `TextTrimming="CharacterEllipsis"`，杜绝小窗口下文本穿透重叠右侧操作栏；

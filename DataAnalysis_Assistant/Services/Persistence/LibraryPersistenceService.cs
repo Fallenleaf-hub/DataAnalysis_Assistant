@@ -50,10 +50,7 @@ namespace DataAnalysis_Assistant.Services.Persistence
         public string CacheDirectory { get; }
         public string SchemaCacheDirectory => Path.Combine(CacheDirectory, "schema_profiles");
 
-        // 兼容旧属性 BasePath
-        public string BasePath => GroupsDirectory;
-        public string DocumentsDirectory => GetGroupDocumentsDirectory(StandaloneGroupId);
-        public string SessionsDirectory => GetGroupSessionsDirectory(StandaloneGroupId);
+
 
         public LibraryPersistenceService(string? customBasePath = null)
         {
@@ -72,7 +69,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
             }
 
             EnsureDirectories();
-            MigrateLegacyStorageIfNeeded();
         }
 
         /// <summary>
@@ -85,6 +81,38 @@ namespace DataAnalysis_Assistant.Services.Persistence
             Directory.CreateDirectory(CacheDirectory);
             Directory.CreateDirectory(SchemaCacheDirectory);
             EnsureGroupDirectories(StandaloneGroupId);
+            CleanupLegacyDefaultGroupFolder();
+        }
+
+        private void CleanupLegacyDefaultGroupFolder()
+        {
+            try
+            {
+                string defaultGroupDir = Path.Combine(GroupsDirectory, "default_group");
+                if (Directory.Exists(defaultGroupDir))
+                {
+                    string oldSessionsDir = Path.Combine(defaultGroupDir, "sessions");
+                    string standaloneSessionsDir = GetGroupSessionsDirectory(StandaloneGroupId);
+                    EnsureGroupDirectories(StandaloneGroupId);
+
+                    if (Directory.Exists(oldSessionsDir))
+                    {
+                        foreach (var sessionFile in Directory.GetFiles(oldSessionsDir, "session_*.json"))
+                        {
+                            string targetPath = Path.Combine(standaloneSessionsDir, Path.GetFileName(sessionFile));
+                            if (!File.Exists(targetPath))
+                            {
+                                File.Move(sessionFile, targetPath);
+                            }
+                        }
+                    }
+                    Directory.Delete(defaultGroupDir, recursive: true);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[LibraryPersistenceService] 清理旧 default_group 目录警告: {ex.Message}");
+            }
         }
 
         #region 0. 组专属目录与路径计算器 (Group Directory Scoping)
@@ -98,14 +126,7 @@ namespace DataAnalysis_Assistant.Services.Persistence
         public string GetGroupMetaFilePath(string groupId)
         {
             string groupDir = GetGroupDirectory(groupId);
-            string standardPath = Path.Combine(groupDir, "group.json");
-            if (!File.Exists(standardPath))
-            {
-                // 兼容旧命名 group_{groupId}.json
-                string legacyPath = Path.Combine(groupDir, $"group_{groupId}.json");
-                if (File.Exists(legacyPath)) return legacyPath;
-            }
-            return standardPath;
+            return Path.Combine(groupDir, "group.json");
         }
 
         public string GetGroupDocumentsDirectory(string groupId) =>
@@ -265,13 +286,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
                 }
 
                 string metaPath = Path.Combine(dir, "group.json");
-                if (!File.Exists(metaPath))
-                {
-                    // 兼容旧命名 group_*.json
-                    string[] legacyFiles = Directory.GetFiles(dir, "group_*.json");
-                    metaPath = legacyFiles.FirstOrDefault() ?? string.Empty;
-                }
-
                 if (File.Exists(metaPath))
                 {
                     try
@@ -1006,118 +1020,8 @@ namespace DataAnalysis_Assistant.Services.Persistence
 
         #endregion
 
-        #region 7. 向后兼容与数据无损自迁移 (Legacy Migration)
+        #region 7. 损坏熔断辅助
 
-        private void MigrateLegacyStorageIfNeeded()
-        {
-            try
-            {
-                string legacyBase = Path.Combine(DataDirectory, "library");
-                if (!Directory.Exists(legacyBase)) return;
-
-                string legacyGroups = Path.Combine(legacyBase, "document_groups");
-                string legacyDocs = Path.Combine(legacyBase, "documents");
-                string legacySessions = Path.Combine(legacyBase, "sessions");
-
-                if (!Directory.Exists(legacyGroups) && !Directory.Exists(legacyDocs) && !Directory.Exists(legacySessions))
-                {
-                    return;
-                }
-
-                // 1. 迁移已存在的每个旧组
-                if (Directory.Exists(legacyGroups))
-                {
-                    foreach (var groupFile in Directory.GetFiles(legacyGroups, "group_*.json"))
-                    {
-                        try
-                        {
-                            string json = File.ReadAllText(groupFile);
-                            var group = JsonSerializer.Deserialize<DocumentGroup>(json, JsonOptions);
-                            if (group != null && !string.IsNullOrWhiteSpace(group.GroupId))
-                            {
-                                EnsureGroupDirectories(group.GroupId);
-                                string newGroupMeta = Path.Combine(GetGroupDirectory(group.GroupId), "group.json");
-                                if (!File.Exists(newGroupMeta))
-                                {
-                                    File.WriteAllText(newGroupMeta, json);
-                                }
-
-                                // 搬运组关联文档
-                                if (group.DocumentIds != null && Directory.Exists(legacyDocs))
-                                {
-                                    foreach (var docId in group.DocumentIds)
-                                    {
-                                        string oldDocPath = Path.Combine(legacyDocs, $"doc_meta_{docId}.json");
-                                        string newDocPath = Path.Combine(GetGroupDocumentsDirectory(group.GroupId), $"doc_meta_{docId}.json");
-                                        if (File.Exists(oldDocPath) && !File.Exists(newDocPath))
-                                        {
-                                            File.Copy(oldDocPath, newDocPath, true);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        catch { }
-                    }
-                }
-
-                // 2. 搬运会话
-                if (Directory.Exists(legacySessions))
-                {
-                    foreach (var sesFile in Directory.GetFiles(legacySessions, "session_*.json"))
-                    {
-                        try
-                        {
-                            string json = File.ReadAllText(sesFile);
-                            var session = JsonSerializer.Deserialize<ChatSessionItem>(json, JsonOptions);
-                            if (session != null && !string.IsNullOrWhiteSpace(session.Id))
-                            {
-                                string targetGroup = !string.IsNullOrWhiteSpace(session.BindGroupId)
-                                    ? session.BindGroupId
-                                    : StandaloneGroupId;
-
-                                EnsureGroupDirectories(targetGroup);
-                                string newSesPath = Path.Combine(GetGroupSessionsDirectory(targetGroup), Path.GetFileName(sesFile));
-                                if (!File.Exists(newSesPath))
-                                {
-                                    File.WriteAllText(newSesPath, json);
-                                }
-                            }
-                        }
-                        catch { }
-                    }
-                }
-
-                // 3. 搬运未归组的孤儿文档至 standalone
-                if (Directory.Exists(legacyDocs))
-                {
-                    EnsureGroupDirectories(StandaloneGroupId);
-                    foreach (var docFile in Directory.GetFiles(legacyDocs, "doc_meta_*.json"))
-                    {
-                        string targetPath = Path.Combine(GetGroupDocumentsDirectory(StandaloneGroupId), Path.GetFileName(docFile));
-                        if (!File.Exists(targetPath))
-                        {
-                            try { File.Copy(docFile, targetPath, true); } catch { }
-                        }
-                    }
-                }
-
-                // 4. 将旧目录更名为备份
-                string backupDir = Path.Combine(DataDirectory, $"library_migrated_backup_{DateTime.Now:yyyyMMdd}");
-                if (!Directory.Exists(backupDir))
-                {
-                    Directory.Move(legacyBase, backupDir);
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[LibraryPersistenceService] 迁移老版本数据警告: {ex.Message}");
-            }
-        }
-
-        #endregion
-
-        #region 8. 损坏熔断辅助
 
         private static T? SafeDeserializeOrQuarantine<T>(string filePath, string json) where T : class
         {

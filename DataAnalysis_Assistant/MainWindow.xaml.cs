@@ -736,29 +736,29 @@ namespace DataAnalysis_Assistant
                 imgViewerLargePlot.Source = plot.Bitmap ?? (plot.ImageUri != null ? new BitmapImage(plot.ImageUri) : null);
             }
 
-            // 每次打开放大窗口均重置为默认尺寸与居中位置（不记忆上次拉伸调整后的宽高与全屏状态）
-            _isViewerFullscreen = false;
+            // 每次打开放大界面默认以全屏模式沉浸展开 (支持一键点击“还原”切换为 1050x720 居中卡片)
+            _isViewerFullscreen = true;
             _savedViewerWidth = 1050;
             _savedViewerHeight = 720;
             if (cardPlotViewerContainer != null)
             {
-                cardPlotViewerContainer.HorizontalAlignment = HorizontalAlignment.Center;
-                cardPlotViewerContainer.VerticalAlignment = VerticalAlignment.Center;
-                cardPlotViewerContainer.Width = 1050;
-                cardPlotViewerContainer.Height = 720;
+                cardPlotViewerContainer.HorizontalAlignment = HorizontalAlignment.Stretch;
+                cardPlotViewerContainer.VerticalAlignment = VerticalAlignment.Stretch;
+                cardPlotViewerContainer.Width = double.NaN;
+                cardPlotViewerContainer.Height = double.NaN;
                 cardPlotViewerContainer.Margin = new Thickness(24, 20, 24, 20);
             }
             if (btnViewerToggleFullscreen != null)
             {
-                btnViewerToggleFullscreen.Content = "全屏";
+                btnViewerToggleFullscreen.Content = "还原";
             }
             if (borderViewerResizeGripLeft != null)
             {
-                borderViewerResizeGripLeft.Visibility = Visibility.Visible;
+                borderViewerResizeGripLeft.Visibility = Visibility.Collapsed;
             }
             if (borderViewerResizeGripRight != null)
             {
-                borderViewerResizeGripRight.Visibility = Visibility.Visible;
+                borderViewerResizeGripRight.Visibility = Visibility.Collapsed;
             }
 
             if (gridPlotImageViewer != null) gridPlotImageViewer.Visibility = Visibility.Visible;
@@ -1348,7 +1348,7 @@ fig.tight_layout()
                 sb.AppendLine($"操作系统: {Environment.OSVersion.VersionString} ({(Environment.Is64BitOperatingSystem ? "x64" : "x86")})");
                 sb.AppendLine($"执行架构: {(Environment.Is64BitProcess ? "x64 原生进程" : "x86")}");
                 sb.AppendLine($"机器名称: {Environment.MachineName}");
-                sb.AppendLine($"持久化库基目录: {LibraryPersistenceService.Instance.BasePath}");
+                sb.AppendLine($"持久化库基目录: {LibraryPersistenceService.Instance.DataDirectory}");
                 sb.AppendLine($"当前时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
 
                 var dataPackage = new Windows.ApplicationModel.DataTransfer.DataPackage();
@@ -3379,7 +3379,7 @@ def analyze_document_metrics(file_path: str):
                 _currentSession.Messages = realMessages;
                 _currentSession.LastActiveAt = DateTime.Now;
 
-                // 严格保持文档组绑定关系：绝对不修改已有的 BindGroupId
+                // 严格保持文档组绑定关系：绝对不修改已有会话的归属状态
                 if (!string.IsNullOrEmpty(_currentSession.BindGroupId))
                 {
                     var matchingGroup = DocumentGroups.FirstOrDefault(g => g.GroupId == _currentSession.BindGroupId);
@@ -3387,12 +3387,6 @@ def analyze_document_metrics(file_path: str):
                     {
                         _currentSession.BindGroupName = matchingGroup.GroupName;
                     }
-                }
-                else if (_currentGroup != null)
-                {
-                    // 仅当会话从未绑定任何组时，才初始继承当前组
-                    _currentSession.BindGroupId = _currentGroup.GroupId;
-                    _currentSession.BindGroupName = _currentGroup.GroupName;
                 }
 
                 // 首轮提问自动提取前缀，生成生动具体的会话标题
@@ -3636,18 +3630,8 @@ def analyze_document_metrics(file_path: str):
                 }
             }
 
-            // 若当前活跃会话是未绑定任何组的独立会话，绑定到新组；否则为新组创建专属新会话，绝不篡改已有组会话
-            if (_currentSession != null && (string.IsNullOrEmpty(_currentSession.BindGroupId) || _currentSession.BindGroupId == "default_group"))
-            {
-                _currentSession.BindGroupId = group.GroupId;
-                _currentSession.BindGroupName = group.GroupName;
-                _currentSession.LastActiveAt = DateTime.Now;
-                await LibraryPersistenceService.Instance.SaveSessionAsync(_currentSession);
-            }
-            else
-            {
-                await CreateNewSessionForGroupAsync(group);
-            }
+            // 严格遵循不可变规范：新建文档组一律创建专属新会话，绝不篡改任何现有会话
+            await CreateNewSessionForGroupAsync(group);
 
             UpdateDocCountDisplay();
         }
@@ -3734,6 +3718,45 @@ def analyze_document_metrics(file_path: str):
         {
             if (group == null) return;
 
+            if (group.IsSystemGroup)
+            {
+                _currentGroup = group;
+                foreach (var g in DocumentGroups)
+                {
+                    g.IsSelected = (g == group);
+                }
+                if (lvDocumentGroups != null && lvDocumentGroups.SelectedItem != group)
+                {
+                    _isSelectingGroupProgrammatically = true;
+                    try { lvDocumentGroups.SelectedItem = group; }
+                    finally { _isSelectingGroupProgrammatically = false; }
+                }
+
+                // 自由对话专区不绑定任何文档，清空工作区文档预览
+                await LoadGroupDocumentsAsync(null, selectAndPreviewFirstDoc: false);
+
+                if (switchSessionIfNeeded)
+                {
+                    if (_currentSession == null || !string.IsNullOrEmpty(_currentSession.BindGroupId))
+                    {
+                        var targetSession = ChatSessions
+                            .Where(s => string.IsNullOrEmpty(s.BindGroupId) || s.BindGroupId == LibraryPersistenceService.StandaloneGroupId)
+                            .OrderByDescending(s => s.LastActiveAt)
+                            .FirstOrDefault();
+
+                        if (targetSession != null)
+                        {
+                            SelectSession(targetSession);
+                        }
+                        else
+                        {
+                            btnNewChat_Click(this, new RoutedEventArgs());
+                        }
+                    }
+                }
+                return;
+            }
+
             _currentGroup = group;
             foreach (var g in DocumentGroups)
             {
@@ -3797,6 +3820,11 @@ def analyze_document_metrics(file_path: str):
         {
             if (sender is Button btn && btn.Tag is DocumentGroup group)
             {
+                if (group.IsSystemGroup)
+                {
+                    await ShowMessageDialogAsync("系统提示", "【独立自由对话】为系统内置专区，不可重命名。");
+                    return;
+                }
                 string? newName = await ShowInputTextDialogAsync("重命名文档组", group.GroupName, "请输入新名称");
                 if (!string.IsNullOrWhiteSpace(newName) && newName != group.GroupName)
                 {
@@ -3820,6 +3848,12 @@ def analyze_document_metrics(file_path: str):
         {
             if (sender is Button btn && btn.Tag is DocumentGroup group)
             {
+                if (group.IsSystemGroup)
+                {
+                    await ShowMessageDialogAsync("系统提示", "【独立自由对话】为系统内置专区，不可删除。");
+                    return;
+                }
+
                 try
                 {
                     var dialog = new ContentDialog
@@ -3932,41 +3966,62 @@ def analyze_document_metrics(file_path: str):
         /// </summary>
         private void SyncGroupSessions()
         {
+            // 1. 确保系统内置的“独立自由对话专区”存在于 DocumentGroups 集合中
+            var standaloneGroup = DocumentGroups.FirstOrDefault(g => g.IsSystemGroup);
+            if (standaloneGroup == null)
+            {
+                standaloneGroup = new DocumentGroup
+                {
+                    GroupId = LibraryPersistenceService.StandaloneGroupId,
+                    GroupName = "独立自由对话",
+                    CreatedAt = DateTime.MinValue,
+                    LastActiveAt = DateTime.Now,
+                    IsExpanded = true
+                };
+                DocumentGroups.Add(standaloneGroup);
+            }
+            else
+            {
+                standaloneGroup.GroupName = "独立自由对话";
+            }
+
+            // 2. 清空所有组的内存会话关联集合
             foreach (var group in DocumentGroups)
             {
                 group.AssociatedSessions.Clear();
-                var matched = ChatSessions
-                    .Where(s => s.BindGroupId == group.GroupId)
-                    .OrderByDescending(s => s.LastActiveAt);
-                foreach (var session in matched)
-                {
-                    group.AssociatedSessions.Add(session);
-                }
             }
 
-            // 处理未绑定或绑定的组已不存在的会话，保证不丢失展示
-            var orphanSessions = ChatSessions.Where(s => string.IsNullOrEmpty(s.BindGroupId) || !DocumentGroups.Any(g => g.GroupId == s.BindGroupId)).ToList();
-            if (orphanSessions.Count > 0)
+            // 3. 严格分发挂载会话 (坚决杜绝篡改任何会话的 BindGroupId)
+            foreach (var session in ChatSessions.OrderByDescending(s => s.LastActiveAt))
             {
-                var defaultGroup = DocumentGroups.FirstOrDefault(g => g.GroupId == "default_group" || g.GroupName == "默认会话组");
-                if (defaultGroup == null)
+                // 若未绑定任何组，或显式绑定了 standalone 专区，挂载至独立自由对话专区
+                if (string.IsNullOrEmpty(session.BindGroupId) ||
+                    string.Equals(session.BindGroupId, LibraryPersistenceService.StandaloneGroupId, StringComparison.OrdinalIgnoreCase))
                 {
-                    defaultGroup = new DocumentGroup
+                    if (!standaloneGroup.AssociatedSessions.Contains(session))
                     {
-                        GroupId = "default_group",
-                        GroupName = "默认会话组",
-                        CreatedAt = DateTime.Now,
-                        IsExpanded = true
-                    };
-                    DocumentGroups.Add(defaultGroup);
+                        standaloneGroup.AssociatedSessions.Add(session);
+                    }
+                    continue;
                 }
-                foreach (var orphan in orphanSessions)
+
+                // 若绑定了常规文档组
+                var matchedGroup = DocumentGroups.FirstOrDefault(g => g.GroupId == session.BindGroupId);
+                if (matchedGroup != null)
                 {
-                    orphan.BindGroupId = defaultGroup.GroupId;
-                    orphan.BindGroupName = defaultGroup.GroupName;
-                    if (!defaultGroup.AssociatedSessions.Contains(orphan))
+                    if (!matchedGroup.AssociatedSessions.Contains(session))
                     {
-                        defaultGroup.AssociatedSessions.Add(orphan);
+                        matchedGroup.AssociatedSessions.Add(session);
+                    }
+                }
+                else
+                {
+                    // 孤儿会话防丢失安全降级：绑定的组已被物理删除，安全重置为自由会话并收归专区
+                    session.BindGroupId = null;
+                    session.BindGroupName = string.Empty;
+                    if (!standaloneGroup.AssociatedSessions.Contains(session))
+                    {
+                        standaloneGroup.AssociatedSessions.Add(session);
                     }
                 }
             }
@@ -4074,6 +4129,12 @@ def analyze_document_metrics(file_path: str):
         {
             if (group == null) return;
 
+            if (group.IsSystemGroup)
+            {
+                btnNewChat_Click(this, new RoutedEventArgs());
+                return;
+            }
+
             // 统计当前已有绑定该组的会话数，首个保持组名，后续自动区分为 "组名 (2)", "组名 (3)"
             int existingCount = ChatSessions.Count(s => s.BindGroupId == group.GroupId);
             string sessionTitle = existingCount == 0 ? group.GroupName : $"{group.GroupName} ({existingCount + 1})";
@@ -4169,7 +4230,7 @@ def analyze_document_metrics(file_path: str):
 
         private async void btnNewChat_Click(object sender, RoutedEventArgs e)
         {
-            if (_currentGroup != null)
+            if (_currentGroup != null && !_currentGroup.IsSystemGroup)
             {
                 await CreateNewSessionForGroupAsync(_currentGroup);
                 return;
@@ -4180,8 +4241,8 @@ def analyze_document_metrics(file_path: str):
                 Title = $"新对话 {DateTime.Now:MM-dd HH:mm}",
                 CreatedAt = DateTime.Now,
                 LastActiveAt = DateTime.Now,
-                BindGroupId = _currentGroup?.GroupId,
-                BindGroupName = _currentGroup?.GroupName,
+                BindGroupId = null,
+                BindGroupName = string.Empty,
                 IsSelected = true
             };
 

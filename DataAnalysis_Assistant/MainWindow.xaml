@@ -783,8 +783,8 @@
                                                                         ToolTipService.ToolTip="单击切换选中文档组，双击跳工作区查看包含文件">
                                                                     <Border.ContextFlyout>
                                                                         <MenuFlyout>
-                                                                            <MenuFlyoutItem Text="✏️ 重命名文档组" Click="menuRenameGroup_Click" Tag="{x:Bind}"/>
-                                                                            <MenuFlyoutItem Text="🗑️ 删除文档组" Click="menuDeleteGroup_Click" Tag="{x:Bind}"/>
+                                                                            <MenuFlyoutItem Text="重命名文档组" Click="menuRenameGroup_Click" Tag="{x:Bind}"/>
+                                                                            <MenuFlyoutItem Text="删除文档组" Click="menuDeleteGroup_Click" Tag="{x:Bind}"/>
                                                                         </MenuFlyout>
                                                                     </Border.ContextFlyout>
                                                                     <Grid ColumnSpacing="6">
@@ -846,8 +846,8 @@
                                                                                     ToolTipService.ToolTip="{x:Bind Title}">
                                                                                 <Border.ContextFlyout>
                                                                                     <MenuFlyout>
-                                                                                        <MenuFlyoutItem Text="✏️ 重命名对话" Click="menuRenameSession_Click" Tag="{x:Bind}"/>
-                                                                                        <MenuFlyoutItem Text="🗑️ 删除对话" Click="menuDeleteSession_Click" Tag="{x:Bind}"/>
+                                                                                        <MenuFlyoutItem Text="重命名对话" Click="menuRenameSession_Click" Tag="{x:Bind}"/>
+                                                                                        <MenuFlyoutItem Text="删除对话" Click="menuDeleteSession_Click" Tag="{x:Bind}"/>
                                                                                     </MenuFlyout>
                                                                                 </Border.ContextFlyout>
                                                                                 <Grid ColumnSpacing="8">

@@ -114,6 +114,12 @@ namespace DataAnalysis_Assistant.Models
         public string FormattedLastActive => LastActiveAt.ToString("MM-dd HH:mm");
 
         /// <summary>
+        /// 是否为系统内置的独立自由会话专区（不可重命名，不可物理删除）
+        /// </summary>
+        [JsonIgnore]
+        public bool IsSystemGroup => string.Equals(GroupId, Services.Persistence.LibraryPersistenceService.StandaloneGroupId, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
         /// 文档组包含的文件数量
         /// </summary>
         [JsonIgnore]
