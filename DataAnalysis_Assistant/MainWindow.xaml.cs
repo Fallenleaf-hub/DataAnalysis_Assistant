@@ -1284,8 +1284,8 @@ fig.tight_layout()
         {
             await ShowMessageDialogAsync(
                 "检查更新",
-                "您当前使用的是正式发布版：v1.4.0 (构建版本 2026.10)\n\n" +
-                "当前版本已是最新正式版本，多文档组协同管理、实时流式分析、浮动 Toast 通知与沙盒执行功能均已完整就绪，无需更新。");
+                "您当前使用的是正式发布版：v2.2.0 (构建版本 2026.11)\n\n" +
+                "当前版本已是最新正式版本，多文档组协同管理、实时流式分析、主题定制、Word 研报导出与沙盒执行功能均已完整就绪，无需更新。");
         }
 
         private async void btnCopyDiagnosticInfo_Click(object sender, RoutedEventArgs e)
@@ -1294,7 +1294,7 @@ fig.tight_layout()
             {
                 var sb = new StringBuilder();
                 sb.AppendLine("=== DataAnalysis Assistant 客户端诊断信息 ===");
-                sb.AppendLine($"软件版本: v1.4.0 (2026.10 Release)");
+                sb.AppendLine($"软件版本: v2.2.0 (2026.11 Release)");
                 sb.AppendLine($"运行时: .NET {Environment.Version}");
                 sb.AppendLine($"操作系统: {Environment.OSVersion.VersionString} ({(Environment.Is64BitOperatingSystem ? "x64" : "x86")})");
                 sb.AppendLine($"执行架构: {(Environment.Is64BitProcess ? "x64 原生进程" : "x86")}");

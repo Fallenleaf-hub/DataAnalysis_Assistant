@@ -361,7 +361,6 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" x:Name="tbVisInsightTip" Text="AI 洞察：图表已根据分析代码由本地 Python 引擎完成矢量演算与渲染，支持右键或另存为高清导出。" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" ToolTipService.ToolTip="AI 洞察：图表已根据分析代码由本地 Python 引擎完成矢量演算与渲染，支持右键或另存为高清导出。"/>
                                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Center">
-                                                <Button Click="btnExportDashboardReport_Click" Content="导出看板研报" Padding="10,4" CornerRadius="6" Background="Transparent" BorderThickness="0" FontSize="11" Foreground="{StaticResource AccentWarmBrush}"/>
                                                 <Button Click="btnOpenPlotFolder_Click" Content="打开图表文件夹" Padding="10,4" CornerRadius="6" Background="Transparent" BorderThickness="0" FontSize="11" Foreground="{StaticResource AccentWarmBrush}"/>
                                                 <Button Click="btnClearPlotGallery_Click" Content="清空画廊" Padding="10,4" CornerRadius="6" Background="Transparent" BorderThickness="0" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
                                             </StackPanel>
@@ -1425,7 +1424,7 @@
                                                 <TextBlock Text="正式生产发布版本号及构建发行基线" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
                                             </StackPanel>
                                             <Border Grid.Column="1" Background="#E8E2D5" CornerRadius="6" Padding="8,3" VerticalAlignment="Center">
-                                                <TextBlock Text="v1.4.0 (2026.10)" FontWeight="Bold" FontSize="11" Foreground="#382E24"/>
+                                                <TextBlock Text="v2.2.0 (2026.11)" FontWeight="Bold" FontSize="11" Foreground="#382E24"/>
                                             </Border>
                                         </Grid>
                                     </StackPanel>
