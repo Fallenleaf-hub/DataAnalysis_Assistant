@@ -7,10 +7,6 @@ using DataAnalysis_Assistant.Services.Python;
 
 namespace DataAnalysis_Assistant.Services.Tools
 {
-    /// <summary>
-    /// Python 代码执行原生 Agent 工具
-    /// 遵循 CodeAct 范式，为模型提供本地数据分析与图表生成执行能力
-    /// </summary>
     public class RunPythonTool : IAgentTool
     {
         private readonly PythonExecutionService _execService;
@@ -61,14 +57,11 @@ namespace DataAnalysis_Assistant.Services.Tools
             get
             {
                 var settings = _getSettings();
-                // 若为严格模式(0)，始终需要审批；智能模式(1)则在执行时根据代码内容判定
                 return settings.PythonSecurityMode == 0;
             }
         }
 
-        /// <summary>
         /// 判定指定代码是否需要安全审批
-        /// </summary>
         public SafetyCheckResult EvaluateSafety(string code)
         {
             var settings = _getSettings();
@@ -107,11 +100,8 @@ namespace DataAnalysis_Assistant.Services.Tools
             var safetyCheck = _safetyGate.InspectCode(code, settings.PythonSecurityMode);
             if (!safetyCheck.IsAllowedAutoRun && settings.PythonSecurityMode == 1)
             {
-                // 若处于智能拦截模式且命中危险代码，在未通过交互许可时阻断
-                // (后续在 AgentRuntime 主循环中可在此处挂起并触发 UI 审批弹窗)
             }
 
-            // 2. 调用受控执行引擎执行（严格锁死 30~120s 用户配置，修复 heavy_work 超时反转）
             int baseTimeout = Math.Clamp(settings.PythonTimeoutSeconds, 30, 120);
             int effectiveTimeout = isHeavyWork ? Math.Clamp(Math.Max(baseTimeout, 90), 30, 120) : baseTimeout;
 
@@ -125,12 +115,11 @@ namespace DataAnalysis_Assistant.Services.Tools
             var result = await _execService.ExecuteCodeAsync(code, settings.PythonPath, options, cancellationToken);
             if (!result.Success)
             {
-                // 3. 文件缺失恢复引导
                 bool isFileNotFound = (result.ErrorMessage != null && result.ErrorMessage.Contains("FileNotFoundError")) ||
                                       (result.Output != null && result.Output.Contains("FileNotFoundError"));
                 if (isFileNotFound)
                 {
-                    string hint = "\n\n⚠️【物理文件缺失拦截与恢复提示】：Python 执行时触发了 FileNotFoundError，表明引用的源文件在本地磁盘路径上不存在或已被移动/重命名。请提醒用户在左侧【本地文档库】中点击对应文档的【重新定位 🔄】按钮更新文件路径；若无需重新读取物理文件，请改用已由 DocumentReader 缓存的文本或由模型提供推导分析，切勿盲目重复生成相同读取代码。";
+                    string hint = "\n\n【物理文件缺失拦截与恢复提示】：Python 执行时触发了 FileNotFoundError，表明引用的源文件在本地磁盘路径上不存在或已被移动/重命名。请提醒用户在左侧【本地文档库】中点击对应文档的【重新定位】按钮更新文件路径；若无需重新读取物理文件，请改用已由 DocumentReader 缓存的文本或由模型提供推导分析，切勿盲目重复生成相同读取代码。";
                     result.ErrorMessage = (result.ErrorMessage ?? "") + hint;
                 }
 
@@ -140,7 +129,7 @@ namespace DataAnalysis_Assistant.Services.Tools
                 if (isModuleNotFound)
                 {
                     string pythonInterpreter = string.IsNullOrWhiteSpace(settings.PythonPath) ? "python" : settings.PythonPath;
-                    string pkgHint = $"\n\n⚠️【Python 模块依赖缺失】：当前执行环境缺少第三方依赖包。请引导用户打开本机终端执行以下命令进行安装：\n`\"{pythonInterpreter}\" -m pip install <缺失包名>`\n若存在同类替代方案（如使用标准库），请优先调整代码使用现有环境已安装的包。";
+                    string pkgHint = $"\n\n【Python 模块依赖缺失】：当前执行环境缺少第三方依赖包。请引导用户打开本机终端执行以下命令进行安装：\n`\"{pythonInterpreter}\" -m pip install <缺失包名>`\n若存在同类替代方案（如使用标准库），请优先调整代码使用现有环境已安装的包。";
                     result.ErrorMessage = (result.ErrorMessage ?? "") + pkgHint;
                 }
             }
@@ -149,4 +138,3 @@ namespace DataAnalysis_Assistant.Services.Tools
         }
     }
 }
-

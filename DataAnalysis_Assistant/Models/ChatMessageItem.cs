@@ -33,7 +33,7 @@ namespace DataAnalysis_Assistant.Models
         }
 
         public string Id { get; set; } = Guid.NewGuid().ToString();
-        public string Sender { get; set; } = "Assistant"; // "User" or "Assistant"
+        public string Sender { get; set; } = "Assistant";
 
         [JsonIgnore]
         public string SenderName => Sender == "User" ? "我 (用户)" : "AI 助手";
@@ -52,9 +52,6 @@ namespace DataAnalysis_Assistant.Models
 
         private string? _activeSkillName;
 
-        /// <summary>
-        /// 本次提问挂载的专属扩展技能名称（如 nature-figure、nature-reviewer）
-        /// </summary>
         public string? ActiveSkillName
         {
             get => _activeSkillName;
@@ -76,9 +73,6 @@ namespace DataAnalysis_Assistant.Models
         [JsonIgnore]
         public Visibility ActiveSkillVisibility => HasActiveSkill ? Visibility.Visible : Visibility.Collapsed;
 
-        /// <summary>
-        /// 本轮对话或代码执行生成的图表资产列表
-        /// </summary>
         [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
         public ObservableCollection<ChartArtifactItem> GeneratedPlots
         {
@@ -119,7 +113,6 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
-        // 思考过程内容
         public string ReasoningContent
         {
             get => _reasoningContent;
@@ -137,7 +130,6 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
-        // 只要处于思考状态或者已有思考内容，均视为有思考过程，立即展示思考卡片
         [JsonIgnore]
         public bool HasReasoning => !string.IsNullOrWhiteSpace(_reasoningContent) || _isThinking;
 
@@ -157,7 +149,6 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
-        // 思考卡片展开/收起状态
         public bool IsReasoningExpanded
         {
             get => _isReasoningExpanded;
@@ -179,7 +170,6 @@ namespace DataAnalysis_Assistant.Models
         [JsonIgnore]
         public string ReasoningToggleText => _isReasoningExpanded ? "收起思考 ⌃" : "展开思考 ⌄";
 
-        // 思考状态与耗时 (标记 [JsonIgnore]，严禁序列化到磁盘历史，杜绝重启后空转思考状态)
         [JsonIgnore]
         public bool IsThinking
         {
@@ -230,7 +220,6 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
-        // 手动停止标记
         public bool IsStopped
         {
             get => _isStopped;
@@ -253,19 +242,10 @@ namespace DataAnalysis_Assistant.Models
         [JsonIgnore]
         public string FormattedTime => Timestamp.ToString("HH:mm:ss");
 
-        /// <summary>
-        /// 归属的 Agent 任务批次 ID（用于区分每一次用户提问开启的独立任务，可空）
-        /// </summary>
         public string? AgentTaskId { get; set; }
 
-        /// <summary>
-        /// 会话级别的单调递增任务序号（用于追问净化与最新任务判定，默认为 0）
-        /// </summary>
         public int TaskSequenceNumber { get; set; } = 0;
 
-        /// <summary>
-        /// 结构化 Agent 终止原因（默认为 None）
-        /// </summary>
         public AgentTerminationReason TerminationReason
         {
             get => _terminationReason;
@@ -281,9 +261,6 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
-        /// <summary>
-        /// 是否由于网络推流异常被截断
-        /// </summary>
         public bool IsStreamTruncated
         {
             get => _isStreamTruncated;
@@ -300,16 +277,16 @@ namespace DataAnalysis_Assistant.Models
 
         [JsonIgnore]
         public Visibility TerminationNoticeVisibility =>
-            (_terminationReason == AgentTerminationReason.MaxIterationsReached || 
+            (_terminationReason == AgentTerminationReason.MaxIterationsReached ||
              _terminationReason == AgentTerminationReason.ConsecutiveErrorsTripped)
             ? Visibility.Visible : Visibility.Collapsed;
 
         [JsonIgnore]
         public string TerminationNoticeMessage => _terminationReason switch
         {
-            AgentTerminationReason.MaxIterationsReached => 
+            AgentTerminationReason.MaxIterationsReached =>
                 "本次分析已达到最大探索上限，Agent 已综合当前阶段所有探索结果为您收敛汇聚本份研报。",
-            AgentTerminationReason.ConsecutiveErrorsTripped => 
+            AgentTerminationReason.ConsecutiveErrorsTripped =>
                 "由于执行过程多次持续遇阻，Agent 已根据现有探索成果收敛汇聚本份研报。",
             _ => string.Empty
         };
@@ -318,9 +295,7 @@ namespace DataAnalysis_Assistant.Models
         public Visibility TruncatedNoticeVisibility =>
             _isStreamTruncated ? Visibility.Visible : Visibility.Collapsed;
 
-        /// <summary>
         /// 本回合执行的结构化工具调用明细列表（支持安全序列化落盘，旧版本 JSON 反序列化时自动为空）
-        /// </summary>
         public List<ToolCallRecordItem> ToolCalls { get; set; } = new();
 
         public event PropertyChangedEventHandler? PropertyChanged;
@@ -331,4 +306,3 @@ namespace DataAnalysis_Assistant.Models
         }
     }
 }
-

@@ -13,28 +13,16 @@ using DataAnalysis_Assistant.Services.Context;
 
 namespace DataAnalysis_Assistant.Services
 {
-    /// <summary>
-    /// 对话轮次模型 (用于组装 LLM messages 历史)
-    /// </summary>
     public class ChatTurn
     {
-        public string Role { get; set; } = string.Empty; // "system", "user", "assistant", "tool"
+        public string Role { get; set; } = string.Empty;
         public string Content { get; set; } = string.Empty;
 
-        /// <summary>
-        /// 当 Role 为 "tool" 时，记录被调用的工具 call_id
-        /// </summary>
         public string? ToolCallId { get; set; }
 
-        /// <summary>
-        /// 当 Role 为 "assistant" 且发起工具调用时记录工具调用列表
-        /// </summary>
         public List<ToolCallItem>? ToolCalls { get; set; }
     }
 
-    /// <summary>
-    /// 流式分块类型 (思考过程 vs 正式回答 vs 工具调用)
-    /// </summary>
     public enum StreamChunkType
     {
         Reasoning,
@@ -42,15 +30,8 @@ namespace DataAnalysis_Assistant.Services
         ToolCall
     }
 
-    /// <summary>
-    /// 流式分块数据包
-    /// </summary>
     public record StreamChunk(StreamChunkType Type, string Text, ToolCallItem? ToolCall = null);
 
-    /// <summary>
-    /// OpenAI 兼容 LLM 对话服务 (支持 SSE 流式推流与 Function Calling / Tools 标准协议)
-    /// 全面兼容 OpenAI、DeepSeek、Ollama 等标准接口
-    /// </summary>
     public class LlmChatService
     {
         // 复用单例 HttpClient，避免套接字耗尽
@@ -61,9 +42,6 @@ namespace DataAnalysis_Assistant.Services
 
         private static readonly ContextCompactionService _compactionService = new();
 
-        /// <summary>
-        /// 统一组装 OpenAI 标准 messages 载荷 (支持 system, user, assistant 含 tool_calls, tool 结果，并具备保真上下文压缩)
-        /// </summary>
         public static List<object> BuildMessagesPayload(
             AppSettings settings,
             List<ChatTurn>? history,
@@ -73,14 +51,19 @@ namespace DataAnalysis_Assistant.Services
         {
             var messages = new List<object>();
 
-            // 1. 组装 System 消息 (系统提示词 + 扩展技能指南 + 可选参考文档/Schema 上下文)
             var sbSystem = new StringBuilder();
             if (!string.IsNullOrWhiteSpace(settings.SystemPrompt))
             {
                 sbSystem.AppendLine(settings.SystemPrompt.Trim());
             }
 
-            // 阶段五：深度注入专属扩展技能规约指南 (优先级高，紧随全局系统提示词)
+            string chartThemePrompt = ThemePresetCatalog.BuildChartThemePrompt(settings);
+            if (!string.IsNullOrWhiteSpace(chartThemePrompt))
+            {
+                if (sbSystem.Length > 0) sbSystem.AppendLine();
+                sbSystem.AppendLine(chartThemePrompt);
+            }
+
             if (!string.IsNullOrWhiteSpace(activeSkillInstruction))
             {
                 sbSystem.AppendLine();
@@ -93,6 +76,7 @@ namespace DataAnalysis_Assistant.Services
             sbSystem.AppendLine("1. 【思考短小精炼】：严禁在思考链路（Reasoning / Thinking）中编写完整的代码实现或长篇大论草拟脚本；思考过程仅用于梳理逻辑大纲、核验条件与算法参数，必须保持精炼紧凑。");
             sbSystem.AppendLine("2. 【代码严格下推工具】：所有用于数据探查、清洗、统计建模与 Matplotlib 绘图的可执行代码，必须且只能作为参数输出到具体的 tool_calls (如 run_python) 中执行，严禁在思考链或未执行的正文中冗余展开。");
             sbSystem.AppendLine("3. 【成果导向高效推进】：获得工具执行结果后，立即评估数值指标与图表产物，快速推进下一阶段分析或直接输出最终结构化业务研报，杜绝多轮重复探查相同结构。");
+            sbSystem.AppendLine("4. 【专业纯文本研报规范】：最终输出的业务研报与回答正文必须采用严谨克制的纯文本 Markdown，严禁使用任何装饰性 Emoji 表情符号（如图表、放大镜、警告、勾选等图标），且严禁复述任何系统内部上下文历史注记。");
             sbSystem.AppendLine("============================================================================");
 
             if (!string.IsNullOrWhiteSpace(documentContext))
@@ -112,7 +96,6 @@ namespace DataAnalysis_Assistant.Services
                 messages.Add(new { role = "system", content = sbSystem.ToString() });
             }
 
-            // 2. 组装历史对话（引入完整 Token 预算监控与保真时序压缩管线）
             List<ChatTurn> effectiveHistory = new();
             if (history != null)
             {
@@ -122,7 +105,6 @@ namespace DataAnalysis_Assistant.Services
                     if (turn.Role == "tool" && !string.IsNullOrEmpty(turn.Content) && turn.Content.Length > 2500)
                     {
                         string c = turn.Content;
-                        // 若包含图表确认或关键事实，保留首部与尾部
                         string trimmed = $"{c[..800]}\n\n... [中间过渡性数据输出过长已自动折叠，共省略 {c.Length - 1400} 字符] ...\n\n{c[^600..]}";
                         effectiveHistory.Add(new ChatTurn
                         {
@@ -139,7 +121,6 @@ namespace DataAnalysis_Assistant.Services
                 }
             }
 
-            // 完整统计包含 tool、tool_calls 参数与正文的真实 Token 消耗
             int sysTokens = ContextCompactionService.EstimateTokens(sbSystem.ToString());
             int docTokens = ContextCompactionService.EstimateTokens(documentContext ?? string.Empty);
             int qTokens = ContextCompactionService.EstimateTokens(userQuestion ?? string.Empty);
@@ -159,7 +140,6 @@ namespace DataAnalysis_Assistant.Services
             int totalTokens = sysTokens + docTokens + qTokens + histTokens;
             int triggerLimit = (int)(_compactionService.MaxTokenBudget * _compactionService.TriggerThresholdRatio);
 
-            // 当真实总 Token 超过 18,000 时，启动保真上下文时序压缩（严格保持线性时间线对齐，严禁打乱 tool 配对顺序）
             if (totalTokens > triggerLimit && effectiveHistory.Count > 4)
             {
                 int keepRecent = Math.Min(4, effectiveHistory.Count);
@@ -252,7 +232,6 @@ namespace DataAnalysis_Assistant.Services
                 }
             }
 
-            // 3. 组装当前用户问题
             if (!string.IsNullOrWhiteSpace(userQuestion))
             {
                 messages.Add(new { role = "user", content = userQuestion });
@@ -261,10 +240,6 @@ namespace DataAnalysis_Assistant.Services
             return messages;
         }
 
-        /// <summary>
-        /// 发起兼容 OpenAI/DeepSeek 标准的 Tools/Function Calling 对话请求 (非流式精确保真模式)
-        /// 适合 Agent 主循环准确获取工具调用与推理决策
-        /// </summary>
         public async Task<ChatToolResponse> SendChatWithToolsAsync(
             AppSettings settings,
             List<ChatTurn>? history,
@@ -368,7 +343,6 @@ namespace DataAnalysis_Assistant.Services
 
                 if (firstChoice.TryGetProperty("message", out var messageElem))
                 {
-                    // 1. 提取推理思考内容 (DeepSeek reasoning_content 兼容)
                     if (messageElem.TryGetProperty("reasoning_content", out var rElem) &&
                         rElem.ValueKind == JsonValueKind.String)
                     {
@@ -380,13 +354,11 @@ namespace DataAnalysis_Assistant.Services
                         result.ReasoningContent = rElem2.GetString() ?? string.Empty;
                     }
 
-                    // 2. 提取文本内容
                     if (messageElem.TryGetProperty("content", out var contentElem) &&
                         contentElem.ValueKind == JsonValueKind.String)
                     {
                         string content = contentElem.GetString() ?? string.Empty;
 
-                        // 兼容某些本地模型输出的 <think>...</think> 标签
                         if (string.IsNullOrEmpty(result.ReasoningContent) && content.Contains("<think>"))
                         {
                             int start = content.IndexOf("<think>", StringComparison.OrdinalIgnoreCase);
@@ -401,7 +373,6 @@ namespace DataAnalysis_Assistant.Services
                         result.Content = content;
                     }
 
-                    // 3. 提取 tool_calls 列表
                     if (messageElem.TryGetProperty("tool_calls", out var toolCallsElem) &&
                         toolCallsElem.ValueKind == JsonValueKind.Array)
                     {
@@ -412,7 +383,6 @@ namespace DataAnalysis_Assistant.Services
                             {
                                 toolCallItem.Id = idElem.GetString() ?? string.Empty;
                             }
-                            // 协议防断裂兜底：若大模型或代理未下发 id，自动补齐唯一 call_{guid}
                             if (string.IsNullOrWhiteSpace(toolCallItem.Id))
                             {
                                 toolCallItem.Id = $"call_{Guid.NewGuid():N}";
@@ -448,9 +418,6 @@ namespace DataAnalysis_Assistant.Services
             return result;
         }
 
-        /// <summary>
-        /// 发起兼容 OpenAI SSE 标准的流式对话补全（支持思考流、正文流双通道及工具调用）
-        /// </summary>
         public async IAsyncEnumerable<StreamChunk> StreamChatCompletionAsync(
             AppSettings settings,
             List<ChatTurn>? history,
@@ -473,9 +440,6 @@ namespace DataAnalysis_Assistant.Services
             }
         }
 
-        /// <summary>
-        /// 发起兼容 OpenAI SSE 标准的流式对话补全（支持带 Tools 定义的流式通信）
-        /// </summary>
         public async IAsyncEnumerable<StreamChunk> StreamChatCompletionWithToolsAsync(
             AppSettings settings,
             List<ChatTurn>? history,
@@ -571,7 +535,6 @@ namespace DataAnalysis_Assistant.Services
             using var reader = new StreamReader(stream, Encoding.UTF8);
 
             bool inThinkTag = false;
-            // 缓存累积流式返回的 tool_calls
             var accumulatedToolCalls = new Dictionary<int, (string id, string type, StringBuilder name, StringBuilder args)>();
 
             while (true)
@@ -600,7 +563,6 @@ namespace DataAnalysis_Assistant.Services
 
                     if (data == "[DONE]")
                     {
-                        // 流式结束，若有累积的 tool_calls，一次性产出
                         foreach (var kvp in accumulatedToolCalls.OrderBy(k => k.Key))
                         {
                             string finalId = string.IsNullOrWhiteSpace(kvp.Value.id)
@@ -635,7 +597,6 @@ namespace DataAnalysis_Assistant.Services
                             var firstChoice = choices[0];
                             if (firstChoice.TryGetProperty("delta", out var delta))
                             {
-                                // 1. 优先提取推理思考字段
                                 if (delta.TryGetProperty("reasoning_content", out var rElem) &&
                                     rElem.ValueKind == JsonValueKind.String)
                                 {
@@ -647,14 +608,12 @@ namespace DataAnalysis_Assistant.Services
                                     reasoningDelta = rElem2.GetString();
                                 }
 
-                                // 2. 提取正式回答字段
                                 if (delta.TryGetProperty("content", out var contentElem) &&
                                     contentElem.ValueKind == JsonValueKind.String)
                                 {
                                     contentDelta = contentElem.GetString();
                                 }
 
-                                // 3. 提取流式 tool_calls delta
                                 if (delta.TryGetProperty("tool_calls", out var tcArray) &&
                                     tcArray.ValueKind == JsonValueKind.Array)
                                 {
@@ -706,13 +665,11 @@ namespace DataAnalysis_Assistant.Services
                     {
                     }
 
-                    // 推送思考流
                     if (!string.IsNullOrEmpty(reasoningDelta))
                     {
                         yield return new StreamChunk(StreamChunkType.Reasoning, reasoningDelta);
                     }
 
-                    // 推送正文流 (含 <think> 标签剥离兼容)
                     if (!string.IsNullOrEmpty(contentDelta))
                     {
                         if (!inThinkTag)
@@ -785,7 +742,6 @@ namespace DataAnalysis_Assistant.Services
                 }
             }
 
-            // 流式自然结束兜底：若流已关闭但未显式收到 [DONE]，补齐产出累积的 tool_calls
             foreach (var kvp in accumulatedToolCalls.OrderBy(k => k.Key))
             {
                 string finalId = string.IsNullOrWhiteSpace(kvp.Value.id)
@@ -807,4 +763,3 @@ namespace DataAnalysis_Assistant.Services
         }
     }
 }
-

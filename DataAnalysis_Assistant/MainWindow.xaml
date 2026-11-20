@@ -8,28 +8,25 @@
 
     <Grid Background="{StaticResource WarmBgBrush}">
         <Grid.ColumnDefinitions>
-            <!-- 最左侧极窄导航栏（窄栏 56px） -->
+
             <ColumnDefinition Width="56"/>
-            <!-- 右侧主内容区域（主工作区 / 二级配置界面） -->
+
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <!-- ==================== 左侧导航栏（窄） ==================== -->
-        <!-- 参考界面设计：极窄极简、纯图标形态、上图风格与层级结构 -->
         <Border Grid.Column="0" Background="{StaticResource RailBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="0,0,1,0" Padding="0,12">
             <Grid>
                 <Grid.RowDefinitions>
-                    <!-- 顶部主导航组 -->
+
                     <RowDefinition Height="Auto"/>
-                    <!-- 占位伸缩行 -->
+
                     <RowDefinition Height="*"/>
-                    <!-- 底部：设置与更多 -->
+
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- 顶部主导航组（顺序与上图完全一致） -->
                 <StackPanel Grid.Row="0" Spacing="10" HorizontalAlignment="Center">
-                    <!-- 1. 主页面 / 看板（实心房屋，选中态高亮圆角底框） -->
+
                     <Button x:Name="btnNavHome" Click="btnNavHome_Click" ToolTipService.ToolTip="主页面看板"
                             Width="40" Height="40" Padding="0" CornerRadius="10"
                             Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1">
@@ -39,19 +36,18 @@
                         </Viewbox>
                     </Button>
 
-                    <!-- 2. 可视化（双层卡片/画板） -->
                     <Button x:Name="btnNavVis" Click="btnNavVis_Click" ToolTipService.ToolTip="可视化"
                             Width="40" Height="40" Padding="0" CornerRadius="10"
                             Background="Transparent" BorderThickness="0">
                         <Viewbox Width="20" Height="20">
                             <Canvas Width="24" Height="24">
-                                <!-- 底层卡片 -->
+
                                 <Path x:Name="pathNavVisBack" Stroke="{StaticResource TextSecondaryBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
                                       Data="M 8 3 H 19 C 20.1 3 21 3.9 21 5 V 15 C 21 16.1 20.1 17 19 17"/>
-                                <!-- 顶层卡片 -->
+
                                 <Path x:Name="pathNavVisFront" Stroke="{StaticResource TextSecondaryBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
                                       Data="M 4 7 H 15 C 16.1 7 17 7.9 17 9 V 19 C 17 20.1 16.1 21 15 21 H 4 C 2.9 21 2 20.1 2 19 V 9 C 2 7.9 2.9 7 4 7 Z"/>
-                                <!-- 顶层卡片内部：微型太阳与折线山丘 -->
+
                                 <Ellipse x:Name="pathNavVisDot" Fill="{StaticResource TextSecondaryBrush}" Width="2.5" Height="2.5" Canvas.Left="6" Canvas.Top="9.5"/>
                                 <Path x:Name="pathNavVisInner" Stroke="{StaticResource TextSecondaryBrush}" StrokeThickness="1.2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
                                       Data="M 4 17 L 7 13 L 10 16 L 12 14 L 15 17"/>
@@ -59,33 +55,31 @@
                         </Viewbox>
                     </Button>
 
-                    <!-- 3. 历史会话记录（文档组与多轮对话树，带动态数字角标） -->
                     <Grid Width="40" Height="40">
                         <Button x:Name="btnNavDocLibrary" Click="btnNavDocLibrary_Click" ToolTipService.ToolTip="历史会话记录"
                                 Width="40" Height="40" Padding="0" CornerRadius="10"
                                 Background="Transparent" BorderThickness="0">
                             <Viewbox Width="20" Height="20">
                                 <Canvas Width="24" Height="24">
-                                    <!-- 书本 1（左） -->
+
                                     <Path x:Name="pathNavDoc1" Stroke="{StaticResource TextSecondaryBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
                                           Data="M 4 5 C 4 4.4 4.4 4 5 4 H 6 C 6.6 4 7 4.4 7 5 V 19 C 7 19.6 6.6 20 6 20 H 5 C 4.4 20 4 19.6 4 19 Z"/>
-                                    <!-- 书本 2（中） -->
+
                                     <Path x:Name="pathNavDoc2" Stroke="{StaticResource TextSecondaryBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
                                           Data="M 9.5 5 C 9.5 4.4 9.9 4 10.5 4 H 11.5 C 12.1 4 12.5 4.4 12.5 5 V 19 C 12.5 19.6 12.1 20 11.5 20 H 10.5 C 9.9 20 9.5 19.6 9.5 19 Z"/>
-                                    <!-- 书本 3（右倾斜） -->
+
                                     <Path x:Name="pathNavDoc3" Stroke="{StaticResource TextSecondaryBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
                                           Data="M 15 5.5 L 17.5 4.8 C 18.2 4.6 18.8 5 19 5.7 L 21.8 17.5 C 22 18.2 21.6 18.8 20.9 19 L 18.4 19.7 C 17.7 19.9 17.1 19.5 16.9 18.8 L 14.1 7 C 13.9 6.3 14.3 5.7 15 5.5 Z"/>
                                 </Canvas>
                             </Viewbox>
                         </Button>
-                        <!-- 动态数字角标 -->
+
                         <Border x:Name="railDocBadge" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-2,-2,0" Background="{StaticResource AccentWarmBrush}" CornerRadius="7" Padding="4,1" IsHitTestVisible="False">
                             <TextBlock x:Name="tbRailDocBadge" Text="0" FontSize="8" FontWeight="Bold" Foreground="White"/>
                         </Border>
                     </Grid>
                 </StackPanel>
 
-                <!-- 6. 底部：三点设置与更多 -->
                 <StackPanel Grid.Row="2" HorizontalAlignment="Center">
                     <Button x:Name="btnNavSettings" Click="btnNavSettings_Click" ToolTipService.ToolTip="设置与更多"
                             Width="40" Height="40" Padding="0" CornerRadius="10"
@@ -102,32 +96,29 @@
             </Grid>
         </Border>
 
-        <!-- ==================== 右侧内容承载区 ==================== -->
         <Grid Grid.Column="1">
-            <!-- 界面 1：主工作区 (包含文档提取看板、AI对话以及左侧弹出文档库/历史会话) -->
+
             <Grid x:Name="gridMainWorkspace" Visibility="Visible">
-                <!-- 主内容区：双栏弹性布局（左：中间板块，中：可拖动手柄，右：AI 智能对话） -->
+
                 <Grid x:Name="gridMainContentColumns" Margin="10,10,12,12">
                         <Grid.ColumnDefinitions>
-                            <!-- 中间板块（文档预览 + 可视化界面） -->
+
                             <ColumnDefinition x:Name="colMiddle" Width="*" MinWidth="300"/>
-                            <!-- 分割拖拽手柄列 -->
+
                             <ColumnDefinition Width="Auto"/>
-                            <!-- 右侧对话板块 (支持自由拖动拉伸) -->
+
                             <ColumnDefinition x:Name="colRight" Width="420" MinWidth="280"/>
                         </Grid.ColumnDefinitions>
 
-                        <!-- ==================== 中间板块 ==================== -->
                         <Border Grid.Column="0" Margin="0,0,0,0" Background="{StaticResource WarmBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" CornerRadius="14" Padding="16,14">
                             <Grid>
                                 <Grid.RowDefinitions>
-                                    <!-- 中间板块顶部：两个窄选项卡（文档预览板块 / 可视化界面） -->
+
                                     <RowDefinition Height="Auto"/>
-                                    <!-- 内容切换承载区 -->
+
                                     <RowDefinition Height="*"/>
                                 </Grid.RowDefinitions>
 
-                                <!-- 【中间板块顶部两个选项卡（窄）】 -->
                                 <Grid Grid.Row="0" Margin="0,0,0,12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
@@ -135,22 +126,19 @@
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
 
-                                    <!-- 左侧操作组：【选择文件】按钮 + 选项卡胶囊选择器 -->
                                     <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                        <!-- 【选择文件】独立按钮 (位于【文档预览】左侧) -->
+
                                         <Button x:Name="btnHeaderSelectFile" Click="btnSelectFile_Click" Height="34" Padding="12,0" Background="{StaticResource AccentWarmBrush}" Foreground="White" CornerRadius="8" ToolTipService.ToolTip="选择本地文档 (支持 PDF/Word/Excel/TXT/CSV/MD)">
                                             <TextBlock Text="选择文件" FontSize="12" FontWeight="Medium" VerticalAlignment="Center"/>
                                         </Button>
 
-                                        <!-- 紧凑型胶囊选项卡选择器（高度窄 34px） -->
                                         <Border Background="#E5DEC9" CornerRadius="8" Padding="2" Height="34">
                                             <StackPanel Orientation="Horizontal" Spacing="2">
-                                                <!-- 选项卡 1：文档预览板块 -->
+
                                                 <Button x:Name="btnTabDocPreview" Click="btnTabDocPreview_Click" Padding="12,4" Height="28" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderThickness="0">
                                                     <TextBlock x:Name="tbTabPreviewTitle" Text="文档预览" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
                                                 </Button>
 
-                                                <!-- 选项卡 2：可视化界面 -->
                                                 <Button x:Name="btnTabVisualization" Click="btnTabVisualization_Click" Padding="12,4" Height="28" CornerRadius="6" Background="Transparent" BorderThickness="0">
                                                     <TextBlock x:Name="tbTabVisTitle" Text="可视化" FontSize="12" FontWeight="Normal" Foreground="{StaticResource TextSecondaryBrush}"/>
                                                 </Button>
@@ -170,25 +158,22 @@
                                         </Border>
                                     </Grid>
 
-                                    <!-- 快速操作按钮 -->
                                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                                         <Button x:Name="btnCopyPreview" Click="btnCopyPreview_Click" Content="复制文本" Padding="10,5" CornerRadius="8" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11"/>
                                         <Button x:Name="btnClearPreview" Click="btnClearPreview_Click" Content="清空" Padding="10,5" CornerRadius="8" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11"/>
                                     </StackPanel>
                                 </Grid>
 
-                                <!-- 视图 1：文档预览板块 (gridDocPreviewView) -->
                                 <Grid x:Name="gridDocPreviewView" Grid.Row="1" Visibility="Visible">
                                     <Grid.RowDefinitions>
-                                        <!-- 4 核心统计指标卡片栏 -->
+
                                         <RowDefinition Height="Auto"/>
-                                        <!-- 核心文本提取大卡片 -->
+
                                         <RowDefinition Height="*"/>
-                                        <!-- 底部说明栏 -->
+
                                         <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
 
-                                    <!-- 统计指标卡片 -->
                                     <Grid Grid.Row="0" Margin="0,0,0,12" ColumnSpacing="10">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
@@ -218,38 +203,33 @@
                                         </Border>
                                     </Grid>
 
-                                    <!-- 核心提取文本预览卡片 -->
                                     <Border Grid.Row="1" Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="14">
                                         <Grid>
-                                            <!-- 空内容引导 -->
+
                                             <StackPanel x:Name="spEmptyPreview" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="10" Visibility="Visible">
                                                 <TextBlock Text="暂无文档文本内容" FontWeight="SemiBold" FontSize="15" Foreground="{StaticResource TextPrimaryBrush}" HorizontalAlignment="Center"/>
                                                 <TextBlock Text="请在左侧导航栏点击【文档库】选择本地文档立即预览文本，&#x0a;或在后续阶段通过解析引擎提取 PDF / Word / Excel。" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Center" TextAlignment="Center"/>
                                             </StackPanel>
 
-                                            <!-- 多行只读预览框 -->
                                             <TextBox x:Name="tbPreviewContent" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" Background="Transparent" BorderThickness="0" CornerRadius="8" FontSize="13" FontFamily="Consolas, Cascadia Code, PingFang SC, Microsoft YaHei" Visibility="Collapsed"/>
                                         </Grid>
                                     </Border>
 
-                                    <!-- 底部提示信息条 -->
                                     <Border Grid.Row="2" Margin="0,8,0,0" Padding="10,6" Background="{StaticResource SidebarBgBrush}" CornerRadius="8">
                                         <TextBlock Text="文档就绪后，在右侧对话框提问，AI 生成的数据图表将自动呈现在上方【可视化界面】中。" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                                     </Border>
                                 </Grid>
 
-                                <!-- 视图 2：可视化界面板块 (gridVisualizationView - 动态 AI 图表分析看板与画廊) -->
                                 <Grid x:Name="gridVisualizationView" Grid.Row="1" Visibility="Collapsed">
                                     <Grid.RowDefinitions>
-                                        <!-- 图表汇总看板指标条 -->
+
                                         <RowDefinition Height="Auto"/>
-                                        <!-- 图表主渲染卡片与画廊 -->
+
                                         <RowDefinition Height="*"/>
-                                        <!-- 底部操作与洞察结论条 -->
+
                                         <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
 
-                                    <!-- 1. AI 图表统计指标条 -->
                                     <Grid Grid.Row="0" Margin="0,0,0,12" ColumnSpacing="10">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
@@ -279,13 +259,16 @@
                                         </Border>
                                     </Grid>
 
-                                    <!-- 2. 图表主渲染容器卡片 (支持空状态与画廊切换) -->
                                     <Border Grid.Row="1" Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="16">
                                         <Grid>
-                                            <!-- 空状态引导提示 -->
+
                                             <StackPanel x:Name="spEmptyVisGallery" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="10" Visibility="Visible">
                                                 <Border Background="#E8E2D5" Width="48" Height="48" CornerRadius="24" HorizontalAlignment="Center">
-                                                    <TextBlock Text="📊" FontSize="22" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    <Viewbox Width="22" Height="22">
+                                                        <Canvas Width="24" Height="24">
+                                                            <Path Stroke="{StaticResource TextSecondaryBrush}" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M 4 19 H 20 M 7 16 V 11 M 12 16 V 6 M 17 16 V 9"/>
+                                                        </Canvas>
+                                                    </Viewbox>
                                                 </Border>
                                                 <TextBlock Text="暂无生成的数据可视化图表" FontWeight="SemiBold" FontSize="15" Foreground="{StaticResource TextPrimaryBrush}" HorizontalAlignment="Center"/>
                                                 <TextBlock Text="在右侧对话框中提出数据统计需求（例如：'统计各类别占比并绘制柱状图'），&#x0a;AI 编写并执行 Python 脚本后，生成的矢量图表将就地内嵌并沉淀至本看板。" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Center" TextAlignment="Center" MaxWidth="440" TextWrapping="Wrap"/>
@@ -295,25 +278,22 @@
                                                 </StackPanel>
                                             </StackPanel>
 
-                                            <!-- 真实图表主展示内容 (有图表时显示) -->
                                             <Grid x:Name="gridActivePlotContent" Visibility="Collapsed">
                                                 <Grid.RowDefinitions>
-                                                    <!-- 标题栏与控制按钮 -->
+
                                                     <RowDefinition Height="Auto"/>
-                                                    <!-- 主大图渲染区 -->
+
                                                     <RowDefinition Height="*"/>
-                                                    <!-- 下方图表画廊缩略图列表 -->
+
                                                     <RowDefinition Height="Auto"/>
                                                 </Grid.RowDefinitions>
 
-                                                <!-- 标题与操作栏 -->
                                                 <Grid Grid.Row="0" Margin="0,0,0,10">
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="*"/>
                                                         <ColumnDefinition Width="Auto"/>
                                                     </Grid.ColumnDefinitions>
 
-                                                    <!-- 左侧标题与格式标签 (星号列自适应缩略，不撑大父级容器) -->
                                                     <Grid Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,0">
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="Auto" MaxWidth="320"/>
@@ -325,7 +305,6 @@
                                                         </Border>
                                                     </Grid>
 
-                                                    <!-- 右侧操作栏 (紧凑右对齐，绝不覆盖左侧文字) -->
                                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" VerticalAlignment="Center">
                                                         <Button Click="btnExportDashboardReport_Click" Content="导出研报" Padding="8,4" CornerRadius="6" Background="{StaticResource AccentWarmBrush}" Foreground="White" FontSize="11" ToolTipService.ToolTip="将当前看板激活图表与数据结论导出为专业 Word 或 Markdown 研报"/>
                                                         <Button Click="btnActivePlotZoom_Click" Content="放大" Padding="8,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="11" ToolTipService.ToolTip="全屏放大查看当前高清图表"/>
@@ -334,13 +313,11 @@
                                                     </StackPanel>
                                                 </Grid>
 
-                                                <!-- 主大图展示区 (支持点击直接全屏放大) -->
                                                 <Border Grid.Row="1" CornerRadius="10" Background="#FBF9F4" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="8" Margin="0,0,0,10"
                                                         PointerPressed="imgActiveDashboardPlot_PointerPressed" ToolTipService.ToolTip="点击全屏放大查看高清图表">
                                                     <Image x:Name="imgActiveDashboardPlot" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                                 </Border>
 
-                                                <!-- 底部历史图表画廊缩略图水平滚动栏 (Gallery) -->
                                                 <Grid Grid.Row="2">
                                                     <Grid.RowDefinitions>
                                                         <RowDefinition Height="Auto"/>
@@ -376,7 +353,6 @@
                                         </Grid>
                                     </Border>
 
-                                    <!-- 3. AI 洞察分析与状态操作条 (修复小比例下文字与按钮重叠 Bug) -->
                                     <Border Grid.Row="2" Margin="0,8,0,0" Padding="12,8" Background="{StaticResource SidebarBgBrush}" CornerRadius="8">
                                         <Grid ColumnSpacing="12">
                                             <Grid.ColumnDefinitions>
@@ -385,7 +361,7 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" x:Name="tbVisInsightTip" Text="AI 洞察：图表已根据分析代码由本地 Python 引擎完成矢量演算与渲染，支持右键或另存为高清导出。" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" ToolTipService.ToolTip="AI 洞察：图表已根据分析代码由本地 Python 引擎完成矢量演算与渲染，支持右键或另存为高清导出。"/>
                                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Center">
-                                                <Button Click="btnExportDashboardReport_Click" Content="📄 导出看板研报" Padding="10,4" CornerRadius="6" Background="Transparent" BorderThickness="0" FontSize="11" Foreground="{StaticResource AccentWarmBrush}"/>
+                                                <Button Click="btnExportDashboardReport_Click" Content="导出看板研报" Padding="10,4" CornerRadius="6" Background="Transparent" BorderThickness="0" FontSize="11" Foreground="{StaticResource AccentWarmBrush}"/>
                                                 <Button Click="btnOpenPlotFolder_Click" Content="打开图表文件夹" Padding="10,4" CornerRadius="6" Background="Transparent" BorderThickness="0" FontSize="11" Foreground="{StaticResource AccentWarmBrush}"/>
                                                 <Button Click="btnClearPlotGallery_Click" Content="清空画廊" Padding="10,4" CornerRadius="6" Background="Transparent" BorderThickness="0" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
                                             </StackPanel>
@@ -395,7 +371,6 @@
                             </Grid>
                         </Border>
 
-                        <!-- ==================== 中栏与右栏自由拖动手柄 (Splitter) ==================== -->
                         <Border x:Name="borderSplitterContainer" Grid.Column="1" Width="14" Background="Transparent" Margin="-2,0,-2,0" Canvas.ZIndex="10"
                                 ToolTipService.ToolTip="按住并左右拖动可自由调整中栏与右栏的宽度"
                                 PointerEntered="Splitter_PointerEntered"
@@ -404,26 +379,24 @@
                                 PointerMoved="Splitter_PointerMoved"
                                 PointerReleased="Splitter_PointerReleased"
                                 PointerCanceled="Splitter_PointerReleased">
-                            <!-- 居中视觉指示条 -->
+
                             <Border x:Name="borderSplitterBar" Width="3" Height="44" CornerRadius="1.5"
                                     Background="#D6CDBF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
 
-                        <!-- ==================== 右侧对话板块 ==================== -->
                         <Border Grid.Column="2" Margin="0,0,0,0" Background="{StaticResource CardSubtleBrush}" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" CornerRadius="14">
                             <Grid Margin="14,14,14,12">
                                 <Grid.RowDefinitions>
-                                    <!-- 对话头部 -->
+
                                     <RowDefinition Height="Auto"/>
-                                    <!-- 消息展示流 (Markdown 渲染) -->
+
                                     <RowDefinition Height="*"/>
-                                    <!-- 快捷问题提示词 Pills -->
+
                                     <RowDefinition Height="Auto"/>
-                                    <!-- 输入框与发送区 (模型选择放置在发送按钮左侧) -->
+
                                     <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
 
-                                <!-- 对话头部 -->
                                 <Grid Grid.Row="0" Margin="0,0,0,10">
                                     <TextBlock Text="AI 助手" FontWeight="Bold" FontSize="14" Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
 
@@ -432,19 +405,18 @@
                                     </StackPanel>
                                 </Grid>
 
-                                <!-- 对话展示区 (带 Markdown 渲染) -->
                                 <ScrollViewer x:Name="svChatList" Grid.Row="1" Margin="0,0,0,8" VerticalScrollBarVisibility="Auto">
                                     <ItemsControl x:Name="icChatMessages">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate x:DataType="models:ChatMessageItem">
                                                 <Grid Margin="0,8" HorizontalAlignment="Stretch">
-                                                    <!-- 用户提问 (上下结构顶部全宽流式卡片，参考现代 AI 对话研报风格) -->
+
                                                     <StackPanel Visibility="{x:Bind UserBubbleVisibility, Mode=OneWay}" HorizontalAlignment="Stretch" Spacing="4">
                                                         <Grid Margin="2,0,2,2">
                                                             <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                                                                 <Border Background="{StaticResource AccentWarmBrush}" CornerRadius="3" Width="5" Height="13" VerticalAlignment="Center"/>
                                                                 <TextBlock Text="我 (用户)" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                                                <!-- 阶段五：专属扩展技能胶囊徽章 (浅色暖调自适应规范) -->
+
                                                                 <Border Visibility="{x:Bind ActiveSkillVisibility, Mode=OneWay}" Background="#F2ECE1" BorderBrush="#D8CFBF" BorderThickness="1" CornerRadius="4" Padding="5,1" Margin="2,0,0,0">
                                                                     <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                                                                         <TextBlock Text="&lt;/&gt;" FontSize="8" FontWeight="Bold" FontFamily="Consolas, Cascadia Code, Courier New" Foreground="{StaticResource AccentWarmBrush}" VerticalAlignment="Center"/>
@@ -459,7 +431,6 @@
                                                         </Border>
                                                     </StackPanel>
 
-                                                    <!-- AI 助手回答 (紧随其下全宽排版，支持极简折叠思考与 Markdown 渲染) -->
                                                     <StackPanel Visibility="{x:Bind AssistantBubbleVisibility, Mode=OneWay}" HorizontalAlignment="Stretch" Spacing="6">
                                                         <Grid Margin="2,0,2,0">
                                                             <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
@@ -469,38 +440,33 @@
                                                             <TextBlock Text="{x:Bind FormattedTime, Mode=OneWay}" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                                                         </Grid>
 
-                                                        <!-- 极简思考折叠药丸条 (仅当有思考内容时显示，参考现代流式研报) -->
                                                         <Border Visibility="{x:Bind HasReasoningVisibility, Mode=OneWay}" Background="#F4EFE6" CornerRadius="8" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="6,4" HorizontalAlignment="Stretch">
                                                             <StackPanel Spacing="6">
-                                                                <!-- 极简点击切换条 -->
+
                                                                 <Button Click="btnToggleReasoning_Click" Tag="{x:Bind}" Background="Transparent" BorderThickness="0" Padding="4,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
                                                                     <Grid>
                                                                         <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                                                            <!-- 微型动态加载圆环 (仅思考中显示) -->
+
                                                                             <ProgressRing Visibility="{x:Bind ThinkingIndicatorVisibility, Mode=OneWay}" IsActive="True" Width="12" Height="12" VerticalAlignment="Center"/>
                                                                             <TextBlock Text="{x:Bind ThinkingStatusText, Mode=OneWay}" FontSize="11" FontWeight="Medium" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                                                                         </StackPanel>
-                                                                        <!-- 右侧展开/收起箭头文字 -->
+
                                                                         <TextBlock Text="{x:Bind ReasoningToggleText, Mode=OneWay}" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                                                                     </Grid>
                                                                 </Button>
 
-                                                                <!-- 思考具体内容展开区 (展开时可见) -->
                                                                 <Border Visibility="{x:Bind ReasoningBodyVisibility, Mode=OneWay}" Background="#ECE7DC" CornerRadius="6" Padding="10,8">
                                                                     <TextBlock Text="{x:Bind ReasoningDisplayText, Mode=OneWay}" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" FontFamily="PingFang SC, Microsoft YaHei, Segoe UI" LineHeight="18"/>
                                                                 </Border>
                                                             </StackPanel>
                                                         </Border>
 
-                                                        <!-- 正式回答全宽卡片 (Markdown 渲染) -->
                                                         <Border Background="{StaticResource CardBgBrush}" CornerRadius="12" Padding="16,14" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" HorizontalAlignment="Stretch">
                                                             <StackPanel Spacing="8">
                                                                 <controls:MarkdownTextBlock Text="{x:Bind Content, Mode=OneWay}" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}" Background="Transparent"/>
 
-                                                                <!-- 手动停止生成提示 -->
                                                                 <TextBlock Visibility="{x:Bind StoppedNoticeVisibility, Mode=OneWay}" Text="(已停止生成)" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" FontStyle="Italic"/>
 
-                                                                <!-- 生成图表多模态呈现容器 -->
                                                                 <ItemsControl ItemsSource="{x:Bind GeneratedPlots}" Visibility="{x:Bind HasPlotsVisibility, Mode=OneWay}" Margin="0,6,0,0">
                                                                     <ItemsControl.ItemTemplate>
                                                                         <DataTemplate x:DataType="models:ChartArtifactItem">
@@ -512,7 +478,6 @@
                                                                                         <RowDefinition Height="Auto"/>
                                                                                     </Grid.RowDefinitions>
 
-                                                                                    <!-- 图表头部：标题与格式信息 -->
                                                                                     <Grid Grid.Row="0" Margin="0,0,0,8">
                                                                                         <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                                                                                             <Border Background="#E8E2D5" CornerRadius="4" Padding="5,2">
@@ -523,17 +488,15 @@
                                                                                         <TextBlock HorizontalAlignment="Right" Text="{x:Bind FormattedSize}" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                                                                                     </Grid>
 
-                                                                                    <!-- 图表图片本体 (点击触发放大预览) -->
                                                                                     <Border Grid.Row="1" CornerRadius="8" Background="#FBF9F4" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" MaxHeight="360" Tag="{x:Bind}" PointerPressed="plotImage_PointerPressed" ToolTipService.ToolTip="点击全屏放大查看">
                                                                                         <Image Source="{x:Bind Bitmap}" Stretch="Uniform" HorizontalAlignment="Center"/>
                                                                                     </Border>
 
-                                                                                    <!-- 底部操作按钮栏 -->
                                                                                     <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="6" Margin="0,8,0,0" HorizontalAlignment="Right">
-                                                                                        <Button Click="btnViewPlotLarge_Click" Tag="{x:Bind}" Content="🔍 放大" Padding="8,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="10" ToolTipService.ToolTip="全屏放大查看高清图表"/>
-                                                                                        <Button Click="btnCopyPlot_Click" Tag="{x:Bind}" Content="📋 复制" Padding="8,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="10" ToolTipService.ToolTip="复制图片到剪贴板"/>
-                                                                                        <Button Click="btnSavePlotAs_Click" Tag="{x:Bind}" Content="💾 另存为" Padding="8,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="10" ToolTipService.ToolTip="将图表保存到本地"/>
-                                                                                        <Button Click="btnPinToPlotDashboard_Click" Tag="{x:Bind}" Content="📊 固定到看板" Padding="8,4" CornerRadius="6" Background="{StaticResource AccentWarmBrush}" Foreground="White" FontSize="10" ToolTipService.ToolTip="推送到可视化分析看板"/>
+                                                                                        <Button Click="btnViewPlotLarge_Click" Tag="{x:Bind}" Content="放大" Padding="8,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="10" ToolTipService.ToolTip="全屏放大查看高清图表"/>
+                                                                                        <Button Click="btnCopyPlot_Click" Tag="{x:Bind}" Content="复制" Padding="8,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="10" ToolTipService.ToolTip="复制图片到剪贴板"/>
+                                                                                        <Button Click="btnSavePlotAs_Click" Tag="{x:Bind}" Content="另存为" Padding="8,4" CornerRadius="6" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="10" ToolTipService.ToolTip="将图表保存到本地"/>
+                                                                                        <Button Click="btnPinToPlotDashboard_Click" Tag="{x:Bind}" Content="固定到看板" Padding="8,4" CornerRadius="6" Background="{StaticResource AccentWarmBrush}" Foreground="White" FontSize="10" ToolTipService.ToolTip="推送到可视化分析看板"/>
                                                                                     </StackPanel>
                                                                                 </Grid>
                                                                             </Border>
@@ -541,25 +504,22 @@
                                                                     </ItemsControl.ItemTemplate>
                                                                 </ItemsControl>
 
-                                                                <!-- 终轮收敛温和提示横幅 (纯 XAML 绑定，零 Content 污染) -->
                                                                 <InfoBar IsOpen="True" Severity="Informational" IsClosable="False"
                                                                          Visibility="{x:Bind TerminationNoticeVisibility, Mode=OneWay}"
                                                                          Title="探索收敛提示"
                                                                          Message="{x:Bind TerminationNoticeMessage, Mode=OneWay}"
                                                                          Margin="0,8,0,0" CornerRadius="6"/>
 
-                                                                <!-- 网络推流中断警示横幅 (保留真实性，不污染研报正文) -->
                                                                 <InfoBar IsOpen="True" Severity="Warning" IsClosable="False"
                                                                          Visibility="{x:Bind TruncatedNoticeVisibility, Mode=OneWay}"
                                                                          Title="网络连接中断"
                                                                          Message="由于网络连接中断，以上研报为已接收到的阶段性内容。"
                                                                          Margin="0,4,0,0" CornerRadius="6"/>
 
-                                                                <!-- 底部操作栏：导出研报与复制 -->
                                                                 <Grid Margin="0,4,0,0">
                                                                     <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
-                                                                        <Button Click="btnExportMessageReport_Click" Tag="{x:Bind}" Content="📄 导出研报" Padding="8,3" CornerRadius="6" Background="{StaticResource CardSubtleBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="10" ToolTipService.ToolTip="将此研报与内嵌图表一键导出为 Word 或 Markdown"/>
-                                                                        <Button Click="btnCopyMessageContent_Click" Tag="{x:Bind}" Content="📋 复制回答" Padding="8,3" CornerRadius="6" Background="{StaticResource CardSubtleBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="10" ToolTipService.ToolTip="复制纯文本内容"/>
+                                                                        <Button Click="btnExportMessageReport_Click" Tag="{x:Bind}" Content="导出研报" Padding="8,3" CornerRadius="6" Background="{StaticResource CardSubtleBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="10" ToolTipService.ToolTip="将此研报与内嵌图表一键导出为 Word 或 Markdown"/>
+                                                                        <Button Click="btnCopyMessageContent_Click" Tag="{x:Bind}" Content="复制回答" Padding="8,3" CornerRadius="6" Background="{StaticResource CardSubtleBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="10" ToolTipService.ToolTip="复制纯文本内容"/>
                                                                     </StackPanel>
                                                                 </Grid>
                                                             </StackPanel>
@@ -571,14 +531,12 @@
                                     </ItemsControl>
                                 </ScrollViewer>
 
-                                <!-- 快捷分析建议 Pills -->
                                 <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="6" Margin="0,0,0,8">
                                     <Button Click="btnQuickPrompt_Click" Tag="请对当前文档的核心内容进行要点总结，提炼 3 个关键观点。" Content="总结要点" Padding="10,4" FontSize="11" CornerRadius="14" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}"/>
                                     <Button Click="btnQuickPrompt_Click" Tag="请提取文档中的关键数据与统计指标，并以 Markdown 表格输出。" Content="提取数据表格" Padding="10,4" FontSize="11" CornerRadius="14" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}"/>
                                     <Button Click="btnQuickPrompt_Click" Tag="请分析该文档中可能存在的关键风险点和应对策略。" Content="风险分析" Padding="10,4" FontSize="11" CornerRadius="14" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}"/>
                                 </StackPanel>
 
-                                <!-- 输入区卡片（【模型选择放置在右下角发送按钮左侧】） -->
                                 <Border Grid.Row="3" Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="10">
                                     <Grid>
                                         <Grid.RowDefinitions>
@@ -586,16 +544,14 @@
                                             <RowDefinition Height="Auto"/>
                                         </Grid.RowDefinitions>
 
-                                        <!-- 输入区内容组：挂载的技能胶囊卡片 + 提问输入框 -->
                                         <Grid Grid.Row="0">
                                             <Grid.RowDefinitions>
-                                                <!-- 技能胶囊 Pill 区域 (未挂载时自动折叠，高度为 0) -->
+
                                                 <RowDefinition Height="Auto"/>
-                                                <!-- 文本输入框 -->
+
                                                 <RowDefinition Height="*"/>
                                             </Grid.RowDefinitions>
 
-                                            <!-- 挂载的技能胶囊卡片 (浅色暖调自适应规范) -->
                                             <Border x:Name="borderActiveSkillPill"
                                                     Grid.Row="0"
                                                     HorizontalAlignment="Left"
@@ -607,41 +563,39 @@
                                                     Margin="0,0,0,6"
                                                     Visibility="Collapsed">
                                                 <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                                    <!-- 图标小方块 -->
+
                                                     <Border Width="16" Height="16" CornerRadius="3" Background="{StaticResource CardBgBrush}" BorderBrush="#D0C7B7" BorderThickness="1" VerticalAlignment="Center">
                                                         <TextBlock Text="&lt;/&gt;" FontSize="8.5" FontWeight="Bold" FontFamily="Consolas, Cascadia Code, Courier New" Foreground="{StaticResource AccentWarmBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-1,0,0"/>
                                                     </Border>
-                                                    <!-- 技能名称 -->
+
                                                     <TextBlock x:Name="tbActiveSkillPillName" Text="nature-reviewer" FontSize="11.5" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
-                                                    <!-- 移除按钮 ✕ -->
+
                                                     <Button x:Name="btnRemoveActiveSkill" Click="btnRemoveActiveSkill_Click" Padding="3,1" Margin="2,0,0,0" Background="Transparent" BorderThickness="0" CornerRadius="4" ToolTipService.ToolTip="移除当前挂载技能">
                                                         <TextBlock Text="✕" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                                                     </Button>
                                                 </StackPanel>
                                             </Border>
 
-                                            <!-- 多行提问输入框 (使用 PreviewKeyDown 拦截 Enter 发送与 Shift+Enter 换行，支持 / 弹出技能列表) -->
                                             <TextBox x:Name="tbQuestion" Grid.Row="1" PlaceholderText="输入你的数据分析或问答需求 (输入 / 触发技能扩展，Enter 发送)..." AcceptsReturn="True" Height="70" BorderThickness="0" CornerRadius="8" Background="Transparent" FontSize="13" TextChanged="tbQuestion_TextChanged" PreviewKeyDown="tbQuestion_PreviewKeyDown"/>
                                         </Grid>
 
                                         <!-- 底部操作栏：两列物理隔离，防止任何宽度下文字与下拉框重叠 -->
                                         <Grid Grid.Row="1" Margin="0,6,0,0" ColumnSpacing="8">
                                             <Grid.ColumnDefinitions>
-                                                <!-- 左列自适应星号：容纳状态提示或换行说明，带省略号与悬浮 -->
+
                                                 <ColumnDefinition Width="*"/>
-                                                <!-- 右列紧凑自动：模型下拉框与发送/停止按钮 -->
+
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
 
                                             <!-- 左侧状态与提示容器 (动静互斥，防止撑爆) -->
                                             <Grid Grid.Column="0" VerticalAlignment="Center">
-                                                <!-- 空闲状态：键盘快捷键提示 -->
+
                                                 <TextBlock x:Name="tbKeyHint" Text="Shift+Enter 换行，Enter 发送" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" ToolTipService.ToolTip="Shift+Enter 换行，Enter 发送"/>
-                                                <!-- 运行状态：高亮显示 Agent 实时思考与执行轮次，带省略号与完整 ToolTip -->
+
                                                 <TextBlock x:Name="tbChatRunStatus" Text="" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource AccentWarmBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" Visibility="Collapsed"/>
                                             </Grid>
 
-                                            <!-- 右侧操作组：模型下拉框 + 发送/停止按钮 -->
                                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" VerticalAlignment="Center">
                                                 <!-- 模型选择下拉控件 (限制合理宽度 125px) -->
                                                 <ComboBox x:Name="cbQuickModel" SelectionChanged="cbQuickModel_SelectionChanged" Width="125" Height="32" Padding="8,4" CornerRadius="8" Background="{StaticResource WarmBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" ToolTipService.ToolTip="选择对话所使用的大语言模型">
@@ -653,14 +607,12 @@
                                                     <ComboBoxItem Content="qwen3.7-flash"/>
                                                 </ComboBox>
 
-                                                <!-- 发送/停止按钮 -->
                                                 <Button x:Name="btnSend" Click="btnSend_Click" Height="32" Padding="14,0" Content="发送" FontWeight="Medium" FontSize="12" Background="{StaticResource AccentWarmBrush}" Foreground="White" CornerRadius="8"/>
                                             </StackPanel>
                                         </Grid>
                                     </Grid>
                                 </Border>
 
-                                <!-- ==================== 阶段三：Slash Command 技能上拉选择浮层 (浅色暖调自适应规范) ==================== -->
                                 <Border x:Name="borderSkillSelectorPopup"
                                         Grid.Row="1" Grid.RowSpan="3"
                                         VerticalAlignment="Bottom"
@@ -695,23 +647,20 @@
                                             <DataTemplate x:DataType="models:SkillItem">
                                                 <Grid ColumnSpacing="8" VerticalAlignment="Center">
                                                     <Grid.ColumnDefinitions>
-                                                        <!-- 左侧图标 [</>] -->
+
                                                         <ColumnDefinition Width="Auto"/>
-                                                        <!-- 中间技能名称 -->
+
                                                         <ColumnDefinition Width="Auto"/>
-                                                        <!-- 右侧浅灰描述，单行截断 -->
+
                                                         <ColumnDefinition Width="*"/>
                                                     </Grid.ColumnDefinitions>
 
-                                                    <!-- 小图标小方块带 </> -->
                                                     <Border Grid.Column="0" Width="18" Height="18" CornerRadius="4" Background="#F2ECE1" BorderBrush="#D0C7B7" BorderThickness="1" VerticalAlignment="Center" HorizontalAlignment="Center">
                                                         <TextBlock Text="&lt;/&gt;" FontSize="9" FontWeight="Bold" FontFamily="Consolas, Cascadia Code, Courier New" Foreground="{StaticResource AccentWarmBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-1,0,0"/>
                                                     </Border>
 
-                                                    <!-- 技能名称 (加粗深色) -->
                                                     <TextBlock Grid.Column="1" Text="{x:Bind Name}" FontWeight="SemiBold" FontSize="12.5" Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
 
-                                                    <!-- 技能描述 (浅灰色单行截断) -->
                                                     <TextBlock Grid.Column="2" Text="{x:Bind Description}" FontSize="11.5" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" Margin="4,0,0,0"/>
                                                 </Grid>
                                             </DataTemplate>
@@ -722,13 +671,11 @@
                         </Border>
                     </Grid>
 
-                    <!-- 半透明遮罩层 (点击任意空白处收起抽屉，不遮挡左侧极窄导航栏) -->
                     <Border x:Name="drawerBackdrop" Background="#26000000" Visibility="Collapsed" PointerPressed="drawerBackdrop_PointerPressed"/>
 
-                    <!-- ==================== 左侧弹出抽屉面板 (支持文档库与历史会话直接秒切) ==================== -->
                     <Border x:Name="borderDrawerPane" HorizontalAlignment="Left" Width="360" Margin="10,10,4,12" Background="{StaticResource SidebarBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" CornerRadius="14" Visibility="Collapsed">
                             <Grid>
-                                <!-- ==================== 抽屉内容 1: 本地文档库 ==================== -->
+
                                 <Grid x:Name="paneDocLibrary" Margin="12,14,12,12" Visibility="Visible">
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto"/>
@@ -737,17 +684,15 @@
                                         <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
 
-                                    <!-- 抽屉标题与关闭按钮 -->
                                     <Grid Grid.Row="0">
                                         <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                             <TextBlock Text="历史会话记录" FontWeight="SemiBold" FontSize="14" Foreground="{StaticResource TextPrimaryBrush}"/>
                                             <TextBlock x:Name="tbDocCount" Text="0 个文档组" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                                         </StackPanel>
-                                        <!-- 关闭抽屉按钮 -->
+
                                         <Button Click="btnCloseDocPane_Click" HorizontalAlignment="Right" Content="✕" Padding="6,3" Background="Transparent" BorderThickness="0" CornerRadius="6" Foreground="{StaticResource TextSecondaryBrush}" ToolTipService.ToolTip="收起面板"/>
                                     </Grid>
 
-                                    <!-- 视角切换分段栏：【文档组管理】 / 【工作区文档】 (无 emoji 纯净命名) -->
                                     <Border Grid.Row="1" Margin="0,10,0,10" Background="#E8E2D5" CornerRadius="8" Padding="3">
                                         <Grid ColumnSpacing="4">
                                             <Grid.ColumnDefinitions>
@@ -759,23 +704,21 @@
                                         </Grid>
                                     </Border>
 
-                                    <!-- 主列表展示区域 -->
                                     <Grid Grid.Row="2">
-                                        <!-- 视角 A: 文档组管理与多轮对话树形手风琴视图 -->
+
                                         <Grid x:Name="gridDocGroupView" Visibility="Visible">
-                                            <!-- 文档组空状态 -->
+
                                             <StackPanel x:Name="spEmptyGroups" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8" Visibility="Collapsed">
                                                 <TextBlock Text="暂无文档组" FontWeight="Medium" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}" HorizontalAlignment="Center"/>
                                                 <TextBlock Text="请在中栏左上角【选择文件】导入，将自动生成文档组与会话" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Center" TextAlignment="Center"/>
                                             </StackPanel>
 
-                                            <!-- 文档组手风琴列表 (左键单击折叠/展开，右侧 + 快捷新建对话，⋮ 菜单管理，双击跳工作区文档) -->
                                             <ListView x:Name="lvDocumentGroups" SelectionChanged="lvDocumentGroups_SelectionChanged" SelectionMode="Single">
                                                 <ListView.ItemTemplate>
                                                     <DataTemplate x:DataType="models:DocumentGroup">
                                                         <Border Margin="0,3" Padding="8,7" Background="{StaticResource CardBgBrush}" CornerRadius="10" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1">
                                                             <StackPanel Spacing="3">
-                                                                <!-- 1. 文档组标题栏 (单击切换文档组，双击跳工作区文档，右侧 ⋮ 、+ 与展开箭头) -->
+
                                                                 <Border Background="Transparent" CornerRadius="6" Padding="4,3"
                                                                         PointerPressed="DocGroupHeader_PointerPressed"
                                                                         DoubleTapped="DocGroupItem_DoubleTapped"
@@ -789,34 +732,28 @@
                                                                     </Border.ContextFlyout>
                                                                     <Grid ColumnSpacing="6">
                                                                         <Grid.ColumnDefinitions>
-                                                                            <ColumnDefinition Width="Auto"/>
                                                                             <ColumnDefinition Width="*"/>
                                                                             <ColumnDefinition Width="Auto"/>
                                                                         </Grid.ColumnDefinitions>
 
-                                                                        <!-- 文件夹图标徽标 -->
-                                                                        <TextBlock Grid.Column="0" Text="📁" FontSize="12" VerticalAlignment="Center"/>
+                                                                        <TextBlock Grid.Column="0" Text="{x:Bind GroupName, Mode=OneWay}" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
 
-                                                                        <!-- 组名称 (支持长文本优雅截断) -->
-                                                                        <TextBlock Grid.Column="1" Text="{x:Bind GroupName, Mode=OneWay}" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
 
-                                                                        <!-- 右侧操作区：三点操作菜单 (⋮)、新建对话 (+) 与展开折叠箭头 (⌄/⌃) -->
-                                                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-                                                                            <!-- 更多操作菜单 -->
                                                                             <Button Click="btnGroupMoreMenu_Click" Tag="{x:Bind}"
                                                                                     Width="22" Height="22" MinWidth="22" MinHeight="22" Padding="0"
                                                                                     HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                                                                                     Background="Transparent" BorderThickness="0" CornerRadius="4" ToolTipService.ToolTip="更多选项">
                                                                                 <TextBlock Text="⋮" FontSize="13" Foreground="{StaticResource TextSecondaryBrush}" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-1,0,0"/>
                                                                             </Button>
-                                                                            <!-- 快捷新建对话按钮 (+) -->
+
                                                                             <Button Click="btnQuickNewSessionInGroup_Click" Tag="{x:Bind}"
                                                                                     Width="22" Height="22" MinWidth="22" MinHeight="22" Padding="0"
                                                                                     HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                                                                                     Background="Transparent" BorderThickness="0" CornerRadius="4" ToolTipService.ToolTip="基于此文档组新建对话">
                                                                                 <TextBlock Text="+" FontSize="14" Foreground="{StaticResource TextSecondaryBrush}" FontWeight="Normal" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-2,0,0"/>
                                                                             </Button>
-                                                                            <!-- 展开/折叠对话记录按钮 (平滑圆润小箭头，像素级对齐图 2) -->
+
                                                                             <Button Click="btnToggleGroupExpand_Click" Tag="{x:Bind}"
                                                                                     Width="22" Height="22" MinWidth="22" MinHeight="22" Padding="0"
                                                                                     HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
@@ -833,7 +770,6 @@
                                                                     </Grid>
                                                                 </Border>
 
-                                                                <!-- 2. 下方关联历史对话记录列表 (展开态展示，参考用户提供样式) -->
                                                                 <ItemsControl ItemsSource="{x:Bind AssociatedSessions}" Visibility="{x:Bind SessionsVisibility, Mode=OneWay}" Margin="4,2,2,2">
                                                                     <ItemsControl.ItemTemplate>
                                                                         <DataTemplate x:DataType="models:ChatSessionItem">
@@ -855,9 +791,9 @@
                                                                                         <ColumnDefinition Width="*"/>
                                                                                         <ColumnDefinition Width="Auto"/>
                                                                                     </Grid.ColumnDefinitions>
-                                                                                    <!-- 会话标题 (左侧) -->
+
                                                                                     <TextBlock Grid.Column="0" Text="{x:Bind Title, Mode=OneWay}" FontSize="12" Foreground="{x:Bind ForegroundBrush, Mode=OneWay}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                                                                                    <!-- 右侧相对时间简写 (如 6m, 2h) -->
+
                                                                                     <TextBlock Grid.Column="1" Text="{x:Bind FriendlyRelativeTime, Mode=OneWay}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                                                                                 </Grid>
                                                                             </Border>
@@ -871,25 +807,21 @@
                                             </ListView>
                                         </Grid>
 
-                                        <!-- 视角 B: 工作区/全部文档视图 (已精简顶部按钮，仅保留搜索与列表) -->
                                         <Grid x:Name="gridAllDocsView" Visibility="Collapsed">
                                             <Grid.RowDefinitions>
                                                 <RowDefinition Height="Auto"/>
                                                 <RowDefinition Height="*"/>
                                             </Grid.RowDefinitions>
 
-                                            <!-- 搜索过滤框 -->
                                             <TextBox x:Name="tbSearchDoc" Grid.Row="0" Margin="0,0,0,8" PlaceholderText="搜索已载入文档..." TextChanged="tbSearchDoc_TextChanged" CornerRadius="10" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}"/>
 
-                                            <!-- 文档列表 -->
                                             <Grid Grid.Row="1">
-                                                <!-- 空状态提示 -->
+
                                                 <StackPanel x:Name="spEmptyDocs" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8" Visibility="Visible">
                                                     <TextBlock Text="暂无导入文档" FontWeight="Medium" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}" HorizontalAlignment="Center"/>
                                                     <TextBlock Text="双击文档组查看其包含的文件，&#x0a;或在中栏左上角【选择文件】导入" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Center" TextAlignment="Center"/>
                                                 </StackPanel>
 
-                                                <!-- 列表视图 -->
                                                 <ListView x:Name="lvDocuments" SelectionChanged="lvDocuments_SelectionChanged" SelectionMode="Single">
                                                     <ListView.ItemTemplate>
                                                         <DataTemplate x:DataType="models:DocumentItem">
@@ -901,28 +833,25 @@
                                                                         <ColumnDefinition Width="Auto"/>
                                                                     </Grid.ColumnDefinitions>
 
-                                                                    <!-- 扩展名徽标 -->
                                                                     <Border Grid.Column="0" CornerRadius="6" Padding="6,3" VerticalAlignment="Center" Background="#D5CBB8">
                                                                         <TextBlock Text="{x:Bind ExtensionLabel, Mode=OneWay}" FontSize="10" FontWeight="Bold" Foreground="#382E24"/>
                                                                     </Border>
 
-                                                                    <!-- 文件信息与状态 -->
                                                                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
                                                                         <TextBlock Text="{x:Bind Name, Mode=OneWay}" FontWeight="Medium" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
                                                                         <StackPanel Orientation="Horizontal" Spacing="6">
                                                                             <TextBlock Text="{x:Bind SummaryText, Mode=OneWay}" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}"/>
                                                                             <!-- 丢失警告徽标 -->
                                                                             <Border Visibility="{x:Bind MissingBadgeVisibility, Mode=OneWay}" Background="#FEF3C7" CornerRadius="4" Padding="4,1">
-                                                                                <TextBlock Text="⚠️ 文件丢失" FontSize="9" Foreground="#92400E" FontWeight="SemiBold"/>
+                                                                                <TextBlock Text="文件丢失" FontSize="9" Foreground="#92400E" FontWeight="SemiBold"/>
                                                                             </Border>
                                                                         </StackPanel>
                                                                     </StackPanel>
 
-                                                                    <!-- 操作按钮栏：定位 + 移除 -->
                                                                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-                                                                        <!-- 仅丢失时显现的重新定位按钮 -->
+
                                                                         <Button Visibility="{x:Bind MissingBadgeVisibility, Mode=OneWay}" Click="btnRelocateDoc_Click" Tag="{x:Bind}" Padding="4,2" Background="Transparent" BorderThickness="0" CornerRadius="5" ToolTipService.ToolTip="源文件已移动，点击重新定位">
-                                                                            <TextBlock Text="🔄" FontSize="10"/>
+                                                                            <TextBlock Text="定位" FontSize="10" Foreground="{StaticResource AccentWarmBrush}"/>
                                                                         </Button>
                                                                         <Button Click="btnRemoveDoc_Click" Tag="{x:Bind}" Padding="5,4" Background="Transparent" BorderThickness="0" CornerRadius="6" ToolTipService.ToolTip="从工作区移除">
                                                                             <TextBlock Text="✕" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
@@ -937,7 +866,6 @@
                                         </Grid>
                                     </Grid>
 
-                                    <!-- 抽屉底部工具栏与备份迁移入口 -->
                                     <StackPanel Grid.Row="3" Margin="0,8,0,0" Spacing="6">
                                         <Grid ColumnSpacing="6">
                                             <Grid.ColumnDefinitions>
@@ -945,16 +873,10 @@
                                                 <ColumnDefinition Width="*"/>
                                             </Grid.ColumnDefinitions>
                                             <Button x:Name="btnExportBackup" Click="btnExportBackup_Click" Grid.Column="0" HorizontalAlignment="Stretch" Padding="6,6" CornerRadius="8" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" ToolTipService.ToolTip="将文档元数据、文档组与会话历史完整导出为 ZIP 备份包">
-                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="4">
-                                                    <TextBlock Text="📤" FontSize="11"/>
-                                                    <TextBlock Text="导出备份" FontSize="11" Foreground="{StaticResource TextPrimaryBrush}" FontWeight="Medium"/>
-                                                </StackPanel>
+                                                <TextBlock Text="导出备份" FontSize="11" Foreground="{StaticResource TextPrimaryBrush}" FontWeight="Medium" HorizontalAlignment="Center"/>
                                             </Button>
                                             <Button x:Name="btnImportBackup" Click="btnImportBackup_Click" Grid.Column="1" HorizontalAlignment="Stretch" Padding="6,6" CornerRadius="8" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" ToolTipService.ToolTip="从 ZIP 备份包恢复文档库与历史会话">
-                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="4">
-                                                    <TextBlock Text="📥" FontSize="11"/>
-                                                    <TextBlock Text="导入恢复" FontSize="11" Foreground="{StaticResource TextPrimaryBrush}" FontWeight="Medium"/>
-                                                </StackPanel>
+                                                <TextBlock Text="导入恢复" FontSize="11" Foreground="{StaticResource TextPrimaryBrush}" FontWeight="Medium" HorizontalAlignment="Center"/>
                                             </Button>
                                         </Grid>
                                         <Border Padding="8,5" Background="{StaticResource CardBgBrush}" CornerRadius="8" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1">
@@ -963,7 +885,6 @@
                                     </StackPanel>
                                 </Grid>
 
-                                <!-- ==================== 抽屉内容 2: 兼容隐藏占位 ==================== -->
                                 <Grid x:Name="paneHistorySessions" Visibility="Collapsed">
                                     <TextBlock x:Name="tbHistoryCount" Visibility="Collapsed"/>
                                     <ListView x:Name="lvHistorySessions" Visibility="Collapsed"/>
@@ -972,32 +893,29 @@
                         </Border>
             </Grid>
 
-            <!-- 界面 2：设置二级界面 (参考用户截图 Master-Detail 布局：左侧目录栏 + 右侧具体卡片显示) -->
             <Grid x:Name="gridSettingsPage" Visibility="Collapsed" Background="{StaticResource WarmBgBrush}">
                 <Grid.ColumnDefinitions>
-                    <!-- 左侧设置目录栏 (宽度 220px) -->
+
                     <ColumnDefinition Width="220"/>
-                    <!-- 中间分割边框 -->
+
                     <ColumnDefinition Width="1"/>
-                    <!-- 右侧具体显示区 -->
+
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- ==================== 左侧设置目录栏 ==================== -->
                 <Border Grid.Column="0" Background="{StaticResource RailBgBrush}" Padding="16,16,12,16">
                     <Grid>
                         <Grid.RowDefinitions>
-                            <!-- 顶部“设置”大标题与返回按钮 -->
+
                             <RowDefinition Height="Auto"/>
-                            <!-- 搜索框 -->
+
                             <RowDefinition Height="Auto"/>
-                            <!-- 目录项列表（从上往下依次：LLM配置、Skill、关于我们） -->
+
                             <RowDefinition Height="*"/>
-                            <!-- 底部操作提示 -->
+
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
-                        <!-- 顶部标题与返回看板按钮 -->
                         <Grid Grid.Row="0" Margin="2,0,0,14">
                             <TextBlock Text="设置" FontWeight="Bold" FontSize="18" Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
                             <Button x:Name="btnBackToMain" Click="btnBackToMain_Click" HorizontalAlignment="Right" Padding="8,4" Background="Transparent" BorderThickness="0" CornerRadius="6" ToolTipService.ToolTip="返回主工作区看板">
@@ -1008,30 +926,28 @@
                             </Button>
                         </Grid>
 
-                        <!-- 搜索框 (对齐截图风格) -->
                         <TextBox x:Name="tbSettingsSearch" Grid.Row="1" Margin="0,0,0,14" PlaceholderText="搜索..." TextChanged="tbSettingsSearch_TextChanged" CornerRadius="8" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="12" Padding="8,6"/>
 
-                        <!-- 目录项列表（从上往下依次：LLM配置；Skill；关于我们） -->
                         <StackPanel Grid.Row="2" Spacing="4">
                             <TextBlock Text="功能配置" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="6,0,0,4"/>
 
-                            <!-- 1. LLM配置 (默认选中高亮) -->
                             <Button x:Name="btnSettingsNavLlm" Click="btnSettingsNavLlm_Click" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="14,9" CornerRadius="8" Background="{StaticResource CardBgBrush}" BorderThickness="0">
                                 <TextBlock x:Name="tbSettingsNavLlmText" Text="LLM配置" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
                             </Button>
 
-                            <!-- 2. Skill -->
+                            <Button x:Name="btnSettingsNavTheme" Click="btnSettingsNavTheme_Click" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="14,9" CornerRadius="8" Background="Transparent" BorderThickness="0">
+                                <TextBlock x:Name="tbSettingsNavThemeText" Text="主题" FontSize="13" FontWeight="Normal" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                            </Button>
+
                             <Button x:Name="btnSettingsNavSkill" Click="btnSettingsNavSkill_Click" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="14,9" CornerRadius="8" Background="Transparent" BorderThickness="0">
                                 <TextBlock x:Name="tbSettingsNavSkillText" Text="Skill" FontSize="13" FontWeight="Normal" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                             </Button>
 
-                            <!-- 3. 关于我们 -->
                             <Button x:Name="btnSettingsNavAbout" Click="btnSettingsNavAbout_Click" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="14,9" CornerRadius="8" Background="Transparent" BorderThickness="0">
                                 <TextBlock x:Name="tbSettingsNavAboutText" Text="关于我们" FontSize="13" FontWeight="Normal" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                             </Button>
                         </StackPanel>
 
-                        <!-- 底部快捷保存提示 -->
                         <Border Grid.Row="3" Background="{StaticResource CardBgBrush}" CornerRadius="8" Padding="10,8" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1">
                             <StackPanel Spacing="3">
                                 <TextBlock Text="提示" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource AccentWarmBrush}"/>
@@ -1041,30 +957,25 @@
                     </Grid>
                 </Border>
 
-                <!-- 分割线 -->
                 <Border Grid.Column="1" Background="{StaticResource BorderMutedBrush}"/>
 
-                <!-- ==================== 右侧具体显示区 (对称居中布局，自适应各屏幕尺寸) ==================== -->
                 <ScrollViewer Grid.Column="2" Padding="32,28,32,32" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" HorizontalContentAlignment="Center">
                     <Grid HorizontalAlignment="Center" Width="880" MaxWidth="880">
 
-                        <!-- ========== 1. LLM配置 具体显示 ========== -->
                         <StackPanel x:Name="viewSettingsLlm" Visibility="Visible" Spacing="22">
-                            <!-- 页面大标题 -->
+
                             <StackPanel Spacing="4">
                                 <TextBlock Text="LLM配置" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                <TextBlock Text="配置大语言模型接口密钥、服务商端点、推理超参数及专家人设" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                <TextBlock Text="配置大语言模型接口密钥、服务商端点及推理超参数" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
                             </StackPanel>
 
-                            <!-- 反馈提示条 InfoBar -->
                             <InfoBar x:Name="infoBarSettings" IsOpen="False" Severity="Success" Title="配置已保存" Message="所有大模型连接参数与超参数已持久化保存。" CornerRadius="10"/>
 
-                            <!-- 分组 1: 模型连接与认证 -->
                             <StackPanel Spacing="8">
                                 <TextBlock Text="模型连接与认证" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" Margin="2,0,0,0"/>
                                 <Border Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="20,16">
                                     <StackPanel Spacing="16">
-                                        <!-- 条目 1: API Key -->
+
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
@@ -1079,7 +990,6 @@
 
                                         <Border Height="1" Background="#EDE8DD"/>
 
-                                        <!-- 条目 2: Base URL -->
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
@@ -1094,7 +1004,6 @@
 
                                         <Border Height="1" Background="#EDE8DD"/>
 
-                                        <!-- 条目 3: 默认模型与动态获取按钮 -->
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
@@ -1123,7 +1032,6 @@
 
                                         <Border Height="1" Background="#EDE8DD"/>
 
-                                        <!-- 条目 4: 连通性测试 (对齐右侧 360 列) -->
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
@@ -1139,12 +1047,11 @@
                                 </Border>
                             </StackPanel>
 
-                            <!-- 分组 2: 推理与上下文超参数 -->
                             <StackPanel Spacing="8">
                                 <TextBlock Text="推理与上下文超参数" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" Margin="2,0,0,0"/>
                                 <Border Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="20,16">
                                     <StackPanel Spacing="16">
-                                        <!-- 条目 1: 单次最大生成长度 -->
+
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
@@ -1164,7 +1071,6 @@
 
                                         <Border Height="1" Background="#EDE8DD"/>
 
-                                        <!-- 条目 2: 温度系数 -->
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
@@ -1185,12 +1091,11 @@
                                 </Border>
                             </StackPanel>
 
-                            <!-- 分组 3: Agent 自主决策与推演调度 (CodeAct / ReAct) -->
                             <StackPanel Spacing="8">
                                 <TextBlock Text="Agent 自主决策与推演调度 (CodeAct / ReAct)" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" Margin="2,0,0,0"/>
                                 <Border Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="20,16">
                                     <StackPanel Spacing="16">
-                                        <!-- 条目 1: 最大决策轮次 -->
+
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
@@ -1210,7 +1115,6 @@
 
                                         <Border Height="1" Background="#EDE8DD"/>
 
-                                        <!-- 条目 2: 终轮强制收敛 -->
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
@@ -1226,36 +1130,66 @@
                                 </Border>
                             </StackPanel>
 
-                            <!-- 分组 4: 系统角色与提示词定制 -->
-                            <StackPanel Spacing="8">
-                                <TextBlock Text="系统角色提示词 (System Prompt)" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" Margin="2,0,0,0"/>
-                                <Border Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="20,16">
-                                    <StackPanel Spacing="10">
-                                        <TextBlock Text="定制伴读助手的专家人设、回答语言与数据分析格式约定：" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
-                                        <TextBox x:Name="tbSystemPrompt" AcceptsReturn="True" Height="85" TextWrapping="Wrap" CornerRadius="8" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="12"/>
-                                    </StackPanel>
-                                </Border>
-                            </StackPanel>
-
-                            <!-- 底部操作按钮栏 -->
                             <Grid Margin="0,4,0,0">
                                 <Button Click="btnResetSettingsPage_Click" Content="恢复默认" Background="Transparent" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" CornerRadius="8" Padding="16,7" FontSize="12"/>
                                 <Button Click="btnSaveSettingsPage_Click" Content="保存配置" HorizontalAlignment="Right" Background="{StaticResource AccentWarmBrush}" Foreground="White" CornerRadius="8" Padding="22,7" FontSize="12" FontWeight="Medium"/>
                             </Grid>
                         </StackPanel>
 
-                        <!-- ========== 2. Skill 具体显示 ========== -->
+                        <StackPanel x:Name="viewSettingsTheme" Visibility="Collapsed" Spacing="22">
+
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="主题" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                <TextBlock Text="定制统计图表语言、配色方案与分析助手系统角色提示词" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
+                            </StackPanel>
+
+                            <InfoBar x:Name="infoBarThemeSettings" IsOpen="False" Severity="Success" Title="主题已更新" Message="图表主题配置已保存。" CornerRadius="10"/>
+
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="语言" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" Margin="2,0,0,0"/>
+                                <Border Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="20,16">
+                                    <StackPanel Spacing="12">
+                                        <TextBlock Text="仅约束 Python 统计图表标注语言，不影响对话正文；右键卡片可查看或管理" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+                                        <StackPanel x:Name="panelThemeLanguages" Spacing="12"/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="配色" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" Margin="2,0,0,0"/>
+                                <Border Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="20,16">
+                                    <StackPanel Spacing="12">
+                                        <TextBlock Text="仅约束 Python 统计图表色板与视觉风格，遵循当次提问 &gt; Skill &gt; 主题优先级；右键卡片可查看或管理" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+                                        <StackPanel x:Name="panelThemeColorPalettes" Spacing="12"/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="系统角色提示词 (System Prompt)" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" Margin="2,0,0,0"/>
+                                <Border Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="20,16">
+                                    <StackPanel Spacing="10">
+                                        <TextBlock Text="定制伴读助手的专家人设、回答语言与数据分析格式约定：" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                        <TextBox x:Name="tbSystemPrompt" AcceptsReturn="True" Height="96" TextWrapping="Wrap" CornerRadius="8" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="12" LostFocus="tbSystemPrompt_LostFocus"/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+
+                            <Grid Margin="0,4,0,0">
+                                <Button Click="btnResetThemeSettings_Click" Content="恢复默认" Background="Transparent" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" CornerRadius="8" Padding="16,7" FontSize="12"/>
+                                <Button Click="btnSaveThemeSettings_Click" Content="保存配置" HorizontalAlignment="Right" Background="{StaticResource AccentWarmBrush}" Foreground="White" CornerRadius="8" Padding="22,7" FontSize="12" FontWeight="Medium"/>
+                            </Grid>
+                        </StackPanel>
+
                         <StackPanel x:Name="viewSettingsSkill" Visibility="Collapsed" Spacing="22">
-                            <!-- 页面大标题 -->
+
                             <StackPanel Spacing="4">
                                 <TextBlock Text="Skill" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
                                 <TextBlock Text="管理并接入标准 Skill 规范，发现本地已安装的技能插件" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
                             </StackPanel>
 
-                            <!-- 反馈提示条 InfoBar -->
                             <InfoBar x:Name="infoBarSkillSettings" IsOpen="False" Severity="Success" Title="设置已生效" Message="技能配置已更新。" CornerRadius="10"/>
 
-                            <!-- 分组 1: 已安装自定义扩展技能 (User Skills) -->
                             <StackPanel Spacing="8">
                                 <Grid Margin="2,0,0,0">
                                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
@@ -1272,7 +1206,7 @@
                                 <Border Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="20,16">
                                     <StackPanel Spacing="12">
                                         <Grid>
-                                            <!-- 空状态提示 -->
+
                                             <StackPanel x:Name="panelNoSkillsHint" Visibility="Collapsed" Spacing="10" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,16">
                                                 <TextBlock Text="未检测到已安装的自定义扩展 Skill" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}" HorizontalAlignment="Center"/>
                                                 <TextBlock Text="标准技能应为一个独立文件夹，根目录下包含带有 YAML Frontmatter 的 SKILL.md。&#x0a;所有技能统一存放于应用专属受控目录（%APPDATA%\DataAnalysis_Assistant\skills）。&#x0a;您可以点击下方按钮直接一键导入外部技能文件夹，或打开主目录手工放入技能包。" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="520"/>
@@ -1282,7 +1216,6 @@
                                                 </StackPanel>
                                             </StackPanel>
 
-                                            <!-- 动态技能列表 ItemsControl -->
                                             <ItemsControl x:Name="icInstalledSkills" ItemsSource="{x:Bind InstalledSkills}">
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate x:DataType="models:SkillItem">
@@ -1298,7 +1231,6 @@
                                                                     <ColumnDefinition Width="Auto"/>
                                                                 </Grid.ColumnDefinitions>
 
-                                                                <!-- 左侧：技能名称、徽标与描述 -->
                                                                 <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="4" Margin="0,0,16,0">
                                                                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                                                         <Border Background="#E8E2D5" CornerRadius="4" Padding="6,2">
@@ -1310,14 +1242,12 @@
                                                                     <TextBlock Text="{x:Bind Description}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap"/>
                                                                 </StackPanel>
 
-                                                                <!-- 右侧操作：定位文件夹按钮 + 启用/禁用 开关 (紧凑右对齐，消除多余空白) -->
                                                                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" HorizontalAlignment="Right">
                                                                     <Button Click="btnSkillOpenFolder_Click" Tag="{x:Bind DirectoryPath}" Content="目录" Padding="10,5" CornerRadius="6" Background="{StaticResource SidebarBgBrush}" BorderThickness="0" FontSize="11" ToolTipService.ToolTip="在资源管理器中打开此 Skill 目录"/>
                                                                     <ToggleSwitch IsOn="{x:Bind IsEnabled, Mode=TwoWay}" Toggled="skillToggleSwitch_Toggled" Tag="{x:Bind Name}" MinWidth="0" Margin="0,0,-6,0" OnContent="" OffContent="" VerticalAlignment="Center" HorizontalAlignment="Right"/>
                                                                 </StackPanel>
                                                             </Grid>
 
-                                                            <!-- 分割线 -->
                                                             <Border Grid.Row="1" Height="1" Background="#EDE8DD" Margin="0,10,0,0"/>
                                                         </Grid>
                                                     </DataTemplate>
@@ -1333,7 +1263,7 @@
                                 <TextBlock Text="本地 Python 沙盒与安全执行引擎 (CodeAct Engine)" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" Margin="2,0,0,0"/>
                                 <Border Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="20,16">
                                     <StackPanel Spacing="16">
-                                        <!-- 条目 1: 运行时环境状态与检测 -->
+
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
@@ -1348,7 +1278,6 @@
 
                                         <Border Height="1" Background="#EDE8DD"/>
 
-                                        <!-- 条目 2: 数据分析科学库就绪诊断 -->
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
@@ -1392,7 +1321,6 @@
 
                                         <Border Height="1" Background="#EDE8DD"/>
 
-                                        <!-- 条目 4: 自定义 Python 解释器路径 (带浏览与确定应用按钮) -->
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
@@ -1441,22 +1369,19 @@
                                 </Border>
                             </StackPanel>
 
-                            <!-- 底部操作按钮栏 -->
                             <Grid Margin="0,4,0,0">
                                 <Button Click="btnResetSettingsPage_Click" Content="恢复默认" Background="Transparent" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" CornerRadius="8" Padding="16,7" FontSize="12"/>
                                 <Button Click="btnSaveSettingsPage_Click" Content="保存配置" HorizontalAlignment="Right" Background="{StaticResource AccentWarmBrush}" Foreground="White" CornerRadius="8" Padding="22,7" FontSize="12" FontWeight="Medium"/>
                             </Grid>
                         </StackPanel>
 
-                        <!-- ========== 3. 关于我们 具体显示 ========== -->
                         <StackPanel x:Name="viewSettingsAbout" Visibility="Collapsed" Spacing="22">
-                            <!-- 页面大标题与品牌标语 -->
+
                             <StackPanel Spacing="4">
                                 <TextBlock Text="关于我们" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
                                 <TextBlock Text="AI 数据分析与文档伴读桌面客户端产品信息与架构说明" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
                             </StackPanel>
 
-                            <!-- 品牌形象 Hero 卡片 -->
                             <Border Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="20,18">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -1465,12 +1390,10 @@
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
 
-                                    <!-- 软件专属品牌徽标 -->
                                     <Border Grid.Column="0" Width="48" Height="48" CornerRadius="12" Background="#F5F0E6" Margin="0,0,16,0" VerticalAlignment="Center" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1">
                                         <Image x:Name="imgAboutLogo" Width="40" Height="40" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Border>
 
-                                    <!-- 产品名称与定位 -->
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="4">
                                         <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                                             <TextBlock Text="DataAnalysis Assistant" FontSize="16" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}"/>
@@ -1481,19 +1404,17 @@
                                         <TextBlock Text="面向本地多文档解析与 LLM 智能数据推演的 Windows 伴读看板" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
                                     </StackPanel>
 
-                                    <!-- 顶部快速操作组 -->
                                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                         <Button x:Name="btnCheckUpdate" Click="btnCheckUpdate_Click" Content="检查更新" Padding="14,6" CornerRadius="8" Background="{StaticResource AccentWarmBrush}" Foreground="White" FontSize="11" FontWeight="Medium" ToolTipService.ToolTip="检查当前客户端版本发布状态"/>
                                     </StackPanel>
                                 </Grid>
                             </Border>
 
-                            <!-- 分组 1: 产品规格与环境信息 -->
                             <StackPanel Spacing="8">
                                 <TextBlock Text="产品规格与运行架构" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" Margin="2,0,0,0"/>
                                 <Border Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="20,16">
                                     <StackPanel Spacing="14">
-                                        <!-- 条目 1: 客户端版本 -->
+
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
@@ -1511,12 +1432,11 @@
                                 </Border>
                             </StackPanel>
 
-                            <!-- 分组 2: 团队与开源许可 -->
                             <StackPanel Spacing="8">
                                 <TextBlock Text="团队与许可协议" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" Margin="2,0,0,0"/>
                                 <Border Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="20,16">
                                     <StackPanel Spacing="14">
-                                        <!-- 条目 1: 开发者与团队 -->
+
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
@@ -1531,7 +1451,6 @@
 
                                         <Border Height="1" Background="#EDE8DD"/>
 
-                                        <!-- 条目 2: 开源协议 -->
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
@@ -1547,9 +1466,8 @@
                                 </Border>
                             </StackPanel>
 
-                            <!-- 底部系统诊断与快速操作栏 -->
                             <Grid Margin="0,4,0,0">
-                                <Button x:Name="btnCopyDiagnosticInfo" Click="btnCopyDiagnosticInfo_Click" Content="📋 复制系统诊断信息" Background="Transparent" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" CornerRadius="8" Padding="16,7" FontSize="12" ToolTipService.ToolTip="复制当前软件版本、系统环境与运行时配置到剪贴板，方便故障反馈"/>
+                                <Button x:Name="btnCopyDiagnosticInfo" Click="btnCopyDiagnosticInfo_Click" Content="复制系统诊断信息" Background="Transparent" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" CornerRadius="8" Padding="16,7" FontSize="12" ToolTipService.ToolTip="复制当前软件版本、系统环境与运行时配置到剪贴板，方便故障反馈"/>
                             </Grid>
                         </StackPanel>
                     </Grid>
@@ -1557,29 +1475,26 @@
             </Grid>
         </Grid>
 
-        <!-- ==================== 全局高清图表全屏放大查看模态图层 ==================== -->
         <Grid x:Name="gridPlotImageViewer" Grid.Column="0" Grid.ColumnSpan="2" Background="#CC000000" Visibility="Collapsed" Canvas.ZIndex="999">
-            <!-- 高清大图卡片容器 (支持双向 1:1 绝对跟手拖拽拉伸窗口尺寸与一键全屏切换) -->
+
             <Grid x:Name="cardPlotViewerContainer"
                   Width="1050" Height="720"
                   MinWidth="520" MinHeight="380"
                   Margin="24,20"
                   HorizontalAlignment="Center" VerticalAlignment="Center">
                 <Grid.RowDefinitions>
-                    <!-- 顶栏双列物理隔离：左侧自适应截断防重叠，右侧固定操作区 -->
+
                     <RowDefinition Height="Auto"/>
-                    <!-- 中间大图容器 (占满剩余全部纵向空间) -->
+
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
-                <!-- 弹窗顶栏 (双列网格物理隔离防穿透重叠) -->
                 <Grid Grid.Row="0" Margin="0,0,0,10">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <!-- 左侧标题与文件地址：星号列，超出以省略号优雅截断，带完整 ToolTip -->
                     <Grid Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -1589,7 +1504,6 @@
                         <TextBlock x:Name="tbViewerPlotInfo" Grid.Column="1" Text="" FontSize="11" Foreground="#CCCCCC" VerticalAlignment="Center" Margin="10,0,0,0" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" ToolTipService.ToolTip="{x:Bind tbViewerPlotInfo.Text, Mode=OneWay}"/>
                     </Grid>
 
-                    <!-- 右侧操作按钮组：一律采用严谨专业的纯文本，严禁任何装饰性 Emoji/图标 -->
                     <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="6">
                         <Button x:Name="btnViewerOpenFolder" Click="btnViewerOpenFolder_Click" Content="在资源管理器中打开" Padding="10,5" CornerRadius="6" Background="#33FFFFFF" Foreground="White" BorderThickness="0" FontSize="11" ToolTipService.ToolTip="在 Windows 资源管理器中定位并选中当前图表文件"/>
                         <Button x:Name="btnViewerZoomReset" Click="btnViewerZoomReset_Click" Content="100%" Padding="8,5" CornerRadius="6" Background="#33FFFFFF" Foreground="White" BorderThickness="0" FontSize="11" ToolTipService.ToolTip="缩放比例 (支持按住 Ctrl 滚动鼠标滚轮缩放，点击一键复位为 100%)"/>
@@ -1598,7 +1512,6 @@
                     </StackPanel>
                 </Grid>
 
-                <!-- 高清大图卡片 (支持 Control+滚轮缩放、鼠标左键自由平移，以及左右双侧边缘悬停弹出拉手) -->
                 <Border Grid.Row="1" Background="#FFFFFF" CornerRadius="12" Padding="8" BorderBrush="#44FFFFFF" BorderThickness="1">
                     <Grid>
                         <ScrollViewer x:Name="svLargePlotViewer"
@@ -1624,7 +1537,6 @@
                             </Grid>
                         </ScrollViewer>
 
-                        <!-- 左下角尺寸拉伸隐形热区 (鼠标移入呈现原生双向拉伸光标 ⤢，如实拍照) -->
                         <Border x:Name="borderViewerResizeGripLeft"
                                 HorizontalAlignment="Left" VerticalAlignment="Bottom"
                                 Width="36" Height="36"
@@ -1633,7 +1545,6 @@
                                 PointerMoved="borderViewerResizeGripLeft_PointerMoved"
                                 PointerReleased="borderViewerResizeGripLeft_PointerReleased"/>
 
-                        <!-- 右下角尺寸拉伸隐形热区 (鼠标移入呈现原生双向拉伸光标 ⤡，如实拍照) -->
                         <Border x:Name="borderViewerResizeGripRight"
                                 HorizontalAlignment="Right" VerticalAlignment="Bottom"
                                 Width="36" Height="36"
@@ -1644,11 +1555,9 @@
                     </Grid>
                 </Border>
 
-
             </Grid>
         </Grid>
 
-        <!-- ==================== 全局仿手机顶部通知浮动胶囊 Toast ==================== -->
         <Grid Grid.Column="0" Grid.ColumnSpan="2" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,16,0,0" Canvas.ZIndex="1000" IsHitTestVisible="False">
             <Border x:Name="borderGlobalToast"
                     Background="#D9FDFCF9"
@@ -1662,13 +1571,12 @@
                     <TranslateTransform x:Name="transGlobalToast" Y="-16"/>
                 </Border.RenderTransform>
                 <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <!-- 翡翠绿成功勾选图标 -->
+
                     <FontIcon Glyph="&#xE73E;" FontSize="13" Foreground="#15803D" FontWeight="SemiBold"/>
-                    <!-- 贴合暖色背景的深色主文字 -->
+
                     <TextBlock x:Name="tbGlobalToastText" Text="已复制到剪贴板" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" FontWeight="SemiBold"/>
                 </StackPanel>
             </Border>
         </Grid>
     </Grid>
 </Window>
-

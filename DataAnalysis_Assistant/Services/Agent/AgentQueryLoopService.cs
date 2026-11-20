@@ -11,14 +11,11 @@ using DataAnalysis_Assistant.Services.Tools;
 
 namespace DataAnalysis_Assistant.Services.Agent
 {
-    /// <summary>
-    /// Agent 多步循环状态进度更新包
-    /// </summary>
     public class AgentProgressUpdate
     {
         public int CurrentIteration { get; set; }
         public int MaxIterations { get; set; }
-        public string Phase { get; set; } = "thinking"; // thinking, executing_tool, evaluating, reflecting, complete
+        public string Phase { get; set; } = "thinking";
         public string StatusMessage { get; set; } = string.Empty;
         public string? IntermediateReasoning { get; set; }
         public string? IntermediateContent { get; set; }
@@ -26,9 +23,6 @@ namespace DataAnalysis_Assistant.Services.Agent
         public List<string> GeneratedArtifactsSoFar { get; set; } = new();
     }
 
-    /// <summary>
-    /// Agent 主循环最终执行成果
-    /// </summary>
     public class AgentLoopResult
     {
         public bool Success { get; set; }
@@ -43,10 +37,6 @@ namespace DataAnalysis_Assistant.Services.Agent
         public bool IsStreamTruncated { get; set; } = false;
     }
 
-    /// <summary>
-    /// ReAct / CodeAct 自主 Agent 核心状态机调度服务 (AgentQueryLoop)
-    /// 机制：思考 -> 决策工具 -> 执行工具 -> 评估结果 -> 自主反思自愈 -> 终轮收敛交付
-    /// </summary>
     public class AgentQueryLoopService
     {
         private const int MaxConsecutiveFailures = 3;
@@ -62,9 +52,6 @@ namespace DataAnalysis_Assistant.Services.Agent
             _tools = tools != null ? new List<IAgentTool>(tools) : new List<IAgentTool>();
         }
 
-        /// <summary>
-        /// 注册新工具
-        /// </summary>
         public void RegisterTool(IAgentTool tool)
         {
             if (tool != null && !_tools.Any(t => t.Name.Equals(tool.Name, StringComparison.OrdinalIgnoreCase)))
@@ -73,9 +60,6 @@ namespace DataAnalysis_Assistant.Services.Agent
             }
         }
 
-        /// <summary>
-        /// 运行完整的多步自主 Agent 决策与执行主循环
-        /// </summary>
         public async Task<AgentLoopResult> RunLoopAsync(
             AppSettings settings,
             List<ChatTurn> initialHistory,
@@ -105,7 +89,6 @@ namespace DataAnalysis_Assistant.Services.Agent
 
             while (iteration < maxIterations)
             {
-                // 最高优先级：用户手动打断检测
                 if (cancellationToken.IsCancellationRequested)
                 {
                     return new AgentLoopResult
@@ -121,7 +104,6 @@ namespace DataAnalysis_Assistant.Services.Agent
                     };
                 }
 
-                // 仅当非局部自愈重试时，才消耗并推进全局 iteration 轮次
                 if (currentToolRetryCount == 0)
                 {
                     iteration++;
@@ -129,7 +111,6 @@ namespace DataAnalysis_Assistant.Services.Agent
 
                 int artifactCountStart = allGeneratedArtifacts.Count;
 
-                // 1. 阶段汇报：开始规划与决策
                 progress?.Report(new AgentProgressUpdate
                 {
                     CurrentIteration = iteration,
@@ -143,7 +124,6 @@ namespace DataAnalysis_Assistant.Services.Agent
                     GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts)
                 });
 
-                // 2. 调用大模型发起 Tools 请求
                 ChatToolResponse response;
                 try
                 {
@@ -188,7 +168,6 @@ namespace DataAnalysis_Assistant.Services.Agent
                     };
                 }
 
-                // 取消令牌二次探测
                 if (cancellationToken.IsCancellationRequested)
                 {
                     return new AgentLoopResult
@@ -207,17 +186,14 @@ namespace DataAnalysis_Assistant.Services.Agent
                     isLoopStreamTruncated = true;
                 }
 
-                // 累计思考链路
                 if (!string.IsNullOrWhiteSpace(response.ReasoningContent))
                 {
                     if (accumulatedReasoning.Length > 0) accumulatedReasoning.AppendLine("\n--- 轮次推导 ---\n");
                     accumulatedReasoning.Append(response.ReasoningContent);
                 }
 
-                // 3. 检查是否有工具调用
                 if (response.HasToolCalls)
                 {
-                    // 记录 assistant 发起的 tool_calls 回合
                     loopHistory.Add(new ChatTurn
                     {
                         Role = "assistant",
@@ -227,7 +203,6 @@ namespace DataAnalysis_Assistant.Services.Agent
 
                     bool anyToolFailed = false;
 
-                    // 逐一受控执行工具（声明本轮局部错误列表，杜绝历史跨轮污染）
                     var turnErrors = new List<string>();
                     foreach (var tc in response.ToolCalls)
                     {
@@ -268,7 +243,6 @@ namespace DataAnalysis_Assistant.Services.Agent
 
                         if (cancellationToken.IsCancellationRequested) break;
 
-                        // 收集生成的产物 (图表等)
                         if (execResult.GeneratedArtifacts.Count > 0)
                         {
                             foreach (var art in execResult.GeneratedArtifacts)
@@ -291,7 +265,6 @@ namespace DataAnalysis_Assistant.Services.Agent
                             failedToolSummaries.Add($"[{fnName}] {truncatedErr}");
                         }
 
-                        // 格式化工具输出并回填至上下文 (包含保真事实标记与产物接管确认)
                         string toolResultContent;
                         if (execResult.Success)
                         {
@@ -322,7 +295,6 @@ namespace DataAnalysis_Assistant.Services.Agent
 
                         var (rawPath, mirrorPath) = ExtractPathInfo(fnName, fnArgs, execResult.GeneratedArtifacts);
 
-                        // 结构化落盘记录 (完整承载协议ID、原始路径、沙盒镜像路径与重试次数)
                         executedToolCalls.Add(new ToolCallRecordItem
                         {
                             CallId = effectiveCallId,
@@ -353,16 +325,14 @@ namespace DataAnalysis_Assistant.Services.Agent
                         };
                     }
 
-                    // 4. 自主反思、局部重试与按轮次连续错误计数（硬伤优先于进展）
                     bool producedNewArtifacts = allGeneratedArtifacts.Count > artifactCountStart;
 
                     if (anyToolFailed)
                     {
-                        // 基于本轮局部 turnErrors 判定动态配额，杜绝跨轮历史污染
                         int allowedRetryQuota = turnErrors.Count > 0 ? turnErrors.Min(GetErrorRetryQuota) : 2;
 
-                        if (!producedNewArtifacts && 
-                            currentToolRetryCount < allowedRetryQuota && 
+                        if (!producedNewArtifacts &&
+                            currentToolRetryCount < allowedRetryQuota &&
                             totalSelfHealingRetries < MaxGlobalSelfHealingRetries)
                         {
                             currentToolRetryCount++;
@@ -377,13 +347,11 @@ namespace DataAnalysis_Assistant.Services.Agent
                                 GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts),
                                 IntermediateReasoning = accumulatedReasoning.ToString()
                             });
-                            continue; // 不消耗全局 iteration，不增加熔断计数
+                            continue;
                         }
 
-                        // 硬伤裁决：重置局部配额
                         currentToolRetryCount = 0;
 
-                        // 仅在完全无实质进展时才增加熔断失败计数；若有新产物出图，不加失败计数
                         if (!producedNewArtifacts)
                         {
                             consecutiveFailures++;
@@ -421,12 +389,10 @@ namespace DataAnalysis_Assistant.Services.Agent
                     }
                     else
                     {
-                        // 本轮工具全部成功或生成了有效产物，清零局部重试与连续失败计数
                         currentToolRetryCount = 0;
                         consecutiveFailures = 0;
                     }
 
-                    // 状态 A：工具刚执行完毕触顶！
                     // 核心修复：此时已经跑满了 maxIterations，绝对不能跳出返回死字符串，必须给予模型一次终轮总结的机会！
                     if (iteration >= maxIterations)
                     {
@@ -447,12 +413,10 @@ namespace DataAnalysis_Assistant.Services.Agent
                             cancellationToken);
                     }
 
-                    // 继续下一轮迭代决策
                     continue;
                 }
                 else
                 {
-                    // 5. 模型输出最终正文结论（无工具调用），主循环正常终止！
                     progress?.Report(new AgentProgressUpdate
                     {
                         CurrentIteration = iteration,
@@ -480,7 +444,6 @@ namespace DataAnalysis_Assistant.Services.Agent
                 }
             }
 
-            // 状态 B：尚未发起工具即触顶（防御兜底）
             return await ExecuteFinalSynthesisTurnAsync(
                 settings,
                 loopHistory,
@@ -498,9 +461,6 @@ namespace DataAnalysis_Assistant.Services.Agent
                 cancellationToken);
         }
 
-        /// <summary>
-        /// 终轮强制合成：彻底杜绝丢弃已执行工具结果，统一汇聚图表与数据输出专业研报
-        /// </summary>
         private async Task<AgentLoopResult> ExecuteFinalSynthesisTurnAsync(
             AppSettings settings,
             List<ChatTurn> loopHistory,
@@ -531,7 +491,6 @@ namespace DataAnalysis_Assistant.Services.Agent
                 };
             }
 
-            // 用户预算保护开关判定
             if (!settings.EnableAutoFinalSynthesis)
             {
                 string budgetOffMsg = $"已达到最大决策轮次上限（共 {iteration} 轮）。已完成阶段性演算与分析。(终轮自动汇总研报已在设置中关闭)";
@@ -570,7 +529,6 @@ namespace DataAnalysis_Assistant.Services.Agent
                 IntermediateReasoning = accumulatedReasoning.ToString()
             });
 
-            // 注入终轮强制收敛指令（在单次请求临时副本中附加，严禁污染持久化 loopHistory）
             string synthesisPrompt = BuildFinalSynthesisPrompt(failedToolSummaries.Count > 0, failedToolSummaries, allGeneratedArtifacts);
             var synthesisTurns = new List<ChatTurn>(loopHistory)
             {
@@ -584,7 +542,6 @@ namespace DataAnalysis_Assistant.Services.Agent
             ChatToolResponse finalResponse;
             try
             {
-                // 终轮强制设定 toolChoice = "none"，且工具列表置空
                 finalResponse = await RequestChatTurnAsync(
                     settings,
                     synthesisTurns,
@@ -616,8 +573,7 @@ namespace DataAnalysis_Assistant.Services.Agent
                     };
                 }
 
-                // 若终轮大模型请求因网络抖动等原因失败，给出高质量保真兜底
-                string fallbackText = $"### 📊 业务分析与演算成果汇报 (兜底汇总)\n\n本次分析已到达最大规划决策轮次（共 {iteration} 轮）。已成功生成并捕获 **{allGeneratedArtifacts.Count}** 幅分析图表至右侧画廊与消息卡片，请参考上方图表与计算指标展开业务决策。\n\n*(注：终轮合成请求出现暂态网络波动: {ex.Message})*";
+                string fallbackText = $"### 业务分析与演算成果汇报 (兜底汇总)\n\n本次分析已到达最大规划决策轮次（共 {iteration} 轮）。已成功生成并捕获 **{allGeneratedArtifacts.Count}** 幅分析图表至右侧画廊与消息卡片，请参考上方图表与计算指标展开业务决策。\n\n*(注：终轮合成请求出现暂态网络波动: {ex.Message})*";
                 return new AgentLoopResult
                 {
                     Success = true,
@@ -631,7 +587,6 @@ namespace DataAnalysis_Assistant.Services.Agent
                 };
             }
 
-            // 核心代码层防御：坚决丢弃任何残留的 tool_calls
             if (finalResponse.HasToolCalls)
             {
                 finalResponse.ToolCalls.Clear();
@@ -646,7 +601,7 @@ namespace DataAnalysis_Assistant.Services.Agent
             string finalMarkdown = SanitizeMarkdownImageLinks(finalResponse.Content);
             if (string.IsNullOrWhiteSpace(finalMarkdown))
             {
-                finalMarkdown = $"### 📊 业务数据分析综合研报\n\n本次多步分析推导已全部完成（共执行 {iteration} 轮 Agent 决策）。\n系统已全量采集并挂接 **{allGeneratedArtifacts.Count}** 组图表成果至右侧画廊与卡片，所有指标与明细已在上方计算完毕，请结合图表展开决策。";
+                finalMarkdown = $"### 业务数据分析综合研报\n\n本次多步分析推导已全部完成（共执行 {iteration} 轮 Agent 决策）。\n系统已全量采集并挂接 **{allGeneratedArtifacts.Count}** 组图表成果至右侧画廊与卡片，所有指标与明细已在上方计算完毕，请结合图表展开决策。";
             }
 
             progress?.Report(new AgentProgressUpdate
@@ -672,9 +627,6 @@ namespace DataAnalysis_Assistant.Services.Agent
             };
         }
 
-        /// <summary>
-        /// 终轮收敛提示词动态组装
-        /// </summary>
         private static string BuildFinalSynthesisPrompt(bool hasFailedTools, List<string> failedToolSummaries, List<string> generatedArtifacts)
         {
             var sb = new StringBuilder();
@@ -712,9 +664,6 @@ namespace DataAnalysis_Assistant.Services.Agent
             return sb.ToString();
         }
 
-        /// <summary>
-        /// 获取特定异常允许的最大局部自愈重试次数（分级自愈配额）
-        /// </summary>
         private static int GetErrorRetryQuota(string? fullErrorMessage)
         {
             if (string.IsNullOrWhiteSpace(fullErrorMessage)) return 2;
@@ -726,7 +675,6 @@ namespace DataAnalysis_Assistant.Services.Agent
                 return 0;
             }
 
-            // 1 次自愈：语法错误（LLM 看到光标定位一次修复率高）、文件缺失（改路径/换缓存）、列名猜错
             if (fullErrorMessage.Contains("[ERR_TYPE:SyntaxError]") ||
                 fullErrorMessage.Contains("[ERR_TYPE:FileNotFound]") ||
                 fullErrorMessage.Contains("[ERR_TYPE:KeyError]") ||
@@ -738,13 +686,10 @@ namespace DataAnalysis_Assistant.Services.Agent
                 return 1;
             }
 
-            // 2 次自愈：常规运算异常或超时
             return 2;
         }
 
-        /// <summary>
         /// 精简错误摘要（防止超长 Traceback 撑爆收敛 Prompt）
-        /// </summary>
         private static string TruncateErrorForPrompt(string? errorMessage, int maxChars = 150)
         {
             if (string.IsNullOrWhiteSpace(errorMessage)) return "未知错误";
@@ -758,9 +703,6 @@ namespace DataAnalysis_Assistant.Services.Agent
             return firstLine;
         }
 
-        /// <summary>
-        /// 执行单轮大模型请求：默认开启 SSE 流式推流并实时上报打字与思考，同时具备向阻塞式请求的静默降级兜底能力
-        /// </summary>
         private async Task<ChatToolResponse> RequestChatTurnAsync(
             AppSettings settings,
             List<ChatTurn> loopHistory,
@@ -855,7 +797,6 @@ namespace DataAnalysis_Assistant.Services.Agent
                     }
                 }
 
-                // 推流完成时，派发一次最终状态同步确保界面完整
                 string finalCombined = baseReasoning;
                 if (curTurnReasoning.Length > 0)
                 {
@@ -903,7 +844,6 @@ namespace DataAnalysis_Assistant.Services.Agent
                     };
                 }
 
-                // 正文全空，说明属于首包或初期的连接异常，自动降级至阻塞请求
                 streamSucceeded = false;
                 progress?.Report(new AgentProgressUpdate
                 {
@@ -926,7 +866,6 @@ namespace DataAnalysis_Assistant.Services.Agent
                 };
             }
 
-            // 兜底降级至标准非流式请求
             return await _chatService.SendChatWithToolsAsync(
                 settings,
                 loopHistory,
@@ -938,9 +877,6 @@ namespace DataAnalysis_Assistant.Services.Agent
                 cancellationToken: cancellationToken);
         }
 
-        /// <summary>
-        /// 提取模型代码尝试写入的原始路径与沙盒镜像路径
-        /// </summary>
         private static (string? rawPath, string? mirrorPath) ExtractPathInfo(string toolName, string arguments, List<string> artifacts)
         {
             string? mirror = artifacts != null && artifacts.Count > 0 ? artifacts[0] : null;
@@ -948,7 +884,6 @@ namespace DataAnalysis_Assistant.Services.Agent
 
             if (!string.IsNullOrWhiteSpace(arguments))
             {
-                // 支持 savefig('xxx.png') 与 savefig(fname='xxx.png') 等多种显式调用形式
                 var match = System.Text.RegularExpressions.Regex.Match(
                     arguments,
                     @"savefig\s*\(\s*(?:fname\s*=\s*)?['""]([^'""]+)['""]",
@@ -960,8 +895,6 @@ namespace DataAnalysis_Assistant.Services.Agent
                 }
             }
 
-            // 若代码中未能通过首参字面量直接正则命中（如使用变量或 Path 拼接），且系统捕获到了镜像产物，
-            // 则从镜像文件名契约（{stem}_{timestamp}_{hex6}{ext}）进行逆向精准无损还原原始文件名
             if (string.IsNullOrEmpty(raw) && !string.IsNullOrEmpty(mirror))
             {
                 string fname = Path.GetFileName(mirror);
@@ -971,7 +904,6 @@ namespace DataAnalysis_Assistant.Services.Agent
                     string nameNoExt = fname[..lastDot];
                     string ext = fname[lastDot..];
 
-                    // 镜像名尾部为 _{timestamp}_{hex6}，向前寻找倒数第一个（hex6前）与倒数第二个（timestamp前）下划线
                     int lastUnder = nameNoExt.LastIndexOf('_');
                     if (lastUnder > 0)
                     {
@@ -992,14 +924,10 @@ namespace DataAnalysis_Assistant.Services.Agent
             return (raw, mirror);
         }
 
-        /// <summary>
-        /// 清洗正文中大模型可能误用的本地相对路径图片引用语法，杜绝前端 Markdown 裂图
-        /// </summary>
         private static string SanitizeMarkdownImageLinks(string? markdown)
         {
             if (string.IsNullOrWhiteSpace(markdown)) return string.Empty;
 
-            // 匹配 ! [alt](path) 且 path 不是 http/https/data 开头的相对路径图片
             return System.Text.RegularExpressions.Regex.Replace(
                 markdown,
                 @"!\[([^\]]*)\]\((?!(?:https?:\/\/|\/|data:))([^\)]+)\)",
@@ -1008,13 +936,10 @@ namespace DataAnalysis_Assistant.Services.Agent
                     string altText = match.Groups[1].Value.Trim();
                     string fileName = Path.GetFileName(match.Groups[2].Value.Trim());
                     string label = string.IsNullOrEmpty(altText) ? fileName : $"{altText} ({fileName})";
-                    return $"> 📊 **[可视化图表：{label}]** *(已由系统自动挂载至上方消息卡片与右侧画廊，请查阅对应高清图件)*";
+                    return $"> **[可视化图表：{label}]** *(已由系统自动挂载至上方消息卡片与右侧画廊，请查阅对应高清图件)*";
                 });
         }
 
-        /// <summary>
-        /// 异常持久化写入 APPDATA/logs，支持 Release 环境排障且不污染工作区
-        /// </summary>
         private static void LogException(string tag, Exception ex)
         {
             try

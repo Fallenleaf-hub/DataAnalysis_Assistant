@@ -11,16 +11,8 @@ using DataAnalysis_Assistant.Models;
 
 namespace DataAnalysis_Assistant.Services.Skills
 {
-    /// <summary>
-    /// 标准 Skill 规范管理服务
-    /// 负责扫描用户目录下的自定义技能、解析 SKILL.md 元数据并控制激活状态
-    /// </summary>
     public class SkillManagerService
     {
-        /// <summary>
-        /// 获取本应用专用的标准技能受控根目录 (%APPDATA%\DataAnalysis_Assistant\skills)
-        /// 唯一合法专属存储目录，保证任何普通用户使用时均自动创建并绝对可用
-        /// </summary>
         public static string GetAppSkillsDirectory()
         {
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
@@ -48,27 +40,15 @@ namespace DataAnalysis_Assistant.Services.Skills
             return dir;
         }
 
-        /// <summary>
-        /// 向后兼容方法：获取应用技能主目录
-        /// </summary>
         public static string GetDefaultAppSkillsDirectory() => GetAppSkillsDirectory();
 
-        /// <summary>
-        /// 获取当前生效的主技能目录（统一收敛为应用专属目录）
-        /// </summary>
         public static string GetPrimarySkillsDirectory(AppSettings? settings = null) => GetAppSkillsDirectory();
 
-        /// <summary>
-        /// 获取用户技能搜索根目录（严格收敛为唯一专属目录，彻底杜绝扫描全局外部生态）
-        /// </summary>
         public static List<string> GetUserSkillsDirectories(AppSettings? settings = null)
         {
             return new List<string> { GetAppSkillsDirectory() };
         }
 
-        /// <summary>
-        /// 异步扫描并加载专属目录下的所有用户已安装标准技能
-        /// </summary>
         public async Task<List<SkillItem>> LoadUserInstalledSkillsAsync(
             AppSettings settings,
             CancellationToken cancellationToken = default)
@@ -90,7 +70,6 @@ namespace DataAnalysis_Assistant.Services.Skills
                 foreach (var subDir in subDirs)
                 {
                     string dirName = Path.GetFileName(subDir);
-                    // 忽略隐藏或系统文件夹 (如 .system, .git)
                     if (dirName.StartsWith(".") || dirName.StartsWith("_"))
                     {
                         continue;
@@ -100,7 +79,6 @@ namespace DataAnalysis_Assistant.Services.Skills
                     string skillMdPath = Path.Combine(subDir, "SKILL.md");
                     if (!File.Exists(skillMdPath))
                     {
-                        // 也尝试小写 skill.md 容错
                         skillMdPath = Path.Combine(subDir, "skill.md");
                         if (!File.Exists(skillMdPath))
                         {
@@ -108,7 +86,6 @@ namespace DataAnalysis_Assistant.Services.Skills
                         }
                     }
 
-                    // 读取并解析 SKILL.md 元数据与正文
                     var skillItem = await ParseSkillMdAsync(skillMdPath, subDir, rootDir, cancellationToken);
                     if (skillItem != null && !scannedNames.Contains(skillItem.Name))
                     {
@@ -126,9 +103,6 @@ namespace DataAnalysis_Assistant.Services.Skills
             return results.OrderBy(s => s.DisplayName).ToList();
         }
 
-        /// <summary>
-        /// 解析标准 SKILL.md 文件中的 YAML frontmatter
-        /// </summary>
         private static async Task<SkillItem?> ParseSkillMdAsync(
             string skillMdPath,
             string directoryPath,
@@ -145,7 +119,6 @@ namespace DataAnalysis_Assistant.Services.Skills
 
                 string instructions = content;
 
-                // 解析 YAML Frontmatter (--- 包裹区域)
                 if (content.StartsWith("---"))
                 {
                     int secondDashIndex = content.IndexOf("---", 3, StringComparison.Ordinal);
@@ -211,7 +184,6 @@ namespace DataAnalysis_Assistant.Services.Skills
                     }
                 }
 
-                // 若未在 frontmatter 中提取到说明，从首段 markdown 提炼
                 if (string.IsNullOrWhiteSpace(description))
                 {
                     var lines = content.Split('\n');
@@ -249,9 +221,6 @@ namespace DataAnalysis_Assistant.Services.Skills
             }
         }
 
-        /// <summary>
-        /// 获取指定技能的完整 Markdown 规约正文（用于向大模型注入专业背景与步骤规约）
-        /// </summary>
         public static async Task<string?> GetSkillFullInstructionsAsync(SkillItem skill, CancellationToken cancellationToken = default)
         {
             if (skill == null) return null;
@@ -290,9 +259,6 @@ namespace DataAnalysis_Assistant.Services.Skills
             return null;
         }
 
-        /// <summary>
-        /// 在 Windows 资源管理器中打开指定技能目录
-        /// </summary>
         public static void OpenFolderInExplorer(string folderPath)
         {
             if (string.IsNullOrEmpty(folderPath)) return;
@@ -308,9 +274,6 @@ namespace DataAnalysis_Assistant.Services.Skills
             }
         }
 
-        /// <summary>
-        /// 从指定外部文件夹导入技能到应用主技能目录
-        /// </summary>
         public static async Task<(bool Success, string Message, SkillItem? Item)> ImportSkillFolderAsync(
             string sourceFolderPath,
             AppSettings? settings = null)
@@ -320,7 +283,6 @@ namespace DataAnalysis_Assistant.Services.Skills
                 return (false, "指定的来源技能文件夹不存在。", null);
             }
 
-            // 校验是否符合标准 Skill 规范（包含 SKILL.md 或 skill.md）
             string skillMd = Path.Combine(sourceFolderPath, "SKILL.md");
             if (!File.Exists(skillMd))
             {
@@ -373,4 +335,3 @@ namespace DataAnalysis_Assistant.Services.Skills
         }
     }
 }
-

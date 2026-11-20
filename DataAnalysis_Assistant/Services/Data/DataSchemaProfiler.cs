@@ -11,23 +11,14 @@ using OfficeOpenXml;
 
 namespace DataAnalysis_Assistant.Services.Data
 {
-    /// <summary>
-    /// 数据表骨架探查器：实现“数据不动代码动”规范
-    /// 深入探查结构化表格元数据，杜绝把原始大表硬塞进 Prompt 导致的截断与失真
-    /// </summary>
     public class DataSchemaProfiler
     {
         static DataSchemaProfiler()
         {
-            // 初始化 GBK / GB2312 / GB18030 中文编码支持
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-            // 确保 EPPlus 授权为非商业个人模式
             ExcelPackage.License.SetNonCommercialPersonal("DataAnalysisAssistant");
         }
 
-        /// <summary>
-        /// 异步探查指定表格文件的全量骨架信息
-        /// </summary>
         public async Task<DataSchemaProfile> ProfileAsync(string filePath, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
@@ -96,7 +87,6 @@ namespace DataAnalysis_Assistant.Services.Data
 
                 var cells = ParseCsvLine(line, delimiter);
 
-                // 记录前 5 行作为样例数据
                 if (profile.HeadPreviewRows.Count < 5)
                 {
                     var previewRow = new List<string>();
@@ -107,7 +97,6 @@ namespace DataAnalysis_Assistant.Services.Data
                     profile.HeadPreviewRows.Add(previewRow);
                 }
 
-                // 更新列统计
                 for (int c = 0; c < colCount; c++)
                 {
                     string val = c < cells.Count ? cells[c] : string.Empty;
@@ -117,7 +106,6 @@ namespace DataAnalysis_Assistant.Services.Data
 
             profile.TotalRows = rowCount;
 
-            // 组装最终列信息
             for (int i = 0; i < colCount; i++)
             {
                 profile.Columns.Add(trackers[i].ToSchemaInfo(rowCount));
@@ -138,7 +126,7 @@ namespace DataAnalysis_Assistant.Services.Data
                 }
                 if (read >= 2 && bom[0] == 0xFF && bom[1] == 0xFE)
                 {
-                    return Encoding.Unicode; // UTF-16LE
+                    return Encoding.Unicode;
                 }
                 if (read >= 2 && bom[0] == 0xFE && bom[1] == 0xFF)
                 {
@@ -146,7 +134,6 @@ namespace DataAnalysis_Assistant.Services.Data
                 }
             }
 
-            // 针对无 BOM 文本，进行 UTF-8 有效性检测
             try
             {
                 using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
@@ -159,7 +146,6 @@ namespace DataAnalysis_Assistant.Services.Data
             }
             catch { }
 
-            // 默认回退至兼容中文 Windows Excel 的 GB18030/GBK
             try
             {
                 return Encoding.GetEncoding("GB18030");
@@ -281,7 +267,6 @@ namespace DataAnalysis_Assistant.Services.Data
             profile.TotalRows = totalDataRows;
             profile.TotalColumns = totalCols;
 
-            // 读取表头
             var headers = new List<string>();
             for (int col = startCol; col <= endCol; col++)
             {
@@ -366,7 +351,6 @@ namespace DataAnalysis_Assistant.Services.Data
                     _sampleValues.Add(val);
                 }
 
-                // 类型推断
                 if (long.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out long lVal))
                 {
                     _intCount++;
@@ -437,4 +421,3 @@ namespace DataAnalysis_Assistant.Services.Data
         #endregion
     }
 }
-

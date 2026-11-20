@@ -13,17 +13,95 @@ using XColor = Xceed.Drawing.Color;
 
 namespace DataAnalysis_Assistant.Services.Export
 {
-    /// <summary>
-    /// 专业数据分析研报导出引擎 (ReportExportService)
-    /// 支持将 Markdown 分析结论、指标事实表与多模态高清统计图表一键导出为标准 Word (.docx) 或 Markdown (.md)
-    /// </summary>
     public class ReportExportService
     {
+        private const string BodyFont = "Microsoft YaHei";
+        private const string CodeFont = "Consolas";
+
+        private static readonly Regex EmojiStripRegex = new(
+            @"(?:[\uD800-\uDBFF][\uDC00-\uDFFF]|[\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u200D])",
+            RegexOptions.Compiled);
+
+        private static readonly Regex InlineMarkdownRegex = new(
+            @"`([^`]+)`|\*\*([^\*]+?)\*\*|__([^_]+?)__|\*([^\*]+?)\*|\[([^\]]+)\]\(([^\)]+)\)",
+            RegexOptions.Compiled);
+
+        private static readonly Regex OrderedListRegex = new(
+            @"^(\s*)(\d+[\.\)）、])\s+(.+)$",
+            RegexOptions.Compiled);
+
+        private static readonly Regex UnorderedListRegex = new(
+            @"^(\s*)[-*•]\s+(.+)$",
+            RegexOptions.Compiled);
+
+        private static readonly Regex HorizontalRuleRegex = new(
+            @"^\s*(?:---+|\*\*\*+|___+)\s*$",
+            RegexOptions.Compiled);
+
+        private static readonly Regex NumericOrRangeCellRegex = new(
+            @"^(?:[<>≤≥]=?\s*)?[+-]?[\d,\.]+(?:\s*[–\-~]\s*[\d,\.]+)?%?$",
+            RegexOptions.Compiled);
+
         private static XColor MakeColor(int r, int g, int b) => new XColor(new SkiaSharp.SKColor((byte)r, (byte)g, (byte)b));
 
-        /// <summary>
-        /// 异步将研报导出为格式精美的 Word 文档 (.docx)
-        /// </summary>
+        public static string SanitizeReportMarkdown(string? rawMarkdown)
+        {
+            if (string.IsNullOrWhiteSpace(rawMarkdown)) return string.Empty;
+
+            var lines = rawMarkdown.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+            var cleaned = new List<string>(lines.Length);
+            bool prevBlank = false;
+
+            foreach (string raw in lines)
+            {
+                if (IsInternalLeakLine(raw))
+                {
+                    continue;
+                }
+
+                string line = EmojiStripRegex.Replace(raw, string.Empty);
+
+                line = Regex.Replace(line, @"^(\s*#{1,6})\s+", "$1 ");
+                line = Regex.Replace(line, @"^(\s*>)\s+", "$1 ");
+                line = Regex.Replace(line, @"^(\s*[-*•])\s+", "$1 ");
+                line = Regex.Replace(line, @"^(\s*\d+[\.\)）、])\s+", "$1 ");
+                line = line.TrimEnd();
+
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    if (!prevBlank && cleaned.Count > 0)
+                    {
+                        cleaned.Add(string.Empty);
+                    }
+                    prevBlank = true;
+                }
+                else
+                {
+                    cleaned.Add(line);
+                    prevBlank = false;
+                }
+            }
+
+            while (cleaned.Count > 0 && string.IsNullOrWhiteSpace(cleaned[^1]))
+            {
+                cleaned.RemoveAt(cleaned.Count - 1);
+            }
+
+            return string.Join("\n", cleaned);
+        }
+
+        private static bool IsInternalLeakLine(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line)) return false;
+
+            return line.Contains("[已生成图表产物记录]", StringComparison.Ordinal) ||
+                   line.Contains("[系统历史记录-仅供上下文参考", StringComparison.Ordinal) ||
+                   line.Contains("[ARTIFACT_CONFIRMED]", StringComparison.OrdinalIgnoreCase) ||
+                   line.Contains("[ARTIFACT_CAPTURED]", StringComparison.OrdinalIgnoreCase) ||
+                   line.Contains("后续分析应以此为基础推进，无需重复绘图", StringComparison.Ordinal) ||
+                   line.Contains("后续分析应直接基于既有成果推进，无需重复绘图", StringComparison.Ordinal);
+        }
+
         public async Task<string> ExportToDocxAsync(
             string targetFilePath,
             string title,
@@ -46,26 +124,32 @@ namespace DataAnalysis_Assistant.Services.Export
 
                 using var doc = DocX.Create(targetFilePath);
 
-                // 1. 研报主标题
-                var pTitle = doc.InsertParagraph(string.IsNullOrWhiteSpace(title) ? "数据分析与业务洞察综合研报" : title);
-                pTitle.FontSize(20);
-                pTitle.Bold();
-                pTitle.Color(MakeColor(0x2E, 0x28, 0x22));
+                string safeTitle = EmojiStripRegex.Replace(title ?? string.Empty, string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(safeTitle))
+                {
+                    safeTitle = "数据分析与业务洞察综合研报";
+                }
+
+                var colorPrimary = MakeColor(0x2E, 0x28, 0x22);
+                var colorAccent = MakeColor(0xB8, 0x5D, 0x19);
+                var colorSecondary = MakeColor(0x7D, 0x74, 0x6A);
+                var colorHeadingSub = MakeColor(0x4A, 0x40, 0x36);
+
+                var pTitle = doc.InsertParagraph();
+                pTitle.Append(safeTitle).Font(BodyFont).FontSize(20).Bold().Color(colorPrimary);
                 pTitle.SpacingAfter(6);
+                pTitle.KeepWithNextParagraph(true);
 
-                // 2. 元数据信息栏
-                var pMeta = doc.InsertParagraph($"生成时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}   |   分析工具: AI 数据分析助手 (CodeAct 引擎)");
-                pMeta.FontSize(9.5);
-                pMeta.Color(MakeColor(0x7D, 0x74, 0x6A));
-                pMeta.SpacingAfter(16);
+                var pMeta = doc.InsertParagraph();
+                pMeta.Append($"生成时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}   |   分析工具: AI 数据分析助手 (CodeAct 引擎)")
+                     .Font(BodyFont).FontSize(9.5).Color(colorSecondary);
+                pMeta.SpacingAfter(10);
+                pMeta.KeepWithNextParagraph(true);
 
-                // 分割线
-                var pLine = doc.InsertParagraph("_________________________________________________________________________________");
-                pLine.Color(MakeColor(0xE2, 0xDD, 0xD0));
-                pLine.SpacingAfter(14);
+                InsertDividerLine(doc);
 
-                // 3. 解析并排版正文 Markdown 内容
-                var lines = (markdownContent ?? string.Empty).Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+                string sanitized = SanitizeReportMarkdown(markdownContent);
+                var lines = sanitized.Split('\n');
                 bool inCodeBlock = false;
                 var codeLines = new List<string>();
                 var tableLines = new List<string>();
@@ -77,22 +161,14 @@ namespace DataAnalysis_Assistant.Services.Export
                     string rawLine = lines[i];
                     string line = rawLine.Trim();
 
-                    // 代码块处理
-                    if (line.StartsWith("```"))
+                    if (line.StartsWith("```", StringComparison.Ordinal))
                     {
+                        FlushTableIfAny(doc, tableLines);
+
                         if (inCodeBlock)
                         {
-                            // 结束代码块
                             inCodeBlock = false;
-                            if (codeLines.Count > 0)
-                            {
-                                var pCode = doc.InsertParagraph(string.Join("\n", codeLines));
-                                pCode.Font("Consolas");
-                                pCode.FontSize(9);
-                                pCode.Color(MakeColor(0x33, 0x33, 0x33));
-                                pCode.SpacingAfter(8);
-                                codeLines.Clear();
-                            }
+                            FlushCodeBlockIfAny(doc, codeLines);
                         }
                         else
                         {
@@ -108,90 +184,119 @@ namespace DataAnalysis_Assistant.Services.Export
                         continue;
                     }
 
-                    // Markdown 表格处理
-                    if (line.StartsWith("|") && line.EndsWith("|"))
+                    if (line.StartsWith("|", StringComparison.Ordinal) && line.EndsWith("|", StringComparison.Ordinal))
                     {
                         tableLines.Add(line);
-                        // 若下一行不是表格行，则渲染当前收集的表格
-                        if (i + 1 >= lines.Length || !lines[i + 1].Trim().StartsWith("|"))
+                        bool nextIsTable = i + 1 < lines.Length &&
+                                           lines[i + 1].Trim().StartsWith("|", StringComparison.Ordinal) &&
+                                           lines[i + 1].Trim().EndsWith("|", StringComparison.Ordinal);
+                        if (!nextIsTable)
                         {
-                            RenderDocxTable(doc, tableLines);
-                            tableLines.Clear();
+                            FlushTableIfAny(doc, tableLines);
                         }
                         continue;
                     }
+
+                    FlushTableIfAny(doc, tableLines);
 
                     if (string.IsNullOrWhiteSpace(line))
                     {
                         continue;
                     }
 
-                    // 标题等级匹配
-                    if (line.StartsWith("# "))
+                    if (HorizontalRuleRegex.IsMatch(line))
                     {
-                        var h1 = doc.InsertParagraph(line.Substring(2).Trim());
-                        h1.FontSize(15);
-                        h1.Bold();
-                        h1.Color(MakeColor(0xB8, 0x5D, 0x19));
-                        h1.SpacingBefore(12);
-                        h1.SpacingAfter(6);
+                        InsertDividerLine(doc);
+                        continue;
                     }
-                    else if (line.StartsWith("## "))
+
+                    if (line.StartsWith("#### ", StringComparison.Ordinal))
                     {
-                        var h2 = doc.InsertParagraph(line.Substring(3).Trim());
-                        h2.FontSize(13);
-                        h2.Bold();
-                        h2.Color(MakeColor(0x2E, 0x28, 0x22));
-                        h2.SpacingBefore(10);
-                        h2.SpacingAfter(4);
+                        InsertHeadingParagraph(doc, line.Substring(5).Trim(), 10.5, colorHeadingSub, 7, 3);
+                        continue;
                     }
-                    else if (line.StartsWith("### "))
+                    if (line.StartsWith("### ", StringComparison.Ordinal))
                     {
-                        var h3 = doc.InsertParagraph(line.Substring(4).Trim());
-                        h3.FontSize(11.5);
-                        h3.Bold();
-                        h3.Color(MakeColor(0x4A, 0x40, 0x36));
-                        h3.SpacingBefore(8);
-                        h3.SpacingAfter(3);
+                        InsertHeadingParagraph(doc, line.Substring(4).Trim(), 11.5, colorHeadingSub, 9, 4);
+                        continue;
                     }
-                    else if (line.StartsWith("- ") || line.StartsWith("* "))
+                    if (line.StartsWith("## ", StringComparison.Ordinal))
                     {
-                        // 列表项
-                        var pBullet = doc.InsertParagraph("• " + line.Substring(2).Trim());
-                        pBullet.FontSize(10.5);
-                        pBullet.IndentationBefore = 14f;
-                        pBullet.SpacingAfter(3);
+                        InsertHeadingParagraph(doc, line.Substring(3).Trim(), 13, colorPrimary, 11, 5);
+                        continue;
                     }
-                    else if (line.StartsWith("> "))
+                    if (line.StartsWith("# ", StringComparison.Ordinal))
                     {
-                        // 引用快讯
-                        var pQuote = doc.InsertParagraph(line.Substring(2).Trim());
-                        pQuote.Italic();
-                        pQuote.FontSize(10);
-                        pQuote.Color(MakeColor(0x55, 0x55, 0x55));
-                        pQuote.IndentationBefore = 18f;
-                        pQuote.SpacingAfter(5);
+                        InsertHeadingParagraph(doc, line.Substring(2).Trim(), 15, colorAccent, 13, 6);
+                        continue;
                     }
-                    else
+
+                    var orderedMatch = OrderedListRegex.Match(rawLine);
+                    if (orderedMatch.Success)
                     {
-                        // 普通文本段落
-                        var pNormal = doc.InsertParagraph(line);
-                        pNormal.FontSize(10.5);
-                        pNormal.LineSpacing = 1.15f;
-                        pNormal.SpacingAfter(5);
+                        int indentLevel = Math.Min(4, orderedMatch.Groups[1].Value.Length / 2);
+                        string marker = orderedMatch.Groups[2].Value;
+                        string itemText = orderedMatch.Groups[3].Value.Trim();
+
+                        var pOrdered = doc.InsertParagraph();
+                        pOrdered.IndentationBefore = 14f + indentLevel * 12f;
+                        pOrdered.SpacingLine(16);
+                        pOrdered.SpacingAfter(4);
+                        AppendRun(pOrdered, marker + " ", 10.5, colorPrimary, BodyFont, bold: true, italic: false);
+                        AppendMarkdownInline(pOrdered, itemText, 10.5, colorPrimary);
+                        continue;
                     }
+
+                    var unorderedMatch = UnorderedListRegex.Match(rawLine);
+                    if (unorderedMatch.Success)
+                    {
+                        int indentLevel = Math.Min(4, unorderedMatch.Groups[1].Value.Length / 2);
+                        string itemText = unorderedMatch.Groups[2].Value.Trim();
+
+                        var pBullet = doc.InsertParagraph();
+                        pBullet.IndentationBefore = 14f + indentLevel * 12f;
+                        pBullet.SpacingLine(16);
+                        pBullet.SpacingAfter(3.5);
+                        AppendRun(pBullet, "• ", 10.5, colorPrimary, BodyFont, bold: true, italic: false);
+                        AppendMarkdownInline(pBullet, itemText, 10.5, colorPrimary);
+                        continue;
+                    }
+
+                    if (line.StartsWith(">", StringComparison.Ordinal))
+                    {
+                        string quoteText = line.Substring(1).Trim();
+                        if (!string.IsNullOrWhiteSpace(quoteText))
+                        {
+                            var pQuote = doc.InsertParagraph();
+                            pQuote.IndentationBefore = 18f;
+                            pQuote.SpacingLine(15);
+                            pQuote.SpacingAfter(5);
+                            AppendMarkdownInline(pQuote, quoteText, 10, MakeColor(0x55, 0x55, 0x55), forceItalic: true);
+                        }
+                        continue;
+                    }
+
+                    var pNormal = doc.InsertParagraph();
+                    pNormal.SpacingLine(16);
+                    pNormal.SpacingAfter(6);
+                    AppendMarkdownInline(pNormal, line, 10.5, colorPrimary);
                 }
 
-                // 4. 插入图表附录 (如有)
+                FlushCodeBlockIfAny(doc, codeLines);
+                FlushTableIfAny(doc, tableLines);
+
                 var chartList = charts?.Where(c => !string.IsNullOrEmpty(c.FilePath) && File.Exists(c.FilePath)).ToList();
                 if (chartList != null && chartList.Count > 0)
                 {
-                    var pChartHeader = doc.InsertParagraph("\n附录：核心数据可视化图表");
-                    pChartHeader.FontSize(14);
-                    pChartHeader.Bold();
-                    pChartHeader.Color(MakeColor(0xB8, 0x5D, 0x19));
+                    var pChartHeader = doc.InsertParagraph();
+                    pChartHeader.Append("附录：核心数据可视化图表").Font(BodyFont).FontSize(14).Bold().Color(colorAccent);
                     pChartHeader.SpacingBefore(16);
                     pChartHeader.SpacingAfter(10);
+                    pChartHeader.KeepWithNextParagraph(true);
+
+                    float usableWidthPt = Math.Max(300f, doc.PageWidth - doc.MarginLeft - doc.MarginRight);
+                    float maxImageWidthPt = Math.Min(430f, usableWidthPt - 16f);
+                    const float maxImageHeightPt = 330f;
 
                     int chartIdx = 1;
                     foreach (var chart in chartList)
@@ -200,31 +305,33 @@ namespace DataAnalysis_Assistant.Services.Export
                         {
                             var img = doc.AddImage(chart.FilePath);
                             var pic = img.CreatePicture();
-                            // 限制图片最大展示宽度
-                            if (pic.Width > 520)
+
+                            float scale = Math.Min(1f, Math.Min(maxImageWidthPt / Math.Max(1, pic.Width), maxImageHeightPt / Math.Max(1, pic.Height)));
+                            if (scale < 1f)
                             {
-                                float ratio = 520f / pic.Width;
-                                pic.Width = 520;
-                                pic.Height = (int)(pic.Height * ratio);
+                                pic.Width = Math.Max(1, (int)Math.Round(pic.Width * scale));
+                                pic.Height = Math.Max(1, (int)Math.Round(pic.Height * scale));
                             }
 
                             var pImg = doc.InsertParagraph();
                             pImg.Alignment = Alignment.center;
+                            pImg.IndentationBefore = 0f;
+                            pImg.IndentationAfter = 0f;
+                            pImg.IndentationFirstLine = 0f;
                             pImg.AppendPicture(pic);
                             pImg.SpacingAfter(4);
+                            pImg.KeepWithNextParagraph(true);
 
-                            var pCaption = doc.InsertParagraph($"图 {chartIdx}: {chart.Title} ({chart.FormattedSize})");
+                            var pCaption = doc.InsertParagraph();
                             pCaption.Alignment = Alignment.center;
-                            pCaption.FontSize(9.5);
-                            pCaption.Italic();
-                            pCaption.Color(MakeColor(0x7D, 0x74, 0x6A));
+                            pCaption.Append($"图 {chartIdx}: {chart.Title} ({chart.FormattedSize})")
+                                    .Font(BodyFont).FontSize(9.5).Italic().Color(colorSecondary);
                             pCaption.SpacingAfter(14);
 
                             chartIdx++;
                         }
                         catch
                         {
-                            // 容错处理
                         }
                     }
                 }
@@ -234,9 +341,6 @@ namespace DataAnalysis_Assistant.Services.Export
             }, cancellationToken);
         }
 
-        /// <summary>
-        /// 异步将研报导出为标准 Markdown 文件 (.md)
-        /// </summary>
         public async Task<string> ExportToMarkdownAsync(
             string targetFilePath,
             string title,
@@ -249,15 +353,23 @@ namespace DataAnalysis_Assistant.Services.Export
                 throw new ArgumentNullException(nameof(targetFilePath));
             }
 
+            string safeTitle = EmojiStripRegex.Replace(title ?? string.Empty, string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(safeTitle))
+            {
+                safeTitle = "数据分析与业务洞察综合研报";
+            }
+
+            string sanitizedContent = SanitizeReportMarkdown(markdownContent);
+
             var sb = new StringBuilder();
             sb.AppendLine("---");
-            sb.AppendLine($"title: \"{(string.IsNullOrWhiteSpace(title) ? "数据分析与业务洞察综合研报" : title)}\"");
+            sb.AppendLine($"title: \"{safeTitle}\"");
             sb.AppendLine($"date: \"{DateTime.Now:yyyy-MM-dd HH:mm:ss}\"");
             sb.AppendLine("generator: \"AI 数据分析助手 (CodeAct 引擎)\"");
             sb.AppendLine("---\n");
 
-            sb.AppendLine($"# {(string.IsNullOrWhiteSpace(title) ? "数据分析与业务洞察综合研报" : title)}\n");
-            sb.AppendLine(markdownContent);
+            sb.AppendLine($"# {safeTitle}\n");
+            sb.AppendLine(sanitizedContent);
 
             var chartList = charts?.Where(c => !string.IsNullOrEmpty(c.FilePath) && File.Exists(c.FilePath)).ToList();
             if (chartList != null && chartList.Count > 0)
@@ -282,29 +394,155 @@ namespace DataAnalysis_Assistant.Services.Export
             return targetFilePath;
         }
 
+        #region 段落与行内 Markdown 渲染辅助
+
+        private static void InsertDividerLine(DocX doc)
+        {
+            var pLine = doc.InsertParagraph();
+            pLine.InsertHorizontalLine(
+                HorizontalBorderPosition.bottom,
+                BorderStyle.Tcbs_single,
+                6,
+                1,
+                MakeColor(0xE2, 0xDD, 0xD0));
+            pLine.SpacingAfter(12);
+        }
+
+        private static void InsertHeadingParagraph(
+            DocX doc,
+            string headingText,
+            double fontSize,
+            XColor color,
+            double spacingBefore,
+            double spacingAfter)
+        {
+            var p = doc.InsertParagraph();
+            p.SpacingBefore(spacingBefore);
+            p.SpacingAfter(spacingAfter);
+            p.SpacingLine(15);
+            p.KeepWithNextParagraph(true);
+            AppendMarkdownInline(p, headingText, fontSize, color, forceBold: true);
+        }
+
+        private static void FlushCodeBlockIfAny(DocX doc, List<string> codeLines)
+        {
+            if (codeLines.Count == 0) return;
+
+            var pCode = doc.InsertParagraph();
+            pCode.Append(string.Join("\n", codeLines))
+                 .Font(CodeFont)
+                 .FontSize(9)
+                 .Color(MakeColor(0x33, 0x33, 0x33));
+            pCode.IndentationBefore = 12f;
+            pCode.SpacingLine(13);
+            pCode.SpacingAfter(8);
+            codeLines.Clear();
+        }
+
+        private static void FlushTableIfAny(DocX doc, List<string> tableLines)
+        {
+            if (tableLines.Count == 0) return;
+            RenderDocxTable(doc, tableLines);
+            tableLines.Clear();
+        }
+
+        private static void AppendMarkdownInline(
+            Paragraph p,
+            string text,
+            double fontSize,
+            XColor textColor,
+            bool forceBold = false,
+            bool forceItalic = false)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+
+            var colorCode = MakeColor(0x7A, 0x3E, 0x1D);
+            int lastIndex = 0;
+
+            foreach (Match match in InlineMarkdownRegex.Matches(text))
+            {
+                if (match.Index > lastIndex)
+                {
+                    AppendRun(p, text.Substring(lastIndex, match.Index - lastIndex), fontSize, textColor, BodyFont, forceBold, forceItalic);
+                }
+
+                if (match.Groups[1].Success)
+                {
+                    AppendRun(p, match.Groups[1].Value, Math.Max(8.5, fontSize - 0.5), colorCode, CodeFont, forceBold, forceItalic);
+                }
+                else if (match.Groups[2].Success)
+                {
+                    AppendRun(p, match.Groups[2].Value, fontSize, textColor, BodyFont, bold: true, italic: forceItalic);
+                }
+                else if (match.Groups[3].Success)
+                {
+                    AppendRun(p, match.Groups[3].Value, fontSize, textColor, BodyFont, bold: true, italic: forceItalic);
+                }
+                else if (match.Groups[4].Success)
+                {
+                    AppendRun(p, match.Groups[4].Value, fontSize, textColor, BodyFont, bold: forceBold, italic: true);
+                }
+                else if (match.Groups[5].Success)
+                {
+                    AppendRun(p, match.Groups[5].Value, fontSize, textColor, BodyFont, forceBold, forceItalic);
+                }
+
+                lastIndex = match.Index + match.Length;
+            }
+
+            if (lastIndex < text.Length)
+            {
+                AppendRun(p, text.Substring(lastIndex), fontSize, textColor, BodyFont, forceBold, forceItalic);
+            }
+        }
+
+        private static void AppendRun(
+            Paragraph p,
+            string text,
+            double fontSize,
+            XColor color,
+            string fontName,
+            bool bold,
+            bool italic)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+
+            var run = p.Append(text).Font(fontName).FontSize(fontSize).Color(color);
+            if (bold) run.Bold();
+            if (italic) run.Italic();
+        }
+
+        #endregion
+
         #region 内部表格渲染辅助方法
 
         private static void RenderDocxTable(DocX doc, List<string> tableLines)
         {
-            if (tableLines.Count < 2) return;
+            if (tableLines.Count < 2)
+            {
+                foreach (var raw in tableLines)
+                {
+                    var pFallback = doc.InsertParagraph();
+                    pFallback.SpacingLine(16);
+                    pFallback.SpacingAfter(4);
+                    AppendMarkdownInline(pFallback, raw, 10.5, MakeColor(0x2E, 0x28, 0x22));
+                }
+                return;
+            }
 
             var rowsData = new List<List<string>>();
+            Alignment[]? explicitAlignments = null;
+
             foreach (var tLine in tableLines)
             {
-                // 跳过分隔行 |:---|:---|
-                if (Regex.IsMatch(tLine, @"^\|[\s\-:]+(\|[\s\-:]+)+\|$"))
+                if (Regex.IsMatch(tLine, @"^\|?[\s\-:]+(\|[\s\-:]+)+\|?$"))
                 {
+                    var sepCells = SplitTableCells(tLine);
+                    explicitAlignments = sepCells.Select(ParseColumnAlignment).ToArray();
                     continue;
                 }
 
-                var cells = tLine.Split('|')
-                                 .Select(c => c.Trim())
-                                 .ToList();
-
-                // 移除两端由前导与尾部管道符产生的空项
-                if (cells.Count > 0 && string.IsNullOrEmpty(cells[0])) cells.RemoveAt(0);
-                if (cells.Count > 0 && string.IsNullOrEmpty(cells[^1])) cells.RemoveAt(cells.Count - 1);
-
+                var cells = SplitTableCells(tLine);
                 if (cells.Count > 0)
                 {
                     rowsData.Add(cells);
@@ -315,40 +553,223 @@ namespace DataAnalysis_Assistant.Services.Export
 
             int rowCount = rowsData.Count;
             int colCount = rowsData.Max(r => r.Count);
+            if (colCount <= 0) return;
+
+            var colAlignments = ResolveColumnAlignments(rowsData, colCount, explicitAlignments);
+            var colWidthPercentages = ComputeIntegerColumnWidthPercentages(rowsData, colCount);
+
+            var colorText = MakeColor(0x2E, 0x28, 0x22);
+            var colorHeaderBg = MakeColor(0xEA, 0xE5, 0xDA);
+            var colorZebraBg = MakeColor(0xFA, 0xF8, 0xF4);
 
             try
             {
                 var table = doc.AddTable(rowCount, colCount);
-                table.Design = TableDesign.LightShadingAccent1;
+                table.Design = TableDesign.TableGrid;
+                table.AutoFit = AutoFit.Window;
                 table.Alignment = Alignment.center;
+                table.SetWidthsPercentage(colWidthPercentages, 450f);
+
+                table.SetTableCellMargin(TableCellMarginType.top, 5);
+                table.SetTableCellMargin(TableCellMarginType.bottom, 5);
+                table.SetTableCellMargin(TableCellMarginType.left, 7);
+                table.SetTableCellMargin(TableCellMarginType.right, 7);
+
+                var outerBorder = new Border(BorderStyle.Tcbs_single, BorderSize.two, 0f, MakeColor(0xB8, 0xAD, 0x9E));
+                var innerHBorder = new Border(BorderStyle.Tcbs_single, BorderSize.one, 0f, MakeColor(0xE2, 0xDD, 0xD0));
+                var lightVBorder = new Border(BorderStyle.Tcbs_single, BorderSize.one, 0f, MakeColor(0xEA, 0xE5, 0xDA));
+
+                table.SetBorder(TableBorderType.Top, outerBorder);
+                table.SetBorder(TableBorderType.Bottom, outerBorder);
+                table.SetBorder(TableBorderType.InsideH, innerHBorder);
+                table.SetBorder(TableBorderType.Left, lightVBorder);
+                table.SetBorder(TableBorderType.Right, lightVBorder);
+                table.SetBorder(TableBorderType.InsideV, lightVBorder);
+
+                table.Rows[0].TableHeader = true;
 
                 for (int r = 0; r < rowCount; r++)
                 {
+                    var row = table.Rows[r];
+                    row.BreakAcrossPages = false;
                     var rowCells = rowsData[r];
+
                     for (int c = 0; c < colCount; c++)
                     {
                         string text = c < rowCells.Count ? rowCells[c] : string.Empty;
-                        var cell = table.Rows[r].Cells[c];
-                        cell.Paragraphs[0].Append(text).FontSize(9.5);
+                        var cell = row.Cells[c];
+                        cell.VerticalAlignment = VerticalAlignment.Center;
+
+                        var pCell = cell.Paragraphs[0];
+                        pCell.Alignment = colAlignments[c];
+                        pCell.SpacingLine(14);
+                        pCell.SpacingBefore(0);
+                        pCell.SpacingAfter(0);
+
                         if (r == 0)
                         {
-                            cell.Paragraphs[0].Bold();
-                            cell.FillColor = MakeColor(0xEA, 0xE5, 0xDA);
+                            cell.FillColor = colorHeaderBg;
+                            AppendMarkdownInline(pCell, text, 9.5, colorText, forceBold: true);
+                        }
+                        else
+                        {
+                            if (r % 2 == 0)
+                            {
+                                cell.FillColor = colorZebraBg;
+                            }
+                            AppendMarkdownInline(pCell, text, 9.5, colorText);
                         }
                     }
                 }
 
                 doc.InsertTable(table);
-                doc.InsertParagraph().SpacingAfter(8);
+                doc.InsertParagraph().SpacingAfter(6);
             }
             catch
             {
-                // 若由于特殊字符表格创建异常，回退为文本块
                 foreach (var line in tableLines)
                 {
-                    doc.InsertParagraph(line).Font("Consolas").FontSize(9);
+                    var pFallback = doc.InsertParagraph();
+                    pFallback.Append(line).Font(CodeFont).FontSize(9);
                 }
             }
+        }
+
+        private static List<string> SplitTableCells(string tLine)
+        {
+            var cells = tLine.Split('|')
+                             .Select(c => c.Trim())
+                             .ToList();
+
+            if (cells.Count > 0 && string.IsNullOrEmpty(cells[0])) cells.RemoveAt(0);
+            if (cells.Count > 0 && string.IsNullOrEmpty(cells[^1])) cells.RemoveAt(cells.Count - 1);
+            return cells;
+        }
+
+        private static Alignment ParseColumnAlignment(string separatorCell)
+        {
+            string s = separatorCell.Trim();
+            bool leftColon = s.StartsWith(":", StringComparison.Ordinal);
+            bool rightColon = s.EndsWith(":", StringComparison.Ordinal);
+
+            if (leftColon && rightColon) return Alignment.center;
+            if (rightColon) return Alignment.right;
+            return Alignment.left;
+        }
+
+        private static Alignment[] ResolveColumnAlignments(
+            List<List<string>> rowsData,
+            int colCount,
+            Alignment[]? explicitAlignments)
+        {
+            var result = new Alignment[colCount];
+            for (int c = 0; c < colCount; c++)
+            {
+                if (explicitAlignments != null && c < explicitAlignments.Length && explicitAlignments[c] != Alignment.left)
+                {
+                    result[c] = explicitAlignments[c];
+                    continue;
+                }
+
+                bool hasData = false;
+                bool allNumericOrRange = true;
+                for (int r = 1; r < rowsData.Count; r++)
+                {
+                    if (c >= rowsData[r].Count) continue;
+                    string val = StripInlineMarkdownTokens(rowsData[r][c]).Trim();
+                    if (string.IsNullOrEmpty(val)) continue;
+
+                    hasData = true;
+                    if (!NumericOrRangeCellRegex.IsMatch(val))
+                    {
+                        allNumericOrRange = false;
+                        break;
+                    }
+                }
+
+                result[c] = (hasData && allNumericOrRange) ? Alignment.center : Alignment.left;
+            }
+            return result;
+        }
+
+        private static float[] ComputeIntegerColumnWidthPercentages(List<List<string>> rowsData, int colCount)
+        {
+            var weights = new int[colCount];
+            for (int c = 0; c < colCount; c++)
+            {
+                int maxVisualWidth = 4;
+                for (int r = 0; r < rowsData.Count; r++)
+                {
+                    if (c >= rowsData[r].Count) continue;
+                    string plain = StripInlineMarkdownTokens(rowsData[r][c]);
+                    int w = EstimateDisplayWidth(plain);
+                    if (w > maxVisualWidth) maxVisualWidth = w;
+                }
+                weights[c] = Math.Clamp(maxVisualWidth + 4, 6, 40);
+            }
+
+            int totalWeight = weights.Sum();
+            int[] intPcts = new int[colCount];
+            int minPct = Math.Max(8, Math.Min(12, 80 / Math.Max(1, colCount)));
+
+            for (int c = 0; c < colCount; c++)
+            {
+                int rawPct = (int)Math.Round(weights[c] * 100.0 / totalWeight);
+                intPcts[c] = Math.Max(minPct, rawPct);
+            }
+
+            int diff = 100 - intPcts.Sum();
+            while (diff != 0)
+            {
+                if (diff > 0)
+                {
+                    int targetCol = Array.IndexOf(weights, weights.Max());
+                    intPcts[targetCol] += 1;
+                    diff--;
+                }
+                else
+                {
+                    int targetCol = -1;
+                    int bestPct = -1;
+                    for (int c = 0; c < colCount; c++)
+                    {
+                        if (intPcts[c] > minPct && intPcts[c] > bestPct)
+                        {
+                            bestPct = intPcts[c];
+                            targetCol = c;
+                        }
+                    }
+                    if (targetCol < 0) targetCol = Array.IndexOf(intPcts, intPcts.Max());
+                    intPcts[targetCol] -= 1;
+                    diff++;
+                }
+            }
+
+            return intPcts.Select(x => (float)x).ToArray();
+        }
+
+        private static string StripInlineMarkdownTokens(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return string.Empty;
+            return InlineMarkdownRegex.Replace(text, m =>
+            {
+                for (int g = 1; g <= 5; g++)
+                {
+                    if (m.Groups[g].Success) return m.Groups[g].Value;
+                }
+                return m.Value;
+            });
+        }
+
+        private static int EstimateDisplayWidth(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return 0;
+            int width = 0;
+            foreach (char ch in text)
+            {
+                width += ch > 127 ? 2 : 1;
+            }
+            return width;
         }
 
         #endregion

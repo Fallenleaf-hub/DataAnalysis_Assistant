@@ -14,9 +14,6 @@ namespace DataAnalysis_Assistant.Models
 
         public string Id { get; set; } = Guid.NewGuid().ToString();
 
-        /// <summary>
-        /// 兼容持久化主键别名 (与 Id 等价)
-        /// </summary>
         public string DocId
         {
             get => Id;
@@ -64,9 +61,6 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
-        /// <summary>
-        /// 物理文件是否缺失（本地原文件被删除或移动）
-        /// </summary>
         [JsonIgnore]
         public bool IsMissing
         {
@@ -84,7 +78,7 @@ namespace DataAnalysis_Assistant.Models
         }
 
         [JsonIgnore]
-        public string FileStatusBadge => _isMissing ? "⚠️ 原始文件丢失" : "✅ 正常就绪";
+        public string FileStatusBadge => _isMissing ? "原始文件丢失" : "正常就绪";
 
         [JsonIgnore]
         public string FileStatusColor => _isMissing ? "#D97706" : "#059669";
@@ -106,9 +100,6 @@ namespace DataAnalysis_Assistant.Models
         public string ExtensionLabel => Extension.TrimStart('.').ToUpperInvariant();
         private DataSchemaProfile? _schemaProfile;
 
-        /// <summary>
-        /// 是否属于结构化大表格（CSV/Excel）
-        /// </summary>
         [JsonIgnore]
         public bool IsTabularData => Extension.ToLowerInvariant() switch
         {
@@ -116,9 +107,6 @@ namespace DataAnalysis_Assistant.Models
             _ => false
         };
 
-        /// <summary>
-        /// 表格元数据骨架（践行计算下推规范）
-        /// </summary>
         public DataSchemaProfile? SchemaProfile
         {
             get => _schemaProfile;

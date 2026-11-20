@@ -8,22 +8,14 @@ using DataAnalysis_Assistant.Models;
 
 namespace DataAnalysis_Assistant.Services.Python
 {
-    /// <summary>
-    /// Python 本地运行环境诊断与探测服务
-    /// </summary>
     public class PythonEnvironmentService
     {
-        /// <summary>
-        /// 全面探测与评估当前系统 Python 环境与常用数据分析库状态
-        /// </summary>
-        /// <param name="customPythonPath">用户在设置中自定义的 Python 绝对路径（可选）</param>
         public async Task<PythonEnvironmentStatus> DetectEnvironmentAsync(
             string? customPythonPath = null,
             CancellationToken cancellationToken = default)
         {
             var status = new PythonEnvironmentStatus();
 
-            // 1. 确定 Python 执行路径
             string pythonExe = ResolvePythonExecutable(customPythonPath);
             if (string.IsNullOrEmpty(pythonExe))
             {
@@ -34,7 +26,6 @@ namespace DataAnalysis_Assistant.Services.Python
 
             status.PythonPath = pythonExe;
 
-            // 2. 获取 Python 版本信息
             try
             {
                 var (exitCode, stdout, stderr) = await RunCommandAsync(pythonExe, "--version", 5, cancellationToken);
@@ -80,15 +71,11 @@ namespace DataAnalysis_Assistant.Services.Python
             }
             catch
             {
-                // 忽略探测探测库时的局部异常
             }
 
             return status;
         }
 
-        /// <summary>
-        /// 解析可用的 python 路径
-        /// </summary>
         public static string ResolvePythonExecutable(string? customPath)
         {
             if (!string.IsNullOrWhiteSpace(customPath) && File.Exists(customPath))
@@ -96,7 +83,6 @@ namespace DataAnalysis_Assistant.Services.Python
                 return customPath.Trim();
             }
 
-            // 检查系统 PATH
             string[] candidates = new[] { "python.exe", "python3.exe", "py.exe" };
             string pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
             string[] paths = pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
@@ -176,4 +162,3 @@ namespace DataAnalysis_Assistant.Services.Python
         }
     }
 }
-

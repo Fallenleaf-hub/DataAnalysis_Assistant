@@ -5,9 +5,6 @@ using System.Text;
 
 namespace DataAnalysis_Assistant.Models
 {
-    /// <summary>
-    /// 数据表格单个字段/列的元数据结构信息
-    /// </summary>
     public class ColumnSchemaInfo
     {
         public string Name { get; set; } = string.Empty;
@@ -40,9 +37,6 @@ namespace DataAnalysis_Assistant.Models
         }
     }
 
-    /// <summary>
-    /// 表格数据完整元数据描述模型（践行“数据不动代码动”计算下推规范）
-    /// </summary>
     public class DataSchemaProfile
     {
         public string FilePath { get; set; } = string.Empty;
@@ -55,9 +49,6 @@ namespace DataAnalysis_Assistant.Models
         public List<string> HeadPreviewHeaders { get; set; } = new();
         public List<List<string>> HeadPreviewRows { get; set; } = new();
 
-        /// <summary>
-        /// 针对当前数据格式推荐的 Pandas 极速加载代码
-        /// </summary>
         public string PythonLoadCode
         {
             get
@@ -75,13 +66,10 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
-        /// <summary>
-        /// 生成高质量、高密度的 Markdown 格式 Schema 说明（供系统提示词或工具输出）
-        /// </summary>
         public string ToMarkdown()
         {
             var sb = new StringBuilder();
-            sb.AppendLine($"### 📊 数据表骨架视图：{FileName}");
+            sb.AppendLine($"### 数据表骨架视图：{FileName}");
             sb.AppendLine($"- **文件路径**：`{FilePath}`");
             sb.AppendLine($"- **格式/编码**：{FileType.ToUpperInvariant()} ({EncodingName})");
             sb.AppendLine($"- **总规模**：**{TotalRows:N0} 行 × {TotalColumns} 列**（全量数据已完整就绪于本地磁盘）");
@@ -143,9 +131,7 @@ namespace DataAnalysis_Assistant.Models
             return sb.ToString();
         }
 
-        /// <summary>
         /// 生成紧凑 Prompt 注入块（在 Token 预算敏感时使用）
-        /// </summary>
         public string ToCompactPrompt()
         {
             var sb = new StringBuilder();
@@ -160,4 +146,3 @@ namespace DataAnalysis_Assistant.Models
         }
     }
 }
-

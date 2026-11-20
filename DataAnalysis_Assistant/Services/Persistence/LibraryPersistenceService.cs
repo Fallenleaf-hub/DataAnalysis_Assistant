@@ -13,16 +13,6 @@ using DataAnalysis_Assistant.Models;
 
 namespace DataAnalysis_Assistant.Services.Persistence
 {
-    /// <summary>
-    /// 本地持久化文档库与会话管理引擎（重构版）：
-    /// 采用【文档组自治物理容器】架构：
-    /// document_groups/
-    /// └── {GroupId}/ (对话组随机编号)
-    ///     ├── group.json (对话组元数据)
-    ///     ├── documents/ (本组专属文档元数据)
-    ///     ├── sessions/  (本组专属会话历史)
-    ///     └── scratch/   (本组专属 Python 执行产物与沙盒)
-    /// </summary>
     public class LibraryPersistenceService
     {
         private static readonly Lazy<LibraryPersistenceService> _lazyInstance =
@@ -40,17 +30,12 @@ namespace DataAnalysis_Assistant.Services.Persistence
 
         private readonly SemaphoreSlim _lock = new(1, 1);
 
-        /// <summary>
-        /// 独立自由会话专区 ID（未绑定任何文档的自由对话）
-        /// </summary>
         public const string StandaloneGroupId = "group_standalone";
 
         public string DataDirectory { get; }
         public string GroupsDirectory { get; }
         public string CacheDirectory { get; }
         public string SchemaCacheDirectory => Path.Combine(CacheDirectory, "schema_profiles");
-
-
 
         public LibraryPersistenceService(string? customBasePath = null)
         {
@@ -71,9 +56,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
             EnsureDirectories();
         }
 
-        /// <summary>
-        /// 初始化确保持久化层级目录存在
-        /// </summary>
         public void EnsureDirectories()
         {
             Directory.CreateDirectory(DataDirectory);
@@ -150,9 +132,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
             Directory.CreateDirectory(GetGroupSandboxDirectory(groupId));
         }
 
-        /// <summary>
-        /// 获取指定组专属的 Scratch 沙盒目录（若未指定或为空，回退到 standalone 组专属沙盒）
-        /// </summary>
         public string GetScratchDirectoryForGroup(string? groupId)
         {
             string targetId = string.IsNullOrWhiteSpace(groupId) ? StandaloneGroupId : groupId.Trim();
@@ -160,9 +139,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
             return GetGroupScratchDirectory(targetId);
         }
 
-        /// <summary>
-        /// 获取指定组专属的 agent_sandbox 沙盒目录（若未指定或为空，回退到 standalone 组专属沙盒）
-        /// </summary>
         public string GetSandboxDirectoryForGroup(string? groupId)
         {
             string targetId = string.IsNullOrWhiteSpace(groupId) ? StandaloneGroupId : groupId.Trim();
@@ -174,12 +150,8 @@ namespace DataAnalysis_Assistant.Services.Persistence
 
         #region 1. 文档组 CRUD (DocumentGroup 自治容器)
 
-        /// <summary>
-        /// 快速创建一个新的文档组自治目录并持久化
-        /// </summary>
         public async Task<DocumentGroup> CreateGroupAsync(string groupName, IEnumerable<string>? docIds = null)
         {
-            // 生成带日期与随机哈希的组标识符（如 group_20261020_a1b2c3d4）
             string randomCode = Guid.NewGuid().ToString("N")[..8];
             string groupId = $"group_{DateTime.Now:yyyyMMdd}_{randomCode}";
 
@@ -198,14 +170,12 @@ namespace DataAnalysis_Assistant.Services.Persistence
                 var distinctDocIds = docIds.Distinct().ToList();
                 group.DocumentIds.AddRange(distinctDocIds);
 
-                // 若导入前文档元数据暂存在独立区或其他位置，归拢同步进本组专属 documents/ 目录
                 foreach (var docId in distinctDocIds)
                 {
                     var existingDoc = await LoadDocumentMetaAsync(docId);
                     if (existingDoc != null)
                     {
                         await SaveDocumentMetaInternalAsync(existingDoc, group.GroupId);
-                        // 若原先暂存在 standalone 目录下，清理独立区临时条目
                         string standaloneDocPath = Path.Combine(GetGroupDocumentsDirectory(StandaloneGroupId), $"doc_meta_{docId}.json");
                         if (File.Exists(standaloneDocPath))
                         {
@@ -219,9 +189,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
             return group;
         }
 
-        /// <summary>
-        /// 保存或更新文档组定义（写入对应组目录下的 group.json）
-        /// </summary>
         public async Task SaveGroupAsync(DocumentGroup group)
         {
             if (group == null || string.IsNullOrWhiteSpace(group.GroupId)) return;
@@ -241,9 +208,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
             }
         }
 
-        /// <summary>
-        /// 加载指定 ID 的文档组定义
-        /// </summary>
         public async Task<DocumentGroup?> LoadGroupAsync(string groupId)
         {
             if (string.IsNullOrWhiteSpace(groupId)) return null;
@@ -267,9 +231,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
             }
         }
 
-        /// <summary>
-        /// 获取所有已创建的有效文档组清单（扫描 document_groups 下含 group.json 的目录）
-        /// </summary>
         public async Task<List<DocumentGroup>> ListAllGroupsAsync()
         {
             var list = new List<DocumentGroup>();
@@ -279,7 +240,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
             foreach (string dir in subDirs)
             {
                 string folderName = Path.GetFileName(dir);
-                // 自由对话专区不作为常规文档组在列表中呈现
                 if (string.Equals(folderName, StandaloneGroupId, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
@@ -299,7 +259,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
                     }
                     catch
                     {
-                        // 忽略单个损坏定义
                     }
                 }
             }
@@ -307,9 +266,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
             return list.OrderByDescending(g => g.LastActiveAt).ToList();
         }
 
-        /// <summary>
-        /// 删除指定文档组容器（一键物理彻底删除整组文件夹，包括其 group.json、documents、sessions 与 scratch）
-        /// </summary>
         public async Task<bool> DeleteGroupAsync(string groupId)
         {
             if (string.IsNullOrWhiteSpace(groupId)) return false;
@@ -336,9 +292,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
             }
         }
 
-        /// <summary>
-        /// 将指定文档加入文档组
-        /// </summary>
         public async Task AddDocumentToGroupAsync(string groupId, string docId)
         {
             var group = await LoadGroupAsync(groupId);
@@ -347,7 +300,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
                 group.DocumentIds.Add(docId);
                 group.LastActiveAt = DateTime.Now;
 
-                // 同步将文档元数据同步一份至该组 documents 目录
                 var doc = await LoadDocumentMetaAsync(docId);
                 if (doc != null)
                 {
@@ -358,9 +310,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
             }
         }
 
-        /// <summary>
-        /// 将指定文档从文档组中移除
-        /// </summary>
         public async Task RemoveDocumentFromGroupAsync(string groupId, string docId)
         {
             var group = await LoadGroupAsync(groupId);
@@ -369,7 +318,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
                 group.LastActiveAt = DateTime.Now;
                 await SaveGroupAsync(group);
 
-                // 移除组专属目录下的文档元数据
                 string docMetaPath = Path.Combine(GetGroupDocumentsDirectory(groupId), $"doc_meta_{docId}.json");
                 if (File.Exists(docMetaPath))
                 {
@@ -394,9 +342,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
 
         #region 2. 文档元数据 CRUD (DocumentItem)
 
-        /// <summary>
-        /// 保存或更新文档元数据（可指定归属组，未指定时智能归类到对应组或暂存 standalone）
-        /// </summary>
         public async Task SaveDocumentMetaAsync(DocumentItem doc, string? groupId = null)
         {
             if (doc == null || string.IsNullOrWhiteSpace(doc.Id)) return;
@@ -423,16 +368,12 @@ namespace DataAnalysis_Assistant.Services.Persistence
                 _lock.Release();
             }
 
-            // 同步全局 Schema 探查缓存
             if (doc.SchemaProfile != null)
             {
                 await SaveSchemaProfileCacheAsync(doc.Id, doc.SchemaProfile);
             }
         }
 
-        /// <summary>
-        /// 加载指定 ID 的文档元数据（支持指定组精准读取或全局各组跨目录探查）
-        /// </summary>
         public async Task<DocumentItem?> LoadDocumentMetaAsync(string docId, string? groupId = null)
         {
             if (string.IsNullOrWhiteSpace(docId)) return null;
@@ -484,9 +425,7 @@ namespace DataAnalysis_Assistant.Services.Persistence
             }
         }
 
-        /// <summary>
         /// 获取文档清单（若指定 groupId 则返回组内文档，否则返回全部文档并去重）
-        /// </summary>
         public async Task<List<DocumentItem>> ListAllDocumentsAsync(string? groupId = null)
         {
             var list = new List<DocumentItem>();
@@ -529,9 +468,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
             return list.OrderByDescending(d => d.UploadTime).ToList();
         }
 
-        /// <summary>
-        /// 删除指定文档元数据
-        /// </summary>
         public async Task<bool> DeleteDocumentMetaAsync(string docId, string? groupId = null)
         {
             if (string.IsNullOrWhiteSpace(docId)) return false;
@@ -575,9 +511,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
             }
         }
 
-        /// <summary>
-        /// 核验文档对应的物理源文件是否存在，并设置 IsMissing 状态
-        /// </summary>
         public bool CheckDocumentFileExists(DocumentItem doc)
         {
             if (doc == null) return false;
@@ -590,9 +523,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
 
         #region 3. 会话存储与组内归属 (ChatSessionItem)
 
-        /// <summary>
-        /// 保存或增量更新会话（自动存储至其 BindGroupId 所属的 sessions/ 目录中）
-        /// </summary>
         public async Task SaveSessionAsync(ChatSessionItem session)
         {
             if (session == null || string.IsNullOrWhiteSpace(session.Id)) return;
@@ -610,7 +540,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
             {
                 await File.WriteAllTextAsync(filePath, json);
 
-                // 若原先存在于其他组目录（例如从 standalone 绑定到特定组），清理旧路径文件，杜绝冗余孤立会话
                 if (Directory.Exists(GroupsDirectory))
                 {
                     foreach (var dir in Directory.GetDirectories(GroupsDirectory))
@@ -630,9 +559,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
             }
         }
 
-        /// <summary>
-        /// 加载指定 ID 的会话（支持指定组快速加载或全局各组跨目录探查）
-        /// </summary>
         public async Task<ChatSessionItem?> LoadSessionAsync(string sessionId, string? groupId = null)
         {
             if (string.IsNullOrWhiteSpace(sessionId)) return null;
@@ -675,9 +601,7 @@ namespace DataAnalysis_Assistant.Services.Persistence
             }
         }
 
-        /// <summary>
         /// 获取会话清单（若指定 groupId 则返回组内会话，否则返回全部会话）
-        /// </summary>
         public async Task<List<ChatSessionItem>> ListAllSessionsAsync(string? groupId = null)
         {
             var list = new List<ChatSessionItem>();
@@ -718,18 +642,12 @@ namespace DataAnalysis_Assistant.Services.Persistence
             return list.OrderByDescending(s => s.LastActiveAt).ToList();
         }
 
-        /// <summary>
-        /// 直接检索指定文档组专属目录下的所有关联历史会话（O(1) 高效组内定位）
-        /// </summary>
         public async Task<List<ChatSessionItem>> GetSessionsByGroupIdAsync(string groupId)
         {
             if (string.IsNullOrWhiteSpace(groupId)) return new List<ChatSessionItem>();
             return await ListAllSessionsAsync(groupId);
         }
 
-        /// <summary>
-        /// 删除指定会话
-        /// </summary>
         public async Task<bool> DeleteSessionAsync(string sessionId, string? groupId = null)
         {
             if (string.IsNullOrWhiteSpace(sessionId)) return false;
@@ -967,7 +885,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
                 int deletedCount = 0;
                 DateTime threshold = DateTime.Now - olderThan;
 
-                // 1. 清理全局 CacheDirectory
                 if (Directory.Exists(CacheDirectory))
                 {
                     foreach (var file in Directory.GetFiles(CacheDirectory, "*", SearchOption.AllDirectories))
@@ -985,7 +902,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
                     }
                 }
 
-                // 2. 清理各组专属 scratch 目录下的临时非产物文件 (保留 agent_sandbox 中的图表)
                 if (Directory.Exists(GroupsDirectory))
                 {
                     foreach (var groupDir in Directory.GetDirectories(GroupsDirectory))
@@ -1021,7 +937,6 @@ namespace DataAnalysis_Assistant.Services.Persistence
         #endregion
 
         #region 7. 损坏熔断辅助
-
 
         private static T? SafeDeserializeOrQuarantine<T>(string filePath, string json) where T : class
         {

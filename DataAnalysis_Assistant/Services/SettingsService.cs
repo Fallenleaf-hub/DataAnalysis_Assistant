@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using DataAnalysis_Assistant.Models;
 
@@ -29,7 +31,7 @@ namespace DataAnalysis_Assistant.Services
                     var settings = JsonSerializer.Deserialize<AppSettings>(json);
                     if (settings != null)
                     {
-                        return settings;
+                        return NormalizeSettings(settings);
                     }
                 }
                 else if (File.Exists(LegacySettingsFilePath))
@@ -38,6 +40,7 @@ namespace DataAnalysis_Assistant.Services
                     var settings = JsonSerializer.Deserialize<AppSettings>(json);
                     if (settings != null)
                     {
+                        NormalizeSettings(settings);
                         SaveSettings(settings);
                         return settings;
                     }
@@ -45,10 +48,44 @@ namespace DataAnalysis_Assistant.Services
             }
             catch
             {
-                // 加载失败时使用默认配置
             }
 
-            return new AppSettings();
+            return NormalizeSettings(new AppSettings());
+        }
+
+        private static AppSettings NormalizeSettings(AppSettings settings)
+        {
+            settings.DisabledSkills ??= new List<string>();
+            settings.CustomChartLanguages ??= new List<ChartLanguageOption>();
+            settings.CustomChartColorThemes ??= new List<ChartColorThemeOption>();
+
+            settings.CustomChartLanguages = settings.CustomChartLanguages
+                .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Id) && !string.IsNullOrWhiteSpace(x.Name))
+                .Select(x => new ChartLanguageOption
+                {
+                    Id = x.Id.Trim(),
+                    Name = x.Name.Trim(),
+                    PromptInstruction = x.PromptInstruction?.Trim() ?? string.Empty,
+                    IsBuiltIn = false
+                })
+                .ToList();
+
+            settings.CustomChartColorThemes = settings.CustomChartColorThemes
+                .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Id) && !string.IsNullOrWhiteSpace(x.Name))
+                .Select(x => new ChartColorThemeOption
+                {
+                    Id = x.Id.Trim(),
+                    Name = x.Name.Trim(),
+                    PaletteHexColors = x.PaletteHexColors?.Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim()).ToList() ?? new List<string>(),
+                    StylePrompt = x.StylePrompt?.Trim() ?? string.Empty,
+                    IsBuiltIn = false
+                })
+                .ToList();
+
+            settings.SelectedChartLanguageId = ThemePresetCatalog.ResolveSelectedLanguage(settings).Id;
+            settings.SelectedChartColorThemeId = ThemePresetCatalog.ResolveSelectedColorTheme(settings).Id;
+
+            return settings;
         }
 
         public static void SaveSettings(AppSettings settings)
@@ -69,9 +106,7 @@ namespace DataAnalysis_Assistant.Services
             }
             catch
             {
-                // 忽略写入异常或可记录日志
             }
         }
     }
 }
-

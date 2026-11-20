@@ -16,10 +16,6 @@ using Xceed.Words.NET;
 
 namespace DataAnalysis_Assistant.Services.Tools
 {
-    /// <summary>
-    /// 非结构化与结构化文档精准调取工具 (Precision Chunking & Ground-Truth Reader)
-    /// 为模型提供大纲索引定位、原文字节级无损提取与高精度关键词检索能力，杜绝条款截断失真
-    /// </summary>
     public class DocumentReaderTool : IAgentTool
     {
         private readonly DataSchemaProfiler _profiler = new();
@@ -93,7 +89,6 @@ namespace DataAnalysis_Assistant.Services.Tools
             string? resolvedPath = ResolveFilePath(filePath);
             if (string.IsNullOrEmpty(resolvedPath) || !File.Exists(resolvedPath))
             {
-                // 物理文件失效防御：尝试从本地持久化文档库寻找元数据缓存
                 var allDocs = await LibraryPersistenceService.Instance.ListAllDocumentsAsync();
                 string inputFileName = Path.GetFileName(filePath);
                 var matched = allDocs.FirstOrDefault(d =>
@@ -106,9 +101,9 @@ namespace DataAnalysis_Assistant.Services.Tools
                 if (matched != null && !string.IsNullOrWhiteSpace(matched.ExtractedText))
                 {
                     return ToolExecutionResult.Ok(
-                        $"⚠️【缓存降级模式】：源物理文件已移动或未找到（路径: '{filePath}'）。系统已自动从本地持久化文档库调取历史提取文本缓存以保障分析连续性：\n\n" +
+                        $"【缓存降级模式】：源物理文件已移动或未找到（路径: '{filePath}'）。系统已自动从本地持久化文档库调取历史提取文本缓存以保障分析连续性：\n\n" +
                         $"【缓存文档: {matched.Name}】\n{matched.ExtractedText}\n\n" +
-                        $"> 建议：若需重新定位该文件的最新物理路径，可在左侧【文档库】中点击【🔄 重新定位】。");
+                        $"> 建议：若需重新定位该文件的最新物理路径，可在左侧【文档库】中点击【重新定位】。");
                 }
 
                 return ToolExecutionResult.Failed($"找不到指定文档：'{filePath}'。物理文件不存在且本地无可用缓存。");
@@ -140,7 +135,6 @@ namespace DataAnalysis_Assistant.Services.Tools
             if (string.IsNullOrWhiteSpace(input)) return null;
             if (File.Exists(input)) return Path.GetFullPath(input);
 
-            // 若提供了相对路径或纯文件名，尝试从已注册文档列表中匹配
             if (_getAvailableFilePaths != null)
             {
                 var files = _getAvailableFilePaths();
@@ -227,7 +221,6 @@ namespace DataAnalysis_Assistant.Services.Tools
             }
             else
             {
-                // TXT / CSV / Markdown
                 var lines = await File.ReadAllLinesAsync(path, ct);
                 sb.AppendLine($"- 总行数: {lines.Length} 行");
                 sb.AppendLine("#### 章节结构提要：");
@@ -252,7 +245,7 @@ namespace DataAnalysis_Assistant.Services.Tools
                 }
             }
 
-            sb.AppendLine("\n> 💡 提示：可使用 action='read_section' 并指定具体页码、章节标题或工作表名提取完整原文；或使用 action='search' 查找关键词。");
+            sb.AppendLine("\n> 提示：可使用 action='read_section' 并指定具体页码、章节标题或工作表名提取完整原文；或使用 action='search' 查找关键词。");
             return sb.ToString();
         }
 
@@ -269,7 +262,6 @@ namespace DataAnalysis_Assistant.Services.Tools
             if (ext == ".pdf")
             {
                 using var pdf = PdfDocument.Open(path);
-                // 尝试将 target 解析为页码
                 if (int.TryParse(target, out int pageNum) && pageNum >= 1 && pageNum <= pdf.NumberOfPages)
                 {
                     var page = pdf.GetPage(pageNum);
@@ -278,7 +270,6 @@ namespace DataAnalysis_Assistant.Services.Tools
                 }
                 else
                 {
-                    // 若不是纯数字，按章节标题搜寻所在页并提取该页全文字
                     int matchedPage = -1;
                     for (int p = 1; p <= pdf.NumberOfPages; p++)
                     {
@@ -325,7 +316,6 @@ namespace DataAnalysis_Assistant.Services.Tools
 
                     if (capturing)
                     {
-                        // 遇到下一个同级或高级标题则停止
                         bool isNextHeading = (p.StyleId != null && p.StyleId.StartsWith("Heading", StringComparison.OrdinalIgnoreCase)) ||
                                              (text.Length < 50 && Regex.IsMatch(text, @"^第[一二三四五六七八九十0-9]+[章节篇条]"));
 
@@ -348,7 +338,6 @@ namespace DataAnalysis_Assistant.Services.Tools
             }
             else if (ext is ".xlsx" or ".xls")
             {
-                // 读取工作表
                 using var pkg = new ExcelPackage(new FileInfo(path));
                 var ws = pkg.Workbook.Worksheets.FirstOrDefault(s => s.Name.Equals(target, StringComparison.OrdinalIgnoreCase))
                          ?? pkg.Workbook.Worksheets.FirstOrDefault();
@@ -376,7 +365,6 @@ namespace DataAnalysis_Assistant.Services.Tools
             }
             else
             {
-                // TXT / Markdown
                 var lines = await File.ReadAllLinesAsync(path, ct);
                 sb.AppendLine($"#### 提取文档目标内容 '{target}'：\n");
                 bool capturing = false;

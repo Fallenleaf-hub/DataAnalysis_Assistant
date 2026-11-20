@@ -3,9 +3,6 @@ using System.Collections.Generic;
 
 namespace DataAnalysis_Assistant.Models
 {
-    /// <summary>
-    /// Python 本地环境检测状态
-    /// </summary>
     public class PythonEnvironmentStatus
     {
         public bool IsInstalled { get; set; }
@@ -18,36 +15,22 @@ namespace DataAnalysis_Assistant.Models
         public bool HasOpenPyXl { get; set; }
         public string? ErrorMessage { get; set; }
 
-        /// <summary>
-        /// 是否具备基础数据分析与绘图环境 (pandas + matplotlib + numpy)
-        /// </summary>
         public bool IsDataAnalysisReady => IsInstalled && HasPandas && HasMatplotlib && HasNumpy;
     }
 
-    /// <summary>
     /// 代码风险等级
-    /// </summary>
     public enum CodeRiskLevel
     {
-        /// <summary>
         /// 安全：纯数据分析与绘图 (pandas, numpy, matplotlib 等只读计算)
-        /// </summary>
         Safe,
 
-        /// <summary>
         /// 中度风险：普通文件写入或依赖网络
-        /// </summary>
         Moderate,
 
-        /// <summary>
-        /// 高危：操作系统级破坏性指令、格式化、修改注册表、系统命令注入等
-        /// </summary>
         HighRisk
     }
 
-    /// <summary>
     /// 安全刹车检查结果
-    /// </summary>
     public class SafetyCheckResult
     {
         public CodeRiskLevel Level { get; set; } = CodeRiskLevel.Safe;
@@ -56,9 +39,6 @@ namespace DataAnalysis_Assistant.Models
         public List<string> DetectedKeywords { get; set; } = new();
     }
 
-    /// <summary>
-    /// Python 代码执行选项
-    /// </summary>
     public class PythonExecutionOptions
     {
         public int TimeoutSeconds { get; set; } = 60;
@@ -68,10 +48,6 @@ namespace DataAnalysis_Assistant.Models
         public string OutputArtifactsDirectory { get; set; } = string.Empty;
         public bool IsHeavyWork { get; set; } = false;
 
-        /// <summary>
-        /// 目标执行所属的文档组/对话组唯一编号（用于动态定位专属 scratch 隔离沙盒）
-        /// </summary>
         public string? TargetGroupId { get; set; }
     }
 }
-

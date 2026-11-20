@@ -7,9 +7,6 @@ using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace DataAnalysis_Assistant.Models
 {
-    /// <summary>
-    /// 数据分析生成的图表产物模型（PNG/SVG/JPG）
-    /// </summary>
     public class ChartArtifactItem : INotifyPropertyChanged
     {
         private string _title = string.Empty;
@@ -21,9 +18,6 @@ namespace DataAnalysis_Assistant.Models
 
         public string Id { get; set; } = Guid.NewGuid().ToString("N");
 
-        /// <summary>
-        /// 图表文件绝对路径
-        /// </summary>
         public string FilePath
         {
             get => _filePath;
@@ -42,15 +36,9 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
-        /// <summary>
-        /// 文件名称
-        /// </summary>
         [JsonIgnore]
         public string FileName => string.IsNullOrEmpty(_filePath) ? string.Empty : Path.GetFileName(_filePath);
 
-        /// <summary>
-        /// 图表业务标题（例如：销售增长多维对比图）
-        /// </summary>
         public string Title
         {
             get => string.IsNullOrWhiteSpace(_title) ? FileName : _title;
@@ -64,20 +52,11 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
-        /// <summary>
-        /// 生成时间戳
-        /// </summary>
         public DateTime CreatedAt { get; set; } = DateTime.Now;
 
-        /// <summary>
-        /// 格式化时间
-        /// </summary>
         [JsonIgnore]
         public string FormattedTime => CreatedAt.ToString("HH:mm:ss");
 
-        /// <summary>
-        /// 文件大小（字节）
-        /// </summary>
         [JsonIgnore]
         public long FileSize
         {
@@ -95,9 +74,6 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
-        /// <summary>
-        /// 人类可读格式化文件大小
-        /// </summary>
         [JsonIgnore]
         public string FormattedSize
         {
@@ -110,9 +86,6 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
-        /// <summary>
-        /// 本地物理文件是否存在（当用户一键清理 scratch 缓存时可能为 false）
-        /// </summary>
         [JsonIgnore]
         public bool IsFileExisting
         {
@@ -129,15 +102,9 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
-        /// <summary>
-        /// 产物文件是否已清理或丢失
-        /// </summary>
         [JsonIgnore]
         public bool IsMissing => !IsFileExisting;
 
-        /// <summary>
-        /// 用于 XAML 图片绑定的绝对文件 Uri
-        /// </summary>
         [JsonIgnore]
         public Uri? ImageUri
         {
@@ -155,9 +122,6 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
-        /// <summary>
-        /// 内存缓存的 BitmapImage，加速 WinUI 3 渲染
-        /// </summary>
         [JsonIgnore]
         public BitmapImage? Bitmap
         {
@@ -184,9 +148,6 @@ namespace DataAnalysis_Assistant.Models
             }
         }
 
-        /// <summary>
-        /// 是否已固定/沉淀到【可视化看板】
-        /// </summary>
         public bool IsPinnedToDashboard
         {
             get => _isPinnedToDashboard;

@@ -9,40 +9,27 @@ namespace DataAnalysis_Assistant.Models
         public double Temperature { get; set; } = 0.7;
         public string SystemPrompt { get; set; } = "你是一名专业的数据分析师与文档伴读助手，善于从上传的文档中提炼关键数据、输出格式化 Markdown 表格与分析结论。";
 
-        /// <summary>
-        /// 自定义 Python 解释器路径（为空时自动探测环境变量 PATH）
-        /// </summary>
         public string PythonPath { get; set; } = string.Empty;
 
-        /// <summary>
         /// Python 安全执行模式：0: 严格确认(每次确认), 1: 智能拦截(仅高危操作确认), 2: 自动放行
-        /// </summary>
         public int PythonSecurityMode { get; set; } = 1;
 
-        /// <summary>
-        /// 单次 Python 代码执行超时时间（秒，默认 60 秒，有效范围 30~120 秒）
-        /// </summary>
         public int PythonTimeoutSeconds { get; set; } = 60;
 
-        /// <summary>
-        /// 用户禁用的自定义技能名称列表
-        /// </summary>
         public System.Collections.Generic.List<string> DisabledSkills { get; set; } = new();
 
-        /// <summary>
-        /// 自定义技能根目录路径（若为空则使用默认应用技能目录与系统通用目录）
-        /// </summary>
         public string CustomSkillsPath { get; set; } = string.Empty;
 
-        /// <summary>
-        /// Agent 最大自主探索决策轮次（默认 12 轮，有效范围 6~20）
-        /// </summary>
         public int AgentMaxIterations { get; set; } = 12;
 
-        /// <summary>
-        /// 是否在达到轮次上限时自动执行终轮强制研报汇总（默认开启，关闭后直接轻量总结以节省 Token）
-        /// </summary>
         public bool EnableAutoFinalSynthesis { get; set; } = true;
+
+        public string SelectedChartLanguageId { get; set; } = ThemePresetCatalog.DefaultLanguageId;
+
+        public string SelectedChartColorThemeId { get; set; } = ThemePresetCatalog.DefaultColorThemeId;
+
+        public System.Collections.Generic.List<ChartLanguageOption> CustomChartLanguages { get; set; } = new();
+
+        public System.Collections.Generic.List<ChartColorThemeOption> CustomChartColorThemes { get; set; } = new();
     }
 }
-

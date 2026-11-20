@@ -10,10 +10,6 @@ using DataAnalysis_Assistant.Models;
 
 namespace DataAnalysis_Assistant.Services.Python
 {
-    /// <summary>
-    /// 受控 Python 代码执行引擎
-    /// 支持进程树强隔离、超时中断、防 Token 爆炸输出截断与图表产物捕获
-    /// </summary>
     public class PythonExecutionService
     {
         private readonly PythonEnvironmentService _envService;
@@ -23,13 +19,6 @@ namespace DataAnalysis_Assistant.Services.Python
             _envService = envService ?? new PythonEnvironmentService();
         }
 
-        /// <summary>
-        /// 执行给定的 Python 代码并捕获输出与产物
-        /// </summary>
-        /// <param name="code">Python 代码字符串</param>
-        /// <param name="customPythonPath">可选的自定义 Python 解释器路径</param>
-        /// <param name="options">执行选项配置</param>
-        /// <param name="cancellationToken">取消令牌（支持用户就地打断）</param>
         public async Task<ToolExecutionResult> ExecuteCodeAsync(
             string code,
             string? customPythonPath = null,
@@ -43,21 +32,18 @@ namespace DataAnalysis_Assistant.Services.Python
 
             options ??= new PythonExecutionOptions();
 
-            // 1. 寻找可用 Python 解释器
             string pythonExe = PythonEnvironmentService.ResolvePythonExecutable(customPythonPath);
             if (string.IsNullOrEmpty(pythonExe))
             {
                 return ToolExecutionResult.CreateFailure("执行失败：未在系统环境变量 PATH 或指定路径中找到 python.exe。请检查 Python 安装。");
             }
 
-            // 2. 准备执行沙盒与产物收容目录 (遵循对话组自治 scratch 隔离纪律，统一收容至对应组专属 scratch)
             string scratchDir = LocateOrInitScratchDirectory(options.TargetGroupId);
             string sandboxDir = LocateOrInitSandboxDirectory(options.TargetGroupId);
 
             string scriptFileName = $"agent_exec_{Guid.NewGuid():N}.py";
             string scriptFilePath = Path.Combine(sandboxDir, scriptFileName);
 
-            // 3. 记录执行前 agent_sandbox 与 scratch 根目录内的已有图表文件，以便精确捕捉新生成的图表资产 (全量路径标准化，仅限顶层扫描)
             var existingFiles = new HashSet<string>(
                 Directory.GetFiles(sandboxDir, "*.*", SearchOption.TopDirectoryOnly).Select(Path.GetFullPath),
                 StringComparer.OrdinalIgnoreCase);
@@ -66,10 +52,8 @@ namespace DataAnalysis_Assistant.Services.Python
                 Directory.GetFiles(scratchDir, "*.*", SearchOption.TopDirectoryOnly).Select(Path.GetFullPath),
                 StringComparer.OrdinalIgnoreCase);
 
-            // 4. 对代码进行智能预处理：注入中文字体补丁、Agg离线渲染后端与图表自动落地保护钩子
             var (processedCode, headerLineCount) = PreprocessPythonCode(code, sandboxDir);
 
-            // 5. 将代码写入临时执行脚本 (UTF-8 无 BOM)
             try
             {
                 await File.WriteAllTextAsync(scriptFilePath, processedCode, new UTF8Encoding(false), cancellationToken);
@@ -89,7 +73,6 @@ namespace DataAnalysis_Assistant.Services.Python
                 var psi = new ProcessStartInfo
                 {
                     FileName = pythonExe,
-                    // -u: 无缓冲输出，保证实时性与捕获稳定性
                     Arguments = $"-u \"{scriptFilePath}\"",
                     WorkingDirectory = !string.IsNullOrEmpty(options.WorkingDirectory) && Directory.Exists(options.WorkingDirectory)
                         ? options.WorkingDirectory
@@ -102,7 +85,6 @@ namespace DataAnalysis_Assistant.Services.Python
                     StandardErrorEncoding = Encoding.UTF8
                 };
 
-                // 设置环境变量，指定 Matplotlib 字体与输出偏好
                 psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
                 psi.EnvironmentVariables["AGENT_SCRATCH_DIR"] = scratchDir;
 
@@ -164,7 +146,6 @@ namespace DataAnalysis_Assistant.Services.Python
             }
             finally
             {
-                // 清理临时脚本文件
                 try
                 {
                     if (File.Exists(scriptFilePath))
@@ -202,7 +183,6 @@ namespace DataAnalysis_Assistant.Services.Python
 
             try
             {
-                // 仅扫描 agent_sandbox 目录顶层（消除递归遍历整棵树的累积开销），彻底忽略 scratch 根目录下的无编号原图
                 var currentFiles = Directory.GetFiles(sandboxDir, "*.*", SearchOption.TopDirectoryOnly);
                 foreach (var file in currentFiles)
                 {
@@ -224,7 +204,6 @@ namespace DataAnalysis_Assistant.Services.Python
             string rawStdout = stdoutBuilder.ToString().TrimEnd();
             string rawStderr = stderrBuilder.ToString().TrimEnd();
 
-            // 双保险捕获：解析 stdout 中的 [ARTIFACT_CAPTURED]: <path> 标记 (同样强制标准化与去重)
             try
             {
                 var capturedMatches = System.Text.RegularExpressions.Regex.Matches(
@@ -242,15 +221,12 @@ namespace DataAnalysis_Assistant.Services.Python
             {
             }
 
-            // 三保险兜底收容：若模型使用面向对象未拦截手段或其他库（如 PIL、cv2、表格导出等）将产物直接写入工作目录 (scratch 根目录)，
-            // 自动将其迁移/镜像至 agent_sandbox 目录并生成唯一编号，确保 100% 捕获入画廊与卡片，绝不漏图
             try
             {
                 var currentScratchRootFiles = Directory.GetFiles(scratchDir, "*.*", SearchOption.TopDirectoryOnly);
                 foreach (var file in currentScratchRootFiles)
                 {
                     string fullPath = Path.GetFullPath(file);
-                    // 仅收容执行期间新生成的文件，严格排除原有文件与临时脚本
                     if (!existingScratchRootFiles.Contains(fullPath))
                     {
                         string ext = Path.GetExtension(fullPath).ToLowerInvariant();
@@ -279,7 +255,6 @@ namespace DataAnalysis_Assistant.Services.Python
             {
             }
 
-            // 解析 stderr 中的 [ARTIFACT_COPY_WARNING] 告警信息
             var warningBuilder = new StringBuilder();
             if (rawStderr.Contains("[ARTIFACT_COPY_WARNING]"))
             {
@@ -296,9 +271,8 @@ namespace DataAnalysis_Assistant.Services.Python
             // 6. 执行上下文截断保护 (Compaction Gate: 防止 10 万行 print 打爆 Token)
             string safeStdout = TruncateOutput(rawStdout, options);
 
-            // 7. 组装与格式化错误信息（精准行号换算与 SyntaxError 标记注入）
-            string errorMsg = string.IsNullOrWhiteSpace(rawStderr) 
-                ? $"Python 进程异常退出 (Exit Code: {exitCode})" 
+            string errorMsg = string.IsNullOrWhiteSpace(rawStderr)
+                ? $"Python 进程异常退出 (Exit Code: {exitCode})"
                 : rawStderr;
 
             if (exitCode != 0 && !string.IsNullOrWhiteSpace(rawStderr))
@@ -306,7 +280,6 @@ namespace DataAnalysis_Assistant.Services.Python
                 // 使用行首多行正则识别 SyntaxError/IndentationError，避免 print 误伤
                 if (System.Text.RegularExpressions.Regex.IsMatch(rawStderr, @"^\s*(Syntax|Indentation)Error:", System.Text.RegularExpressions.RegexOptions.Multiline))
                 {
-                    // 仅精准锚定属于当前临时脚本的文件帧进行行号换算，绝不改写第三方库或 pandas 内部帧
                     string escapedPath = System.Text.RegularExpressions.Regex.Escape(scriptFilePath);
                     string pattern = $@"File ""{escapedPath}"", line (\d+)";
 
@@ -326,7 +299,6 @@ namespace DataAnalysis_Assistant.Services.Python
                 }
             }
 
-            // 8. 消除假阴性与假阳性（超时部分产物警示）
             bool hasFatalError = errorMsg.Contains("[ERR_TYPE:SyntaxError]") ||
                                  errorMsg.Contains("[ERR_TYPE:FileNotFound]") ||
                                  errorMsg.Contains("[ERR_TYPE:ModuleNotFound]");
@@ -336,12 +308,11 @@ namespace DataAnalysis_Assistant.Services.Python
                 string outputSummary = string.IsNullOrWhiteSpace(safeStdout) ? "[代码执行成功，产物已就绪]" : safeStdout;
                 if (exitCode != 0)
                 {
-                    // 消除假阳性：诚实警示部分产物，杜绝在残缺数据上自信收敛
-                    outputSummary += $"\n\n⚠️ 脚本执行超时或非正常终止 (ExitCode: {exitCode})，仅捕获到部分产物（共 {generatedArtifacts.Count} 个），请核对是否已覆盖全部分析目标或考虑降采样/分步执行。";
+                    outputSummary += $"\n\n[警告] 脚本执行超时或非正常终止 (ExitCode: {exitCode})，仅捕获到部分产物（共 {generatedArtifacts.Count} 个），请核对是否已覆盖全部分析目标或考虑降采样/分步执行。";
                 }
                 if (warningBuilder.Length > 0)
                 {
-                    outputSummary += "\n\n⚠️ 产物警告:\n" + warningBuilder.ToString().Trim();
+                    outputSummary += "\n\n[产物警告]:\n" + warningBuilder.ToString().Trim();
                 }
                 return ToolExecutionResult.CreateSuccess(outputSummary, generatedArtifacts);
             }
@@ -351,9 +322,6 @@ namespace DataAnalysis_Assistant.Services.Python
             }
         }
 
-        /// <summary>
-        /// 上下文保护截断机制：超过上限时截取头尾并附加提示
-        /// </summary>
         public static string TruncateOutput(string output, PythonExecutionOptions options)
         {
             if (string.IsNullOrEmpty(output)) return string.Empty;
@@ -369,7 +337,6 @@ namespace DataAnalysis_Assistant.Services.Python
                 return output;
             }
 
-            // 截取前 40 行与后 15 行
             int headCount = Math.Min(40, lines.Length);
             int tailCount = Math.Min(15, lines.Length - headCount);
 
@@ -394,11 +361,6 @@ namespace DataAnalysis_Assistant.Services.Python
             return sb.ToString();
         }
 
-        /// <summary>
-        /// 定位或初始化 scratch 临时资产收容目录。
-        /// 遵循对话组自治 scratch 隔离纪律：若提供 groupId，则路由至该组专属 scratch 目录；
-        /// 若未提供，则路由至 group_standalone 自由会话组专属 scratch 目录。
-        /// </summary>
         public static string LocateOrInitScratchDirectory(string? groupId = null)
         {
             try
@@ -415,9 +377,6 @@ namespace DataAnalysis_Assistant.Services.Python
             }
         }
 
-        /// <summary>
-        /// 定位或初始化 agent_sandbox 目录（即对应组的 scratch/agent_sandbox）
-        /// </summary>
         public static string LocateOrInitSandboxDirectory(string? groupId = null)
         {
             try
@@ -433,11 +392,6 @@ namespace DataAnalysis_Assistant.Services.Python
             }
         }
 
-        /// <summary>
-        /// 严格校验给定文件路径是否位于合规的 agent_sandbox 目录内（杜绝 scratch 根目录无编号临时文件或外部路径）。
-        /// 若提供了 targetGroupId，则严格校验是否位于该组专属的 scratch/agent_sandbox 目录内；
-        /// 若未提供 targetGroupId，则只要路径规范化后位于任意有效 document_groups/{groupId}/scratch/agent_sandbox 目录或通用 agent_sandbox 目录即可。
-        /// </summary>
         public static bool IsInSandboxDirectory(string? filePath, string? targetGroupId = null)
         {
             if (string.IsNullOrWhiteSpace(filePath)) return false;
@@ -452,7 +406,6 @@ namespace DataAnalysis_Assistant.Services.Python
                     return fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
                 }
 
-                // 未指定组时的通用判定：检查标准化路径中是否包含 "\scratch\agent_sandbox\" 或以此结尾
                 string normalized = fullPath.Replace('/', '\\');
                 string sep = Path.DirectorySeparatorChar.ToString();
                 return normalized.Contains($"{sep}scratch{sep}agent_sandbox{sep}", StringComparison.OrdinalIgnoreCase) ||
@@ -465,15 +418,11 @@ namespace DataAnalysis_Assistant.Services.Python
             }
         }
 
-        /// <summary>
-        /// 预处理 Python 执行脚本：自动注入中文字体防乱码补丁、Agg离线后端阻断阻塞式 plt.show()，并自动拦截 savefig 镜像及兜底导出未保存的 Figure
-        /// </summary>
         public static (string FullCode, int HeaderLineCount) PreprocessPythonCode(string rawCode, string outputPlotDir)
         {
             var sb = new StringBuilder();
             string safePlotDir = outputPlotDir.Replace("\\", "/");
 
-            // 1. 顶部无感知注入结构化异常钩子 (精确产出 ERR_TYPE 结构化标记)
             sb.AppendLine("# === [DataAnalysis_Assistant Auto Plot & Font Header] ===");
             sb.AppendLine("import sys");
             sb.AppendLine("def _data_analysis_excepthook(exctype, value, tb):");
@@ -505,12 +454,30 @@ namespace DataAnalysis_Assistant.Services.Python
             sb.AppendLine();
             sb.AppendLine("# 图表产物自动镜像捕获代理");
             sb.AppendLine("try:");
-            sb.AppendLine("    import os, shutil, uuid, time, matplotlib.figure");
+            sb.AppendLine("    import os, re, shutil, uuid, time, matplotlib.figure");
             sb.AppendLine($"    _target_scratch = r\"\"\"{safePlotDir}\"\"\"");
             sb.AppendLine("    os.makedirs(_target_scratch, exist_ok=True)");
             sb.AppendLine("    _orig_fig_savefig = matplotlib.figure.Figure.savefig");
             sb.AppendLine("    _orig_plt_savefig = plt.savefig");
             sb.AppendLine("    _in_savefig_interceptor = False");
+            sb.AppendLine("    _cjk_pattern = re.compile(r'[\\u4e00-\\u9fff\\u3000-\\u303f\\uff00-\\uffef]')");
+            sb.AppendLine("    _cjk_font_list = ['Microsoft YaHei', 'SimHei', 'SimSun', 'Segoe UI', 'DejaVu Sans']");
+            sb.AppendLine("    def _ensure_cjk_fonts_before_save(fig_obj):");
+            sb.AppendLine("        try:");
+            sb.AppendLine("            cur = plt.rcParams.get('font.sans-serif', [])");
+            sb.AppendLine("            cur_list = [cur] if isinstance(cur, str) else list(cur)");
+            sb.AppendLine("            plt.rcParams['font.sans-serif'] = _cjk_font_list + [f for f in cur_list if f not in _cjk_font_list]");
+            sb.AppendLine("            plt.rcParams['axes.unicode_minus'] = False");
+            sb.AppendLine("            if fig_obj is not None:");
+            sb.AppendLine("                from matplotlib.text import Text");
+            sb.AppendLine("                for ax in fig_obj.get_axes():");
+            sb.AppendLine("                    for lbl in list(ax.get_xticklabels()) + list(ax.get_yticklabels()):");
+            sb.AppendLine("                        lbl.set_fontfamily(_cjk_font_list)");
+            sb.AppendLine("                for txt in fig_obj.findobj(Text):");
+            sb.AppendLine("                    if _cjk_pattern.search(txt.get_text() or ''):");
+            sb.AppendLine("                        txt.set_fontfamily(_cjk_font_list)");
+            sb.AppendLine("        except Exception:");
+            sb.AppendLine("            pass");
             sb.AppendLine("    def _do_mirror_artifact(fname):");
             sb.AppendLine("        if not fname: return");
             sb.AppendLine("        try:");
@@ -538,6 +505,8 @@ namespace DataAnalysis_Assistant.Services.Python
             sb.AppendLine("        was_in = _in_savefig_interceptor");
             sb.AppendLine("        _in_savefig_interceptor = True");
             sb.AppendLine("        try:");
+            sb.AppendLine("            if not was_in:");
+            sb.AppendLine("                _ensure_cjk_fonts_before_save(self)");
             sb.AppendLine("            res = _orig_fig_savefig(self, *args, **kwargs)");
             sb.AppendLine("            if not was_in:");
             sb.AppendLine("                fname = args[0] if len(args) > 0 else kwargs.get('fname', None)");
@@ -550,6 +519,8 @@ namespace DataAnalysis_Assistant.Services.Python
             sb.AppendLine("        was_in = _in_savefig_interceptor");
             sb.AppendLine("        _in_savefig_interceptor = True");
             sb.AppendLine("        try:");
+            sb.AppendLine("            if not was_in:");
+            sb.AppendLine("                _ensure_cjk_fonts_before_save(plt.gcf())");
             sb.AppendLine("            res = _orig_plt_savefig(*args, **kwargs)");
             sb.AppendLine("            if not was_in:");
             sb.AppendLine("                fname = args[0] if len(args) > 0 else kwargs.get('fname', None)");
@@ -576,4 +547,3 @@ namespace DataAnalysis_Assistant.Services.Python
         }
     }
 }
-

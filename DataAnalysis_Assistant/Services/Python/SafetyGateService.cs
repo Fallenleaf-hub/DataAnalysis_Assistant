@@ -5,13 +5,10 @@ using DataAnalysis_Assistant.Models;
 
 namespace DataAnalysis_Assistant.Services.Python
 {
-    /// <summary>
     /// Python 代码执行安全刹车服务
     /// 提供静态特征扫描与风险阻断，防止潜在恶意代码执行
-    /// </summary>
     public class SafetyGateService
     {
-        // 高危黑名单正则匹配项（系统命令、文件删除、注册表、底层系统句柄）
         private static readonly (string Pattern, string Description)[] HighRiskRules = new[]
         {
             (@"\bos\.system\b", "调用操作系统原生底层指令 (os.system)"),
@@ -33,10 +30,7 @@ namespace DataAnalysis_Assistant.Services.Python
             (@"\bopen\(.+['""][wa\+]['""]\)", "向外部路径写入/覆盖文件")
         };
 
-        /// <summary>
         /// 对拟执行的 Python 代码进行静态安全性评估
-        /// </summary>
-        /// <param name="code">Python 代码内容</param>
         /// <param name="securityMode">安全模式：0:严格模式, 1:智能拦截, 2:自动放行</param>
         public SafetyCheckResult InspectCode(string code, int securityMode = 1)
         {
@@ -49,7 +43,6 @@ namespace DataAnalysis_Assistant.Services.Python
                 return result;
             }
 
-            // 1. 扫描高危规则
             foreach (var rule in HighRiskRules)
             {
                 if (Regex.IsMatch(code, rule.Pattern, RegexOptions.IgnoreCase))
@@ -82,7 +75,6 @@ namespace DataAnalysis_Assistant.Services.Python
                     break;
 
                 case 2:
-                    // 自动放行模式：完全信任本地运行
                     result.IsAllowedAutoRun = true;
                     if (result.Level == CodeRiskLevel.HighRisk)
                     {
@@ -92,7 +84,6 @@ namespace DataAnalysis_Assistant.Services.Python
 
                 case 1:
                 default:
-                    // 智能拦截模式：高危强行拦截审批，纯数据分析放行
                     if (result.Level == CodeRiskLevel.HighRisk)
                     {
                         result.IsAllowedAutoRun = false;
@@ -115,4 +106,3 @@ namespace DataAnalysis_Assistant.Services.Python
         }
     }
 }
-

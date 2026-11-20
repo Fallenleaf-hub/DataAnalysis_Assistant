@@ -65,7 +65,6 @@ namespace DataAnalysis_Assistant
         private readonly SafetyGateService _safetyGate = new();
         private readonly ReportExportService _exportService = new();
 
-        // 界面状态画刷
         private static readonly SolidColorBrush BrushCardBg = new(Microsoft.UI.Colors.White);
         private static readonly SolidColorBrush BrushTransparent = new(Microsoft.UI.Colors.Transparent);
         private static readonly SolidColorBrush BrushTextPrimary = new(Windows.UI.Color.FromArgb(255, 0x2E, 0x28, 0x22));
@@ -73,7 +72,6 @@ namespace DataAnalysis_Assistant
         private static readonly SolidColorBrush BrushAccentWarm = new(Windows.UI.Color.FromArgb(255, 0x8C, 0x58, 0x35));
         private static readonly SolidColorBrush BrushStopAction = new(Windows.UI.Color.FromArgb(255, 0xA8, 0x48, 0x36));
 
-        // 对话运行状态与中断控制
         private CancellationTokenSource? _chatCts;
         private bool _isChatGenerating = false;
         private readonly SemaphoreSlim _persistLock = new(1, 1);
@@ -85,41 +83,31 @@ namespace DataAnalysis_Assistant
         {
             InitializeComponent();
 
-            // 绑定数据源
             lvDocumentGroups.ItemsSource = DocumentGroups;
             lvDocuments.ItemsSource = Documents;
             icChatMessages.ItemsSource = ChatMessages;
             lvHistorySessions.ItemsSource = ChatSessions;
             lvPlotGallery.ItemsSource = PlotGallery;
 
-            // 加载本地持久化文档库与历史会话
             _ = LoadPersistedLibraryDataAsync();
 
-            // 加载配置
             LoadSettings();
 
-            // 预加载本地已安装的受控扩展技能（加速对话 Slash 快捷交互）
             _ = LoadInstalledSkillsAsync();
 
-            // 初始化欢迎消息（含 Markdown 格式、表格与代码块展示）
             InitializeWelcomeChatMessage();
 
-            // 设置窗口尺寸与专属应用图标
             SetInitialWindowSize();
 
-            // 初始化中栏与右栏拖动手柄的双向拉伸箭头光标
             InitSplitterCursor();
 
-            // 初始化【关于我们】品牌专属图标
             _ = LoadAppBrandIconAsync();
 
-            // 窗口就绪后二次确认加载图标
             this.Activated += (s, e) => { _ = LoadAppBrandIconAsync(); };
 
             // 监听窗口尺寸变化，防止缩小窗口后右侧对话栏被挤出视图
             this.SizeChanged += MainWindow_SizeChanged;
 
-            // 默认角标状态与会话统计
             UpdateDocCountDisplay();
             UpdateHistoryCountDisplay();
 
@@ -145,7 +133,6 @@ namespace DataAnalysis_Assistant
                 var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId);
                 appWindow?.Resize(new Windows.Graphics.SizeInt32(1280, 820));
 
-                // 设置原生应用窗口标题栏与任务栏专属图标 (ico)
                 string iconPath = Path.Combine(AppContext.BaseDirectory, "app.ico");
                 if (File.Exists(iconPath))
                 {
@@ -154,7 +141,6 @@ namespace DataAnalysis_Assistant
             }
             catch
             {
-                // 忽略非关键异常
             }
         }
 
@@ -187,7 +173,6 @@ namespace DataAnalysis_Assistant
                     }
                     catch
                     {
-                        // 备用方式：通过绝对 UriSource
                         var fallbackBmp = new BitmapImage { UriSource = new Uri(iconPng) };
                         imgAboutLogo.Source = fallbackBmp;
                     }
@@ -195,7 +180,6 @@ namespace DataAnalysis_Assistant
             }
             catch
             {
-                // 忽略非关键异常
             }
         }
 
@@ -203,7 +187,6 @@ namespace DataAnalysis_Assistant
         {
             try
             {
-                // 1. 加载文档组
                 var groups = await LibraryPersistenceService.Instance.ListAllGroupsAsync();
                 DocumentGroups.Clear();
                 foreach (var g in groups)
@@ -211,7 +194,6 @@ namespace DataAnalysis_Assistant
                     DocumentGroups.Add(g);
                 }
 
-                // 2. 加载文档元数据
                 var docs = await LibraryPersistenceService.Instance.ListAllDocumentsAsync();
                 Documents.Clear();
                 foreach (var d in docs)
@@ -219,7 +201,6 @@ namespace DataAnalysis_Assistant
                     Documents.Add(d);
                 }
 
-                // 3. 加载历史真实会话
                 var sessions = await LibraryPersistenceService.Instance.ListAllSessionsAsync();
                 ChatSessions.Clear();
                 if (sessions.Count > 0)
@@ -233,7 +214,6 @@ namespace DataAnalysis_Assistant
                     {
                         _currentSession.IsSelected = true;
                         lvHistorySessions.SelectedItem = _currentSession;
-                        // 若绑定的文档组存在，匹配当前组
                         if (!string.IsNullOrEmpty(_currentSession.BindGroupId))
                         {
                             _currentGroup = DocumentGroups.FirstOrDefault(g => g.GroupId == _currentSession.BindGroupId);
@@ -259,7 +239,6 @@ namespace DataAnalysis_Assistant
                 }
                 else
                 {
-                    // 首次启动：自动初始化默认持久化会话
                     var defaultSession = new ChatSessionItem
                     {
                         Title = "默认数据分析会话",
@@ -277,7 +256,6 @@ namespace DataAnalysis_Assistant
                 UpdateHistoryCountDisplay();
                 SyncGroupSessions();
 
-                // 恢复第一个文档预览
                 _currentDoc = Documents.FirstOrDefault();
                 if (_currentDoc != null)
                 {
@@ -295,7 +273,6 @@ namespace DataAnalysis_Assistant
 
         private bool IsDrawerOpen => borderDrawerPane.Visibility == Visibility.Visible;
 
-        // 切换回主页面（文档伴读看板）
         private void btnNavHome_Click(object sender, RoutedEventArgs e)
         {
             gridMainWorkspace.Visibility = Visibility.Visible;
@@ -305,7 +282,6 @@ namespace DataAnalysis_Assistant
             HighlightNavButton(btnNavHome);
         }
 
-        // 切换至可视化界面
         private void btnNavVis_Click(object sender, RoutedEventArgs e)
         {
             gridMainWorkspace.Visibility = Visibility.Visible;
@@ -315,10 +291,8 @@ namespace DataAnalysis_Assistant
             HighlightNavButton(btnNavVis);
         }
 
-        // 历史会话记录按钮（带数字角标）：点击直接呼出/收起抽屉
         private void btnNavDocLibrary_Click(object sender, RoutedEventArgs e)
         {
-            // 如果抽屉已经打开，再次点击则收起抽屉回到主视图
             if (IsDrawerOpen)
             {
                 CloseDrawer();
@@ -328,7 +302,6 @@ namespace DataAnalysis_Assistant
             OpenDrawer(paneDocLibrary, btnNavDocLibrary);
         }
 
-        // 打开抽屉并切换至历史会话记录面板
         private void OpenDrawer(FrameworkElement paneToShow, Button navBtn)
         {
             gridMainWorkspace.Visibility = Visibility.Visible;
@@ -342,7 +315,6 @@ namespace DataAnalysis_Assistant
             HighlightNavButton(navBtn);
         }
 
-        // 收起抽屉
         private void CloseDrawer(bool highlightHome = true)
         {
             borderDrawerPane.Visibility = Visibility.Collapsed;
@@ -354,19 +326,15 @@ namespace DataAnalysis_Assistant
             }
         }
 
-        // 左下角设置与更多：进入设置二级界面
         private void btnNavSettings_Click(object sender, RoutedEventArgs e)
         {
             gridMainWorkspace.Visibility = Visibility.Collapsed;
             gridSettingsPage.Visibility = Visibility.Visible;
 
-            // 收起左侧抽屉（不恢复主页高亮）
             CloseDrawer(highlightHome: false);
 
-            // 刷新表单数据
             LoadSettings();
 
-            // 默认聚焦在“LLM配置”目录项
             SwitchSettingsView(viewSettingsLlm, btnSettingsNavLlm, tbSettingsNavLlmText);
 
             HighlightNavButton(btnNavSettings);
@@ -421,19 +389,16 @@ namespace DataAnalysis_Assistant
             }
         }
 
-        // 半透明遮罩层点击：收起抽屉并复位导航高亮
         private void drawerBackdrop_PointerPressed(object sender, PointerRoutedEventArgs e)
         {
             CloseDrawer();
         }
 
-        // 二级界面顶部“返回主工作区”按钮
         private void btnBackToMain_Click(object sender, RoutedEventArgs e)
         {
             btnNavHome_Click(sender, e);
         }
 
-        // 抽屉内部“✕”关闭按钮
         private void btnCloseDocPane_Click(object sender, RoutedEventArgs e)
         {
             CloseDrawer();
@@ -489,9 +454,6 @@ namespace DataAnalysis_Assistant
 
         #region 阶段三：可视化分析闭环与图表呈现 (图表与看板联动)
 
-        /// <summary>
-        /// 将新生成的分析图表沉淀至画廊并刷新看板状态
-        /// </summary>
         public void AddPlotToGallery(ChartArtifactItem plot, bool switchToVis = false)
         {
             DispatcherQueue.TryEnqueue(() =>
@@ -516,7 +478,6 @@ namespace DataAnalysis_Assistant
                     return;
                 }
 
-                // 彻底屏蔽图二（旧版末尾兜底重复图 chart_1792xxxx_1）
                 string fileNameNoExt = Path.GetFileNameWithoutExtension(normPath);
                 if (System.Text.RegularExpressions.Regex.IsMatch(fileNameNoExt, @"^chart_\d{10,}_\d+$"))
                 {
@@ -549,9 +510,6 @@ namespace DataAnalysis_Assistant
             });
         }
 
-        /// <summary>
-        /// 全局清空可视化大屏与图表画廊状态（彻底消除切换文档组或新建会话后的图表幽灵残留）
-        /// </summary>
         private void ClearPlotVisualizationDashboard()
         {
             PlotGallery.Clear();
@@ -613,7 +571,6 @@ namespace DataAnalysis_Assistant
             }
         }
 
-        // 历史画廊鼠标滚轮转换为横向平滑滚动
         private void lvPlotGallery_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
         {
             try
@@ -622,7 +579,6 @@ namespace DataAnalysis_Assistant
                 var scrollViewer = FindVisualChild<ScrollViewer>(lvPlotGallery);
                 if (scrollViewer != null && delta != 0)
                 {
-                    // 滚轮向下 (delta < 0) 向右滑，滚轮向上 (delta > 0) 向左滑
                     double targetOffset = scrollViewer.HorizontalOffset - (delta * 0.8);
                     targetOffset = Math.Max(0, Math.Min(targetOffset, scrollViewer.ScrollableWidth));
                     scrollViewer.ChangeView(targetOffset, null, null, false);
@@ -631,7 +587,6 @@ namespace DataAnalysis_Assistant
             }
             catch
             {
-                // 忽略非关键异常
             }
         }
 
@@ -650,7 +605,6 @@ namespace DataAnalysis_Assistant
             }
             return null;
         }
-
 
         private void btnActivePlotZoom_Click(object sender, RoutedEventArgs e)
         {
@@ -736,7 +690,6 @@ namespace DataAnalysis_Assistant
                 imgViewerLargePlot.Source = plot.Bitmap ?? (plot.ImageUri != null ? new BitmapImage(plot.ImageUri) : null);
             }
 
-            // 每次打开放大界面默认以全屏模式沉浸展开 (支持一键点击“还原”切换为 1050x720 居中卡片)
             _isViewerFullscreen = true;
             _savedViewerWidth = 1050;
             _savedViewerHeight = 720;
@@ -763,7 +716,6 @@ namespace DataAnalysis_Assistant
 
             if (gridPlotImageViewer != null) gridPlotImageViewer.Visibility = Visibility.Visible;
 
-            // 每次打开放大查看器时，异步排队确保布局尺寸就绪后 100% 完全展示整张图表全貌 (Fit to Viewport)
             DispatcherQueue.TryEnqueue(() =>
             {
                 FitPlotImageToViewport(resetView: true);
@@ -777,9 +729,6 @@ namespace DataAnalysis_Assistant
 
         #region 高清大图查看器交互控制 (自适应完全适屏显示、缩放、全屏切换、双侧跟手尺寸调节、自由平移与文件定位)
 
-        /// <summary>
-        /// 自适应将高清大图完整适配呈现于当前视口内（每次打开 100% 完整显示图表全貌，四周留出舒适呼吸边距，杜绝局部裁切截断）
-        /// </summary>
         private void FitPlotImageToViewport(bool resetView = true)
         {
             if (imgViewerLargePlot == null || svLargePlotViewer == null) return;
@@ -788,7 +737,6 @@ namespace DataAnalysis_Assistant
             double availHeight = svLargePlotViewer.ActualHeight;
             if (availWidth <= 0 || availHeight <= 0) return;
 
-            // 留出适当内边距
             availWidth = Math.Max(100, availWidth - 28);
             availHeight = Math.Max(100, availHeight - 28);
 
@@ -837,7 +785,6 @@ namespace DataAnalysis_Assistant
         {
             if (gridPlotImageViewer != null && gridPlotImageViewer.Visibility == Visibility.Visible)
             {
-                // 若当前未放大浏览局部细节（ZoomFactor 接近 1.0），窗口拉伸时自适应保持整图完全显示
                 if (svLargePlotViewer != null && Math.Abs(svLargePlotViewer.ZoomFactor - 1.0f) < 0.05f)
                 {
                     FitPlotImageToViewport(resetView: false);
@@ -845,9 +792,6 @@ namespace DataAnalysis_Assistant
             }
         }
 
-        /// <summary>
-        /// 在 Windows 资源管理器中打开并高亮定位当前大图文件
-        /// </summary>
         private void btnViewerOpenFolder_Click(object sender, RoutedEventArgs e)
         {
             if (_viewingPlot != null && !string.IsNullOrWhiteSpace(_viewingPlot.FilePath) && File.Exists(_viewingPlot.FilePath))
@@ -891,9 +835,6 @@ namespace DataAnalysis_Assistant
             }
         }
 
-        /// <summary>
-        /// 更新缩放比例显示 (严格采用纯文本如 100%、125%，严禁携带装饰性 Emoji/图标)
-        /// </summary>
         private void UpdateViewerZoomRatioText(float zoomFactor)
         {
             if (btnViewerZoomReset != null)
@@ -905,7 +846,6 @@ namespace DataAnalysis_Assistant
 
         private void btnViewerZoomReset_Click(object sender, RoutedEventArgs e)
         {
-            // 点击复位按钮，瞬间恢复为 100% 完整适屏显示全貌
             FitPlotImageToViewport(resetView: true);
         }
 
@@ -965,7 +905,6 @@ namespace DataAnalysis_Assistant
         {
             if (!_isResizingViewerRight || cardPlotViewerContainer == null || gridPlotImageViewer == null) return;
 
-            // 绝对中心跟手算法：鼠标移动到哪里，容器边缘以中心对称精确紧跟鼠标指针
             double centerX = gridPlotImageViewer.ActualWidth / 2.0;
             double centerY = gridPlotImageViewer.ActualHeight / 2.0;
             var mousePos = e.GetCurrentPoint(gridPlotImageViewer).Position;
@@ -1014,7 +953,6 @@ namespace DataAnalysis_Assistant
         {
             if (!_isResizingViewerLeft || cardPlotViewerContainer == null || gridPlotImageViewer == null) return;
 
-            // 绝对中心跟手算法（左下角拉手）：以中心为锚点对称延伸
             double centerX = gridPlotImageViewer.ActualWidth / 2.0;
             double centerY = gridPlotImageViewer.ActualHeight / 2.0;
             var mousePos = e.GetCurrentPoint(gridPlotImageViewer).Position;
@@ -1091,8 +1029,6 @@ namespace DataAnalysis_Assistant
 
         #endregion
 
-
-
         private static async Task CopyImageToClipboardAsync(string filePath)
         {
             if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return;
@@ -1141,14 +1077,12 @@ namespace DataAnalysis_Assistant
         {
             try
             {
-                // 1. 若当前有激活的看板图表，且物理文件存在，直接定位并在资源管理器中高亮选中该文件
                 if (_activeDashboardPlot != null && !string.IsNullOrWhiteSpace(_activeDashboardPlot.FilePath) && File.Exists(_activeDashboardPlot.FilePath))
                 {
                     Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{_activeDashboardPlot.FilePath}\"") { UseShellExecute = true });
                     return;
                 }
 
-                // 2. 若画廊中有其他图表，尝试定位到首个存在的图表文件
                 var firstExistingPlot = PlotGallery.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p.FilePath) && File.Exists(p.FilePath));
                 if (firstExistingPlot != null)
                 {
@@ -1156,7 +1090,6 @@ namespace DataAnalysis_Assistant
                     return;
                 }
 
-                // 3. 兜底打开实际的 scratch 图表产物收容根目录（与 Python 引擎真实收容路径完全一致）
                 string scratchDir = PythonExecutionService.LocateOrInitScratchDirectory(_currentGroup?.GroupId);
                 if (Directory.Exists(scratchDir))
                 {
@@ -1217,8 +1150,8 @@ fig.tight_layout()
             try
             {
                 var result = await _pythonExecService.ExecuteCodeAsync(
-                    pythonCode, 
-                    _settings.PythonPath, 
+                    pythonCode,
+                    _settings.PythonPath,
                     options: new PythonExecutionOptions { TimeoutSeconds = Math.Clamp(_settings.PythonTimeoutSeconds, 30, 120) });
                 if (result.Success && result.GeneratedArtifacts.Count > 0)
                 {
@@ -1242,11 +1175,9 @@ fig.tight_layout()
             }
         }
 
-
-
         #endregion
 
-        #region 二级界面：设置目录与视图管理 (LLM配置 / Skill / 关于我们)
+        #region 二级界面：设置目录与视图管理 (LLM配置 / 主题 / Skill / 关于我们)
 
         private void btnSettingsNavLlm_Click(object sender, RoutedEventArgs e)
         {
@@ -1267,6 +1198,7 @@ fig.tight_layout()
         private void SwitchSettingsView(FrameworkElement activeView, Button activeBtn, TextBlock activeText)
         {
             viewSettingsLlm.Visibility = Visibility.Collapsed;
+            viewSettingsTheme.Visibility = Visibility.Collapsed;
             viewSettingsSkill.Visibility = Visibility.Collapsed;
             viewSettingsAbout.Visibility = Visibility.Collapsed;
 
@@ -1282,11 +1214,14 @@ fig.tight_layout()
         private void HighlightSettingsNav(Button activeBtn, TextBlock activeText)
         {
             btnSettingsNavLlm.Background = BrushTransparent;
+            btnSettingsNavTheme.Background = BrushTransparent;
             btnSettingsNavSkill.Background = BrushTransparent;
             btnSettingsNavAbout.Background = BrushTransparent;
 
             tbSettingsNavLlmText.Foreground = BrushTextSecondary;
             tbSettingsNavLlmText.FontWeight = FontWeights.Normal;
+            tbSettingsNavThemeText.Foreground = BrushTextSecondary;
+            tbSettingsNavThemeText.FontWeight = FontWeights.Normal;
             tbSettingsNavSkillText.Foreground = BrushTextSecondary;
             tbSettingsNavSkillText.FontWeight = FontWeights.Normal;
             tbSettingsNavAboutText.Foreground = BrushTextSecondary;
@@ -1303,27 +1238,43 @@ fig.tight_layout()
             if (string.IsNullOrEmpty(keyword))
             {
                 btnSettingsNavLlm.Visibility = Visibility.Visible;
+                btnSettingsNavTheme.Visibility = Visibility.Visible;
                 btnSettingsNavSkill.Visibility = Visibility.Visible;
                 btnSettingsNavAbout.Visibility = Visibility.Visible;
                 return;
             }
 
             btnSettingsNavLlm.Visibility = (keyword.Contains("llm") || "llm配置".Contains(keyword) || "模型".Contains(keyword) || "key".Contains(keyword) || "api".Contains(keyword) || "接口".Contains(keyword)) ? Visibility.Visible : Visibility.Collapsed;
+            btnSettingsNavTheme.Visibility = (keyword.Contains("主题") || keyword.Contains("语言") || keyword.Contains("配色") || keyword.Contains("提示词") || keyword.Contains("prompt") || keyword.Contains("颜色") || keyword.Contains("theme") || keyword.Contains("english") || keyword.Contains("中文") || keyword.Contains("人设") || "主题".Contains(keyword) || "语言".Contains(keyword) || "配色".Contains(keyword) || "系统角色提示词".Contains(keyword)) ? Visibility.Visible : Visibility.Collapsed;
             btnSettingsNavSkill.Visibility = (keyword.Contains("skill") || "技能".Contains(keyword) || "图表".Contains(keyword) || "总结".Contains(keyword) || "分析".Contains(keyword)) ? Visibility.Visible : Visibility.Collapsed;
             btnSettingsNavAbout.Visibility = (keyword.Contains("关于") || "关于我们".Contains(keyword) || "版本".Contains(keyword) || "团队".Contains(keyword) || "更新".Contains(keyword)) ? Visibility.Visible : Visibility.Collapsed;
 
-            // 联动自动跳转至搜索匹配的首个目录
-            if (btnSettingsNavLlm.Visibility == Visibility.Visible && viewSettingsLlm.Visibility != Visibility.Visible)
+            bool currentNavHidden =
+                (viewSettingsLlm.Visibility == Visibility.Visible && btnSettingsNavLlm.Visibility == Visibility.Collapsed) ||
+                (viewSettingsTheme.Visibility == Visibility.Visible && btnSettingsNavTheme.Visibility == Visibility.Collapsed) ||
+                (viewSettingsSkill.Visibility == Visibility.Visible && btnSettingsNavSkill.Visibility == Visibility.Collapsed) ||
+                (viewSettingsAbout.Visibility == Visibility.Visible && btnSettingsNavAbout.Visibility == Visibility.Collapsed);
+
+            if (currentNavHidden)
             {
-                SwitchSettingsView(viewSettingsLlm, btnSettingsNavLlm, tbSettingsNavLlmText);
-            }
-            else if (btnSettingsNavSkill.Visibility == Visibility.Visible && viewSettingsSkill.Visibility != Visibility.Visible && btnSettingsNavLlm.Visibility == Visibility.Collapsed)
-            {
-                SwitchSettingsView(viewSettingsSkill, btnSettingsNavSkill, tbSettingsNavSkillText);
-            }
-            else if (btnSettingsNavAbout.Visibility == Visibility.Visible && viewSettingsAbout.Visibility != Visibility.Visible && btnSettingsNavLlm.Visibility == Visibility.Collapsed && btnSettingsNavSkill.Visibility == Visibility.Collapsed)
-            {
-                SwitchSettingsView(viewSettingsAbout, btnSettingsNavAbout, tbSettingsNavAboutText);
+                if (btnSettingsNavLlm.Visibility == Visibility.Visible)
+                {
+                    SwitchSettingsView(viewSettingsLlm, btnSettingsNavLlm, tbSettingsNavLlmText);
+                }
+                else if (btnSettingsNavTheme.Visibility == Visibility.Visible)
+                {
+                    SwitchSettingsView(viewSettingsTheme, btnSettingsNavTheme, tbSettingsNavThemeText);
+                    RenderThemeSectionCards();
+                }
+                else if (btnSettingsNavSkill.Visibility == Visibility.Visible)
+                {
+                    SwitchSettingsView(viewSettingsSkill, btnSettingsNavSkill, tbSettingsNavSkillText);
+                    _ = LoadInstalledSkillsAsync();
+                }
+                else if (btnSettingsNavAbout.Visibility == Visibility.Visible)
+                {
+                    SwitchSettingsView(viewSettingsAbout, btnSettingsNavAbout, tbSettingsNavAboutText);
+                }
             }
         }
 
@@ -1392,7 +1343,6 @@ fig.tight_layout()
                 sliderPythonTimeout.Value = Math.Clamp(_settings.PythonTimeoutSeconds > 0 ? _settings.PythonTimeoutSeconds : 60, 30, 120);
             }
 
-            // 选中模型 (支持匹配已有或动态追加自定义模型)
             bool foundInSettings = false;
             foreach (ComboBoxItem item in cbModelName.Items)
             {
@@ -1410,7 +1360,6 @@ fig.tight_layout()
                 cbModelName.SelectedItem = customItem;
             }
 
-            // 同步快速模型选择下拉框
             if (cbQuickModel != null)
             {
                 bool foundInQuick = false;
@@ -1440,8 +1389,8 @@ fig.tight_layout()
                 comboPythonSecurityMode.SelectedIndex = Math.Clamp(_settings.PythonSecurityMode, 0, 2);
             }
 
-
             UpdateSettingsDisplay();
+            RenderThemeSectionCards();
             _ = CheckPythonEnvironmentAsync();
             _ = LoadInstalledSkillsAsync();
         }
@@ -1489,7 +1438,6 @@ fig.tight_layout()
             }
         }
 
-        // 在线获取 API Key 支持的模型列表
         private async void btnFetchModels_Click(object sender, RoutedEventArgs e)
         {
             string apiKey = pbApiKey.Password.Trim();
@@ -1509,7 +1457,6 @@ fig.tight_layout()
 
             try
             {
-                // 1. 构建 /models 端点
                 string endpoint = baseUrl.TrimEnd('/');
                 if (endpoint.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase))
                 {
@@ -1520,7 +1467,6 @@ fig.tight_layout()
                     endpoint += "/models";
                 }
 
-                // 2. 发起 HTTP GET 请求
                 using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(15) };
                 using var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Get, endpoint);
                 if (!string.IsNullOrWhiteSpace(apiKey))
@@ -1536,7 +1482,6 @@ fig.tight_layout()
                     throw new Exception($"HTTP {(int)response.StatusCode}：{responseBody}");
                 }
 
-                // 3. 解析模型列表
                 var modelIds = new List<string>();
                 using var doc = System.Text.Json.JsonDocument.Parse(responseBody);
                 if (doc.RootElement.TryGetProperty("data", out var dataElem) && dataElem.ValueKind == System.Text.Json.JsonValueKind.Array)
@@ -1555,7 +1500,6 @@ fig.tight_layout()
                     throw new Exception("接口返回成功，但未解析到有效的模型列表数据。");
                 }
 
-                // 4. 排序并刷新下拉框
                 modelIds.Sort();
                 string currentSelected = (cbModelName.SelectedItem as ComboBoxItem)?.Content?.ToString()
                                           ?? cbModelName.Text
@@ -1570,7 +1514,6 @@ fig.tight_layout()
                     cbQuickModel?.Items.Add(new ComboBoxItem { Content = id });
                 }
 
-                // 恢复之前选中的模型或默认选中第 1 个
                 var match = cbModelName.Items.Cast<ComboBoxItem>().FirstOrDefault(i => i.Content?.ToString() == currentSelected);
                 if (match != null)
                 {
@@ -1622,7 +1565,6 @@ fig.tight_layout()
             }
             _settings.MaxContextLength = (int)sliderContextLength.Value;
             _settings.Temperature = Math.Round(sliderTemperature.Value, 1);
-            _settings.SystemPrompt = tbSystemPrompt.Text.Trim();
 
             if (tbCustomPythonPath != null)
             {
@@ -1649,7 +1591,6 @@ fig.tight_layout()
             SettingsService.SaveSettings(_settings);
             UpdateSettingsDisplay();
 
-            // 联动快速选择下拉框
             if (cbQuickModel != null)
             {
                 bool found = false;
@@ -1678,27 +1619,29 @@ fig.tight_layout()
 
         private void btnResetSettingsPage_Click(object sender, RoutedEventArgs e)
         {
-            _settings = new AppSettings();
-            pbApiKey.Password = _settings.ApiKey;
+            var defaults = new AppSettings();
+            _settings.BaseUrl = defaults.BaseUrl;
+            _settings.ModelName = defaults.ModelName;
+            _settings.MaxContextLength = defaults.MaxContextLength;
+            _settings.Temperature = defaults.Temperature;
+            _settings.AgentMaxIterations = defaults.AgentMaxIterations;
+            _settings.EnableAutoFinalSynthesis = defaults.EnableAutoFinalSynthesis;
+
             tbBaseUrl.Text = _settings.BaseUrl;
             sliderContextLength.Value = _settings.MaxContextLength;
             sliderTemperature.Value = _settings.Temperature;
-            tbSystemPrompt.Text = _settings.SystemPrompt;
             cbModelName.SelectedIndex = 0;
-            cbQuickModel.SelectedIndex = 0;
+            if (cbQuickModel != null && cbQuickModel.Items.Count > 0) cbQuickModel.SelectedIndex = 0;
             if (sliderMaxIterations != null) sliderMaxIterations.Value = _settings.AgentMaxIterations;
             if (toggleAutoFinalSynthesis != null) toggleAutoFinalSynthesis.IsOn = _settings.EnableAutoFinalSynthesis;
-            if (sliderPythonTimeout != null) sliderPythonTimeout.Value = Math.Clamp(_settings.PythonTimeoutSeconds, 30, 120);
-            if (tbCustomPythonPath != null) tbCustomPythonPath.Text = string.Empty;
-            if (comboPythonSecurityMode != null) comboPythonSecurityMode.SelectedIndex = 1;
+
+            SettingsService.SaveSettings(_settings);
             UpdateSettingsDisplay();
-            _ = CheckPythonEnvironmentAsync();
-            _ = LoadInstalledSkillsAsync();
 
             infoBarSettings.IsOpen = true;
             infoBarSettings.Severity = InfoBarSeverity.Informational;
             infoBarSettings.Title = "已恢复默认";
-            infoBarSettings.Message = "所有配置已重置为标准默认值。";
+            infoBarSettings.Message = "LLM 连接与调度参数已重置为标准默认值（已保留 API Key 与主题/自定义配置）。";
         }
 
         #region 标准 Skill 规范与扩展管理
@@ -1837,8 +1780,6 @@ fig.tight_layout()
                 }
             }
         }
-
-
 
         private async void btnRefreshSkills_Click(object sender, RoutedEventArgs e)
         {
@@ -2078,7 +2019,6 @@ fig.tight_layout()
                     SuggestedStartLocation = PickerLocationId.DocumentsLibrary
                 };
 
-                // 支持格式：PDF/Word/Excel/TXT/CSV/MD
                 picker.FileTypeFilter.Add(".pdf");
                 picker.FileTypeFilter.Add(".docx");
                 picker.FileTypeFilter.Add(".doc");
@@ -2098,7 +2038,6 @@ fig.tight_layout()
                     return;
                 }
 
-                // EPPlus 8 授权初始化
                 OfficeOpenXml.ExcelPackage.License.SetNonCommercialPersonal("DataAnalysisAssistant");
 
                 var importedDocs = new List<DocumentItem>();
@@ -2124,12 +2063,10 @@ fig.tight_layout()
                         UploadTime = DateTime.Now
                     };
 
-                    // -------------------- 阶段 2：多格式文档内容解析引擎 --------------------
                     try
                     {
                         if (item.IsTabularData)
                         {
-                            // 阶段四：结构化表格数据下推（计算下推，生成精确 Schema 骨架与 Head Preview）
                             var profile = await _schemaProfiler.ProfileAsync(file.Path);
                             item.SchemaProfile = profile;
                             item.ExtractedText = profile.ToMarkdown();
@@ -2137,7 +2074,6 @@ fig.tight_layout()
                         }
                         else if (ext == ".txt" || ext == ".md")
                         {
-                            // 1. 纯文本 / Markdown
                             try
                             {
                                 item.ExtractedText = await FileIO.ReadTextAsync(file);
@@ -2150,7 +2086,6 @@ fig.tight_layout()
                         }
                         else if (ext == ".pdf")
                         {
-                            // 2. PDF 解析 (PdfPig：逐页提取文本)
                             using var stream = await file.OpenStreamForReadAsync();
                             using var pdfDocument = UglyToad.PdfPig.PdfDocument.Open(stream);
 
@@ -2165,7 +2100,6 @@ fig.tight_layout()
                         }
                         else if (ext == ".docx")
                         {
-                            // 3. Word 文档解析 (DocX：读取全文字符)
                             using var stream = await file.OpenStreamForReadAsync();
                             using var doc = Xceed.Words.NET.DocX.Load(stream);
 
@@ -2174,26 +2108,22 @@ fig.tight_layout()
                         }
                         else
                         {
-                            // 老旧二进制格式 (.doc) 容错提示
                             item.ExtractedText = $"格式提示：当前文档为较早版本二进制格式 ({ext})，建议将其转换为 .docx 或 .xlsx 后解析。";
                             item.Status = "待格式转换";
                         }
                     }
                     catch (Exception parseEx)
                     {
-                        // 解析异常统一捕获
                         item.Status = "解析失败";
                         item.ExtractedText = $"文档解析失败：{parseEx.Message}";
                     }
 
-                    // 持久化文档元数据至磁盘
                     await LibraryPersistenceService.Instance.SaveDocumentMetaAsync(item);
                     importedDocs.Add(item);
                 }
 
                 if (importedDocs.Count == 0) return;
 
-                // 1. 自动生成文档组名称 (单文件取去后缀名，多文件取首文件名 + 数量)
                 string groupName;
                 if (importedDocs.Count == 1)
                 {
@@ -2205,7 +2135,6 @@ fig.tight_layout()
                     groupName = $"{firstDocName} 等{importedDocs.Count}个文件";
                 }
 
-                // 2. 自动新建文档组包含选中的文件并持久化
                 var docIds = importedDocs.Select(d => d.DocId).ToList();
                 var group = await LibraryPersistenceService.Instance.CreateGroupAsync(groupName, docIds);
                 DocumentGroups.Insert(0, group);
@@ -2227,10 +2156,8 @@ fig.tight_layout()
                     }
                 }
 
-                // 3. 统一且幂等地将工作区 Documents 集合置为该组包含的所有文件
                 await LoadGroupDocumentsAsync(group, selectAndPreviewFirstDoc: true);
 
-                // 4. 自动新建对话，对话命名规则与文档组保持完全一致
                 var newSession = new ChatSessionItem
                 {
                     Title = group.GroupName,
@@ -2253,11 +2180,9 @@ fig.tight_layout()
                 UpdateHistoryCountDisplay();
                 SyncGroupSessions();
 
-                // 5. 清空右侧当前消息流并重置状态，就绪新对话
                 ChatMessages.Clear();
                 tbChatRunStatus.Text = "";
 
-                // 6. 激活首个文档并预览
                 _currentDoc = Documents.FirstOrDefault();
                 if (_currentDoc != null)
                 {
@@ -2279,7 +2204,6 @@ fig.tight_layout()
             {
                 Documents.Remove(doc);
 
-                // 若当前选定了文档组，同步从组中移除
                 if (_currentGroup != null && _currentGroup.DocumentIds.Contains(doc.DocId))
                 {
                     await LibraryPersistenceService.Instance.RemoveDocumentFromGroupAsync(_currentGroup.GroupId, doc.DocId);
@@ -2297,7 +2221,6 @@ fig.tight_layout()
             }
         }
 
-        // 重新定位本地失效文档路径
         private async void btnRelocateDoc_Click(object sender, RoutedEventArgs e)
         {
             if (sender is Button btn && btn.Tag is DocumentItem doc)
@@ -2326,7 +2249,6 @@ fig.tight_layout()
                         LibraryPersistenceService.Instance.CheckDocumentFileExists(doc);
                         await LibraryPersistenceService.Instance.SaveDocumentMetaAsync(doc);
 
-                        // 重新刷新显示
                         if (_currentDoc == doc)
                         {
                             DisplayDocument(doc);
@@ -2340,7 +2262,6 @@ fig.tight_layout()
             }
         }
 
-        // 导出本地文档库与会话备份 ZIP 包
         private async void btnExportBackup_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -2377,7 +2298,6 @@ fig.tight_layout()
             }
         }
 
-        // 导入恢复本地文档库与会话备份 ZIP 包
         private async void btnImportBackup_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -2398,7 +2318,6 @@ fig.tight_layout()
                     int restoredCount = await LibraryPersistenceService.Instance.ImportBackupAsync(file.Path);
                     if (restoredCount > 0)
                     {
-                        // 重新载入内存与刷新 UI 列表
                         await LoadPersistedLibraryDataAsync();
                         await ShowMessageDialogAsync("备份恢复成功", $"已成功从备份包中导入并合并 {restoredCount} 个持久化条目，文档库与历史会话已同步更新。");
                     }
@@ -2567,7 +2486,6 @@ def analyze_document_metrics(file_path: str):
             }
         }
 
-        // 展开 / 折叠思考过程卡片
         private void btnToggleReasoning_Click(object sender, RoutedEventArgs e)
         {
             if (sender is Button btn && btn.Tag is ChatMessageItem item)
@@ -2584,12 +2502,10 @@ def analyze_document_metrics(file_path: str):
 
             string text = tbQuestion.Text;
 
-            // 当输入框包含 '/' 前缀时触发上拉浮层与模糊过滤
             if (!string.IsNullOrEmpty(text) && text.StartsWith("/"))
             {
                 string query = text.Length > 1 ? text.Substring(1).Trim() : string.Empty;
 
-                // 若本地技能列表为空，触发一次异步拉取
                 if (InstalledSkills.Count == 0)
                 {
                     _ = LoadInstalledSkillsAsync().ContinueWith(_ =>
@@ -2658,7 +2574,6 @@ def analyze_document_metrics(file_path: str):
 
             _activeMountedSkill = skill;
 
-            // 清除输入框中键入的 '/' 命令部分
             _isUpdatingQuestionTextProgrammatically = true;
             try
             {
@@ -2669,7 +2584,6 @@ def analyze_document_metrics(file_path: str):
                 _isUpdatingQuestionTextProgrammatically = false;
             }
 
-            // 呈现技能胶囊卡片 (对应图二视觉规范，附带描述 ToolTip)
             if (borderActiveSkillPill != null && tbActiveSkillPillName != null)
             {
                 tbActiveSkillPillName.Text = skill.Name;
@@ -2677,7 +2591,6 @@ def analyze_document_metrics(file_path: str):
                 borderActiveSkillPill.Visibility = Visibility.Visible;
             }
 
-            // 动态更新输入框占位符提示并调整高度，确保视觉整体和谐无抖动
             if (tbQuestion != null)
             {
                 tbQuestion.PlaceholderText = $"已挂载技能 [{skill.Name}]，继续输入你的分析需求或数据问题 (Enter 发送)...";
@@ -2699,7 +2612,6 @@ def analyze_document_metrics(file_path: str):
                 borderActiveSkillPill.Visibility = Visibility.Collapsed;
             }
 
-            // 恢复初始输入提示与高度
             if (tbQuestion != null)
             {
                 tbQuestion.PlaceholderText = "输入你的数据分析或问答需求 (输入 / 触发技能扩展，Enter 发送)...";
@@ -2710,10 +2622,8 @@ def analyze_document_metrics(file_path: str):
 
         #endregion
 
-        // 拦截输入框按键：浮层开启时支持 Up/Down 滚动、Enter/Tab 选中、Esc 关闭；文本为空时退格清除胶囊；Enter 发送
         private void tbQuestion_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
         {
-            // 1. 若浮层可见，拦截键盘导航与选择
             if (borderSkillSelectorPopup != null && borderSkillSelectorPopup.Visibility == Visibility.Visible)
             {
                 if (e.Key == Windows.System.VirtualKey.Down)
@@ -2743,7 +2653,7 @@ def analyze_document_metrics(file_path: str):
 
                 if (e.Key == Windows.System.VirtualKey.Enter || e.Key == Windows.System.VirtualKey.Tab)
                 {
-                    e.Handled = true; // 绝对拦截！阻止回车默认发送或插入换行符
+                    e.Handled = true;
                     if (lvSkillSelector.SelectedItem is SkillItem selectedSkill)
                     {
                         SelectSkill(selectedSkill);
@@ -2763,7 +2673,6 @@ def analyze_document_metrics(file_path: str):
                 }
             }
 
-            // 2. 当输入框文本为空且按下退格键 (Backspace) 时，快捷移除当前挂载的技能胶囊
             if (e.Key == Windows.System.VirtualKey.Back)
             {
                 if (string.IsNullOrEmpty(tbQuestion.Text) && _activeMountedSkill != null)
@@ -2774,7 +2683,6 @@ def analyze_document_metrics(file_path: str):
                 }
             }
 
-            // 3. 常规 Enter 发送逻辑 (仅在浮层关闭时生效)
             if (e.Key == Windows.System.VirtualKey.Enter)
             {
                 var shiftState = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift);
@@ -2782,11 +2690,10 @@ def analyze_document_metrics(file_path: str):
 
                 if (!isShiftPressed)
                 {
-                    e.Handled = true; // 拦截 Enter 默认换行行为
+                    e.Handled = true;
 
                     if (_isChatGenerating)
                     {
-                        // 正在生成中，不重复提交
                         return;
                     }
 
@@ -2824,7 +2731,6 @@ def analyze_document_metrics(file_path: str):
                 return;
             }
 
-            // 1. 生成本次任务独立批次标识与单调递增序号，添加用户消息到列表并清空输入框
             string currentAgentTaskId = Guid.NewGuid().ToString("N");
             int currentTaskSeq = 1;
             if (ChatMessages.Count > 0)
@@ -2832,7 +2738,6 @@ def analyze_document_metrics(file_path: str):
                 currentTaskSeq = ChatMessages.Max(m => m.TaskSequenceNumber) + 1;
             }
 
-            // 记录本次提问挂载的技能扩展并重置输入框胶囊状态
             var currentSkill = _activeMountedSkill;
             RemoveActiveSkill();
 
@@ -2849,7 +2754,6 @@ def analyze_document_metrics(file_path: str):
 
             tbQuestion.Text = string.Empty;
 
-            // 阶段五：若挂载了技能，提取并组装专属技能规约 System 指令
             string? activeSkillInstruction = null;
             if (currentSkill != null)
             {
@@ -2859,9 +2763,9 @@ def analyze_document_metrics(file_path: str):
                     if (!string.IsNullOrWhiteSpace(skillFullMarkdown))
                     {
                         var sbSkill = new StringBuilder();
-                        sbSkill.AppendLine($"【🎯 已启用专属专业扩展技能 (Specialized Skill: {currentSkill.Name})】");
+                        sbSkill.AppendLine($"【已启用专属专业扩展技能 (Specialized Skill: {currentSkill.Name})】");
                         sbSkill.AppendLine("在执行本次数据分析与推演任务时，请务必严格遵循以下技能指南的专业角色、工作流程与输出规范：");
-                        sbSkill.AppendLine("【⚠️ 系统受控沙盒环境边界约束 (最高执行红线)】：");
+                        sbSkill.AppendLine("【系统受控沙盒环境边界约束 (最高执行红线)】：");
                         sbSkill.AppendLine("1. 当前任务运行在本地独立数据分析沙盒中。技能指南中引用的内部配置文件与脚本（如 manifest.yaml、static/*、scripts/* 等）属于技能系统元架构，在当前沙盒执行环境中【物理不可达】；");
                         sbSkill.AppendLine("2. 严禁调用 read_document 或编写 Python 代码尝试定位、搜索、遍历或读取这些技能内部文件与脚本！若尝试读取必然报错并浪费轮次；");
                         sbSkill.AppendLine("3. 请直接吸收并贯彻技能指南中的专业设计哲学、配色方案（克制专业）、图表排版契约与分析框架，针对当前用户上传的真实业务数据编写本地 Python 分析脚本；");
@@ -2880,7 +2784,6 @@ def analyze_document_metrics(file_path: str):
             // 关键节点 A: 用户提问即刻写盘（防止未完成推理时退出丢失提问）
             _ = PersistCurrentSessionAsync(force: true);
 
-            // 2. 界面状态切换为“停止”生成模式
             _isChatGenerating = true;
             _chatCts = new CancellationTokenSource();
             var cancellationToken = _chatCts.Token;
@@ -2890,14 +2793,13 @@ def analyze_document_metrics(file_path: str):
             tbQuestion.IsEnabled = false;
             tbChatRunStatus.Text = "正在深度思考...";
 
-            // 3. 预先添加 AI 助手空消息气泡，作为流式接收容器 (思考卡片即刻处于展示态)
             var assistantMessage = new ChatMessageItem
             {
                 Sender = "Assistant",
                 Content = string.Empty,
                 ReasoningContent = string.Empty,
                 IsThinking = true,
-                IsReasoningExpanded = true, // 思考阶段初始即刻展开
+                IsReasoningExpanded = true,
                 ThinkingSeconds = 0,
                 Timestamp = DateTime.Now,
                 AgentTaskId = currentAgentTaskId,
@@ -2905,30 +2807,25 @@ def analyze_document_metrics(file_path: str):
             };
             ChatMessages.Add(assistantMessage);
 
-            // 自动滚动到最新消息位置
             svChatList.ChangeView(null, svChatList.ScrollableHeight, null);
 
-            // 4. 准备调用上下文与参数
             var currentSettings = _settings;
 
-            // 若右下角快速模型下拉框有显式选中项，以其为准
             if (cbQuickModel?.SelectedItem is ComboBoxItem selectedComboItem &&
                 !string.IsNullOrWhiteSpace(selectedComboItem.Content?.ToString()))
             {
                 currentSettings.ModelName = selectedComboItem.Content.ToString()!;
             }
 
-            // 提取当前选中文档内容或所有已加载文档的索引概览 (跨文档联合分析支持)
             string documentContext;
             if (_currentDoc != null)
             {
                 documentContext = _currentDoc.ExtractedText ?? string.Empty;
-                // 若工作区存在多份其他文档，附带提供关联文档清单索引
                 if (Documents.Count > 1)
                 {
                     var sbDocs = new StringBuilder();
                     sbDocs.AppendLine(documentContext);
-                    sbDocs.AppendLine("\n#### 📂 工作区其他并存关联文档（支持跨文档联合分析）：");
+                    sbDocs.AppendLine("\n#### 工作区其他并存关联文档（支持跨文档联合分析）：");
                     foreach (var d in Documents.Where(d => d != _currentDoc))
                     {
                         sbDocs.AppendLine($"- `{d.Name}` ({d.ExtensionLabel}) -> 路径: `{d.Path}` | 规模: {d.SummaryText}");
@@ -2939,9 +2836,8 @@ def analyze_document_metrics(file_path: str):
             }
             else if (Documents.Count > 0)
             {
-                // 当未选中具体单一文档但左侧已载入多份文件时，自动组装多文档联合索引
                 var sbMulti = new StringBuilder();
-                sbMulti.AppendLine("### 📁 当前工作区已载入的多文档清单 (可调用 read_document 工具精准调取)：");
+                sbMulti.AppendLine("### 当前工作区已载入的多文档清单 (可调用 read_document 工具精准调取)：");
                 for (int i = 0; i < Documents.Count; i++)
                 {
                     var d = Documents[i];
@@ -2955,26 +2851,21 @@ def analyze_document_metrics(file_path: str):
                 documentContext = string.Empty;
             }
 
-            // 5. 提取历史对话 (过滤开篇欢迎演示消息，只取当前问题之前的 User/Assistant 真实问答)
             var historyTurns = new List<ChatTurn>();
             foreach (var msg in ChatMessages)
             {
-                // 跳过开篇大篇幅的欢迎与系统演示消息
                 if (msg.Content?.Contains("欢迎使用 AI 数据分析与文档伴读看板") == true)
                 {
                     continue;
                 }
 
-                // 排除当前刚加入的这轮问答
                 if (msg == assistantMessage)
                 {
                     continue;
                 }
 
-                // 仅收录历史问答
                 if (msg.IsUser)
                 {
-                    // 若是最后那条刚刚添加的用户消息，也不计入历史（它由 userQuestion 参数直接传入）
                     if (ChatMessages.Count >= 2 && msg == ChatMessages[^2])
                     {
                         continue;
@@ -2986,8 +2877,6 @@ def analyze_document_metrics(file_path: str):
                 {
                     string content = msg.Content ?? string.Empty;
 
-                    // 针对历史不同任务批次进行上下文动态净化 (PRD 4(3) 规范：上一批次调试日志与 Traceback 进修剪区)：
-                    // 若属于过去的 AgentTaskId / TaskSequenceNumber，确保保留核心研报与结论，同时补充已生成图表的事实记录，杜绝遗漏已有成果
                     bool isPastTask = (!string.IsNullOrEmpty(msg.AgentTaskId) && msg.AgentTaskId != currentAgentTaskId) ||
                                       (msg.TaskSequenceNumber > 0 && msg.TaskSequenceNumber < currentTaskSeq);
                     if (isPastTask)
@@ -2995,14 +2884,15 @@ def analyze_document_metrics(file_path: str):
                         if (msg.GeneratedPlots != null && msg.GeneratedPlots.Count > 0)
                         {
                             var existingPlots = msg.GeneratedPlots.Where(p => p.IsFileExisting).ToList();
-                            if (existingPlots.Count > 0 && !content.Contains("[已生成图表产物记录]"))
+                            if (existingPlots.Count > 0 &&
+                                !content.Contains("[已生成图表产物记录]") &&
+                                !content.Contains("[系统历史记录-仅供上下文参考"))
                             {
                                 var plotSummary = string.Join(", ", existingPlots.Select(p => $"`{System.IO.Path.GetFileName(p.FilePath)}` ({p.Title})"));
-                                content = $"{content}\n\n> 📊 **[已生成图表产物记录]**：已成功在本地渲染生成 {plotSummary}。后续分析应以此为基础推进，无需重复绘图。";
+                                content = $"{content}\n\n[系统历史记录-仅供上下文参考，严禁在正式回答中复述此行] 已在本地渲染生成图表：{plotSummary}。后续分析应直接基于既有成果推进，无需重复绘图。";
                             }
                         }
 
-                        // 核心净化规则：若过往批次已具备完整业务研报正文，直接以研报正文作为上下文，彻底剪除中间几十轮调试与中间日志
                         if (!string.IsNullOrWhiteSpace(content))
                         {
                             historyTurns.Add(new ChatTurn { Role = "assistant", Content = content });
@@ -3010,10 +2900,8 @@ def analyze_document_metrics(file_path: str):
                         }
                     }
 
-                    // 协议标准重建：当前批次内或过往未产出研报的消息，若包含 ToolCalls，按 OpenAI 协议配对还原
                     if (msg.ToolCalls != null && msg.ToolCalls.Count > 0)
                     {
-                        // 1. 还原 assistant 发起的标准 tool_calls 决策回合
                         var toolCallItems = msg.ToolCalls.Select(tc => new ToolCallItem
                         {
                             Id = string.IsNullOrWhiteSpace(tc.CallId) ? $"call_{Guid.NewGuid():N}" : tc.CallId,
@@ -3032,7 +2920,6 @@ def analyze_document_metrics(file_path: str):
                             ToolCalls = toolCallItems
                         });
 
-                        // 2. 依次还原每个 tool 工具执行输出回合（严格通过 ToolCallId 对齐）
                         for (int i = 0; i < msg.ToolCalls.Count; i++)
                         {
                             var tc = msg.ToolCalls[i];
@@ -3041,7 +2928,6 @@ def analyze_document_metrics(file_path: str):
 
                             if (isPastTask && toolOutput.Length > 300)
                             {
-                                // 历史未结任务的超长中间输出截断为前 300 字符摘要
                                 toolOutput = toolOutput[..300] + "...\n[历史过往日志已折叠]";
                             }
                             else if (string.IsNullOrWhiteSpace(toolOutput))
@@ -3057,7 +2943,6 @@ def analyze_document_metrics(file_path: str):
                             });
                         }
 
-                        // 3. 还原 assistant 最终交付的研报正文结论回合
                         if (!string.IsNullOrWhiteSpace(content))
                         {
                             historyTurns.Add(new ChatTurn { Role = "assistant", Content = content });
@@ -3070,11 +2955,9 @@ def analyze_document_metrics(file_path: str):
                 }
             }
 
-            // 6. 启动多步自主 Agent 循环调度 (ReAct / CodeAct 机制：思考 -> 工具决策 -> 执行 -> 评估反思 -> 交付)
             var chatService = new LlmChatService();
             var thinkingWatch = new Stopwatch();
 
-            // 注册工具集 (本地 Python 引擎、非结构化/表格数据精细提取器)
             var pythonTool = new RunPythonTool(() => _settings, _pythonExecService, _safetyGate, () => _currentGroup?.GroupId);
             var docReaderTool = new DocumentReaderTool(() => Documents.Select(d => d.Path));
             var agentLoopService = new AgentQueryLoopService(chatService, new IAgentTool[] { pythonTool, docReaderTool });
@@ -3090,7 +2973,6 @@ def analyze_document_metrics(file_path: str):
                         assistantMessage.ReasoningContent = update.IntermediateReasoning;
                     }
 
-                    // 默认开启流式输出：实时同步推送打字正文至聊天气泡
                     if (!string.IsNullOrEmpty(update.IntermediateContent) && (update.Phase == "streaming" || update.Phase == "complete"))
                     {
                         assistantMessage.Content = update.IntermediateContent;
@@ -3128,14 +3010,12 @@ def analyze_document_metrics(file_path: str):
                         }
                     }
 
-                    // 智能吸底：仅当用户处于视口底部附近（40 像素内）才自动滚动，绝不强行拽屏
                     bool isNearBottom = (svChatList.ScrollableHeight - svChatList.VerticalOffset) <= 40;
                     if (isNearBottom)
                     {
                         svChatList.ChangeView(null, svChatList.ScrollableHeight, null);
                     }
 
-                    // 抑制写盘风暴：流式期间放宽节流，完成阶段强制落盘
                     if (update.Phase == "complete")
                     {
                         _ = PersistCurrentSessionAsync(force: true);
@@ -3173,7 +3053,7 @@ def analyze_document_metrics(file_path: str):
                     {
                         assistantMessage.IsThinking = false;
                         assistantMessage.ThinkingSeconds = totalThinkingTime;
-                        assistantMessage.IsReasoningExpanded = false; // 生成完成后默认折叠思考
+                        assistantMessage.IsReasoningExpanded = false;
 
                         assistantMessage.TerminationReason = loopResult.TerminationReason;
                         assistantMessage.IsStreamTruncated = loopResult.IsStreamTruncated;
@@ -3216,12 +3096,11 @@ def analyze_document_metrics(file_path: str):
                             }
                             else
                             {
-                                assistantMessage.Content = $"⚠️ 分析过程中出现异常：{loopResult.ErrorMessage}";
+                                assistantMessage.Content = $"分析过程中出现异常：{loopResult.ErrorMessage}";
                                 tbChatRunStatus.Text = "分析异常";
                             }
                         }
 
-                        // 补充挂接所有产物图表（严格限定在 agent_sandbox 目录）
                         if (loopResult.GeneratedArtifactPaths.Count > 0)
                         {
                             foreach (var artPath in loopResult.GeneratedArtifactPaths)
@@ -3271,7 +3150,6 @@ def analyze_document_metrics(file_path: str):
                 }
                 else
                 {
-                    // 实体保底同步：UI 队列繁忙或未在 2 秒内响应时，在后台 Task 线程直接确保关键数据字段写入实体
                     assistantMessage.TerminationReason = loopResult.TerminationReason;
                     assistantMessage.IsStreamTruncated = loopResult.IsStreamTruncated;
                     if (loopResult.ExecutedToolCalls != null && loopResult.ExecutedToolCalls.Count > 0)
@@ -3286,7 +3164,6 @@ def analyze_document_metrics(file_path: str):
             }
             catch (OperationCanceledException)
             {
-                // 用户手动中断生成
                 DispatcherQueue.TryEnqueue(() =>
                 {
                     assistantMessage.IsThinking = false;
@@ -3321,7 +3198,6 @@ def analyze_document_metrics(file_path: str):
             }
             finally
             {
-                // 7. 恢复发送按钮与输入框状态，清理取消令牌
                 _isChatGenerating = false;
                 _chatCts?.Dispose();
                 _chatCts = null;
@@ -3353,14 +3229,10 @@ def analyze_document_metrics(file_path: str):
             _ = PersistCurrentSessionAsync(force: true);
         }
 
-        /// <summary>
-        /// 将当前活跃会话状态、完整消息流与图表资产增量持久化至磁盘 (Debounce 保护)
-        /// </summary>
         private async Task PersistCurrentSessionAsync(bool force = false)
         {
             if (_currentSession == null) return;
 
-            // 节流机制：非强制落盘时至少间隔 4.0 秒，确保流式输出极致流畅，抑制高频写盘风暴
             if (!force)
             {
                 var now = DateTime.Now;
@@ -3374,12 +3246,10 @@ def analyze_document_metrics(file_path: str):
             await _persistLock.WaitAsync();
             try
             {
-                // 过滤开篇演示欢迎消息，仅收容真实用户问答与产物
                 var realMessages = ChatMessages.Where(m => !m.Content.Contains("欢迎使用 AI 数据分析与文档伴读看板")).ToList();
                 _currentSession.Messages = realMessages;
                 _currentSession.LastActiveAt = DateTime.Now;
 
-                // 严格保持文档组绑定关系：绝对不修改已有会话的归属状态
                 if (!string.IsNullOrEmpty(_currentSession.BindGroupId))
                 {
                     var matchingGroup = DocumentGroups.FirstOrDefault(g => g.GroupId == _currentSession.BindGroupId);
@@ -3389,7 +3259,6 @@ def analyze_document_metrics(file_path: str):
                     }
                 }
 
-                // 首轮提问自动提取前缀，生成生动具体的会话标题
                 if (realMessages.Count > 0 &&
                     (_currentSession.Title.StartsWith("新建对话") || _currentSession.Title.StartsWith("新对话") || _currentSession.Title.StartsWith("默认")))
                 {
@@ -3460,7 +3329,7 @@ def analyze_document_metrics(file_path: str):
                 : "数据可视化看板分析综合研报";
 
             var sbContent = new StringBuilder();
-            sbContent.AppendLine("### 📊 可视化大屏核心资产与指标概览\n");
+            sbContent.AppendLine("### 可视化大屏核心资产与指标概览\n");
             sbContent.AppendLine($"- **生成图表资产规模**: 共 {PlotGallery.Count} 幅高清专业图表");
             if (_activeDashboardPlot != null)
             {
@@ -3475,7 +3344,7 @@ def analyze_document_metrics(file_path: str):
                 }
             }
 
-            sbContent.AppendLine("\n### 🔍 深度洞察与业务推导结论\n");
+            sbContent.AppendLine("\n### 深度洞察与业务推导结论\n");
             var lastAssistantMsg = ChatMessages.LastOrDefault(m => m.IsAssistant && !string.IsNullOrWhiteSpace(m.Content));
             if (lastAssistantMsg != null)
             {
@@ -3575,7 +3444,6 @@ def analyze_document_metrics(file_path: str):
             btnViewDocGroups.FontWeight = FontWeights.Normal;
         }
 
-        // 新建文档组
         private async void btnCreateNewGroup_Click(object sender, RoutedEventArgs e)
         {
             string? name = await ShowInputTextDialogAsync("新建文档组", $"文档组_{DateTime.Now:MMdd_HHmm}", "请输入文档组名称（例如：财务复盘组）");
@@ -3599,7 +3467,6 @@ def analyze_document_metrics(file_path: str):
             UpdateDocCountDisplay();
         }
 
-        // 将当前工作区所有文档打包为新组
         private async void btnPackCurrentDocsToGroup_Click(object sender, RoutedEventArgs e)
         {
             if (Documents.Count == 0)
@@ -3636,9 +3503,6 @@ def analyze_document_metrics(file_path: str):
             UpdateDocCountDisplay();
         }
 
-        /// <summary>
-        /// 统一且幂等地为指定文档组加载工作区文档，杜绝多处并发重入导致文件重复显示
-        /// </summary>
         private async Task LoadGroupDocumentsAsync(DocumentGroup? group, bool selectAndPreviewFirstDoc = true)
         {
             await _docsLoadLock.WaitAsync();
@@ -3678,7 +3542,6 @@ def analyze_document_metrics(file_path: str):
                     }
                 }
 
-                // 2. 一次性清空并带 DocId 幂等防重地填入 Documents
                 Documents.Clear();
                 foreach (var doc in targetDocs)
                 {
@@ -3690,7 +3553,6 @@ def analyze_document_metrics(file_path: str):
 
                 UpdateDocCountDisplay();
 
-                // 3. 激活并预览首个文档
                 if (selectAndPreviewFirstDoc)
                 {
                     _currentDoc = Documents.FirstOrDefault();
@@ -3711,9 +3573,7 @@ def analyze_document_metrics(file_path: str):
             }
         }
 
-        /// <summary>
         /// 统一选中文档组并联动工作区文档与组下会话（严格遵守文档组与会话永久绑定不可变原则）
-        /// </summary>
         private async Task SelectDocumentGroupAsync(DocumentGroup group, bool switchSessionIfNeeded = true)
         {
             if (group == null) return;
@@ -3732,7 +3592,6 @@ def analyze_document_metrics(file_path: str):
                     finally { _isSelectingGroupProgrammatically = false; }
                 }
 
-                // 自由对话专区不绑定任何文档，清空工作区文档预览
                 await LoadGroupDocumentsAsync(null, selectAndPreviewFirstDoc: false);
 
                 if (switchSessionIfNeeded)
@@ -3776,16 +3635,12 @@ def analyze_document_metrics(file_path: str):
                 }
             }
 
-            // 1. 统一且幂等加载该组文档至工作区并预览首个文档
             await LoadGroupDocumentsAsync(group, selectAndPreviewFirstDoc: true);
 
-            // 2. 严格按文档组联动对应的会话（绝对不修改任何已有会话的 BindGroupId！）
             if (switchSessionIfNeeded)
             {
-                // 若当前激活会话已经归属于该文档组，则保持原会话
                 if (_currentSession == null || _currentSession.BindGroupId != group.GroupId)
                 {
-                    // 查找该文档组下最近活跃的会话
                     var targetSession = ChatSessions
                         .Where(s => s.BindGroupId == group.GroupId)
                         .OrderByDescending(s => s.LastActiveAt)
@@ -3797,14 +3652,12 @@ def analyze_document_metrics(file_path: str):
                     }
                     else
                     {
-                        // 若该组暂无任何历史会话，自动为该组新建一条专属会话
                         await CreateNewSessionForGroupAsync(group);
                     }
                 }
             }
         }
 
-        // 选中文档组加载组内文件并严格联动组下会话
         private async void lvDocumentGroups_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_isSelectingGroupProgrammatically) return;
@@ -3815,7 +3668,6 @@ def analyze_document_metrics(file_path: str):
             }
         }
 
-        // 重命名文档组
         private async void btnRenameGroup_Click(object sender, RoutedEventArgs e)
         {
             if (sender is Button btn && btn.Tag is DocumentGroup group)
@@ -3832,7 +3684,6 @@ def analyze_document_metrics(file_path: str):
                     group.LastActiveAt = DateTime.Now;
                     await LibraryPersistenceService.Instance.SaveGroupAsync(group);
 
-                    // 若当前会话绑定了此组，同步更新标题徽标
                     foreach (var session in ChatSessions.Where(s => s.BindGroupId == group.GroupId))
                     {
                         session.BindGroupName = newName;
@@ -3843,7 +3694,6 @@ def analyze_document_metrics(file_path: str):
             }
         }
 
-        // 删除文档组 (彻底物理删除整座文档组容器：包括 group.json、名下 documents、sessions 与 scratch)
         private async void btnDeleteGroup_Click(object sender, RoutedEventArgs e)
         {
             if (sender is Button btn && btn.Tag is DocumentGroup group)
@@ -3874,10 +3724,8 @@ def analyze_document_metrics(file_path: str):
                     var result = await dialog.ShowAsync();
                     if (result != ContentDialogResult.Primary) return;
 
-                    // 1. 物理抹除整座 document_groups/{groupId}/ 容器（原子删除：group.json, documents/, sessions/, scratch/）
                     await LibraryPersistenceService.Instance.DeleteGroupAsync(group.GroupId);
 
-                    // 2. 清理专属的 Schema 探查缓存（仅当无其他组共用该 docId 时）
                     foreach (var docId in group.DocumentIds.ToList())
                     {
                         bool isShared = DocumentGroups.Any(g => g.GroupId != group.GroupId && g.DocumentIds.Contains(docId));
@@ -3887,7 +3735,6 @@ def analyze_document_metrics(file_path: str):
                         }
                     }
 
-                    // 3. 内存集合清理：移除组对象与名下全部会话
                     DocumentGroups.Remove(group);
 
                     var sessionsToDelete = ChatSessions.Where(s => s.BindGroupId == group.GroupId).ToList();
@@ -3901,7 +3748,6 @@ def analyze_document_metrics(file_path: str):
                         }
                     }
 
-                    // 4. 若当前激活的组是被删除的组，切换到下一个可用组或重置为空
                     if (_currentGroup == group)
                     {
                         _currentGroup = DocumentGroups.FirstOrDefault();
@@ -3930,7 +3776,6 @@ def analyze_document_metrics(file_path: str):
                     }
                     else if (currentSessionDeleted || _currentSession == null)
                     {
-                        // 若仅当前会话归属于被删除组，切换到当前组最近活跃会话或新建独立会话
                         _currentSession = _currentGroup != null
                             ? ChatSessions.Where(s => s.BindGroupId == _currentGroup.GroupId).OrderByDescending(s => s.LastActiveAt).FirstOrDefault()
                             : ChatSessions.FirstOrDefault();
@@ -3961,12 +3806,8 @@ def analyze_document_metrics(file_path: str):
             await LoadGroupDocumentsAsync(_currentGroup, selectAndPreviewFirstDoc: true);
         }
 
-        /// <summary>
-        /// 同步将 ChatSessions 集合根据 BindGroupId 分发挂载到各 DocumentGroup 的 AssociatedSessions 中
-        /// </summary>
         private void SyncGroupSessions()
         {
-            // 1. 确保系统内置的“独立自由对话专区”存在于 DocumentGroups 集合中
             var standaloneGroup = DocumentGroups.FirstOrDefault(g => g.IsSystemGroup);
             if (standaloneGroup == null)
             {
@@ -3985,16 +3826,13 @@ def analyze_document_metrics(file_path: str):
                 standaloneGroup.GroupName = "独立自由对话";
             }
 
-            // 2. 清空所有组的内存会话关联集合
             foreach (var group in DocumentGroups)
             {
                 group.AssociatedSessions.Clear();
             }
 
-            // 3. 严格分发挂载会话 (坚决杜绝篡改任何会话的 BindGroupId)
             foreach (var session in ChatSessions.OrderByDescending(s => s.LastActiveAt))
             {
-                // 若未绑定任何组，或显式绑定了 standalone 专区，挂载至独立自由对话专区
                 if (string.IsNullOrEmpty(session.BindGroupId) ||
                     string.Equals(session.BindGroupId, LibraryPersistenceService.StandaloneGroupId, StringComparison.OrdinalIgnoreCase))
                 {
@@ -4005,7 +3843,6 @@ def analyze_document_metrics(file_path: str):
                     continue;
                 }
 
-                // 若绑定了常规文档组
                 var matchedGroup = DocumentGroups.FirstOrDefault(g => g.GroupId == session.BindGroupId);
                 if (matchedGroup != null)
                 {
@@ -4027,7 +3864,6 @@ def analyze_document_metrics(file_path: str):
             }
         }
 
-        // 鼠标左键单击文档组标题栏：切换选中文档组并严格联动该组文档与专属会话
         private async void DocGroupHeader_PointerPressed(object sender, PointerRoutedEventArgs e)
         {
             var point = e.GetCurrentPoint(sender as UIElement);
@@ -4043,7 +3879,6 @@ def analyze_document_metrics(file_path: str):
             }
         }
 
-        // 鼠标左键双击文档组：统一选中文档组并联动右侧工作区与对应会话/可视化画廊
         private async void DocGroupItem_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
             var group = (sender as FrameworkElement)?.Tag as DocumentGroup
@@ -4057,7 +3892,6 @@ def analyze_document_metrics(file_path: str):
             }
         }
 
-        // 点击文档组右侧三点操作菜单 (⋮)
         private void btnGroupMoreMenu_Click(object sender, RoutedEventArgs e)
         {
             if (sender is FrameworkElement fe)
@@ -4067,10 +3901,10 @@ def analyze_document_metrics(file_path: str):
 
                 var flyout = new MenuFlyout();
 
-                var itemRename = new MenuFlyoutItem { Text = "✏️ 重命名文档组" };
+                var itemRename = new MenuFlyoutItem { Text = "重命名文档组" };
                 itemRename.Click += (s, args) => btnRenameGroup_Click(new Button { Tag = group }, args);
 
-                var itemDelete = new MenuFlyoutItem { Text = "🗑️ 删除文档组" };
+                var itemDelete = new MenuFlyoutItem { Text = "删除文档组" };
                 itemDelete.Click += (s, args) => btnDeleteGroup_Click(new Button { Tag = group }, args);
 
                 flyout.Items.Add(itemRename);
@@ -4080,7 +3914,6 @@ def analyze_document_metrics(file_path: str):
             }
         }
 
-        // 点击文档组右侧加号 (+)：快捷新建对话
         private async void btnQuickNewSessionInGroup_Click(object sender, RoutedEventArgs e)
         {
             if (sender is FrameworkElement fe)
@@ -4093,7 +3926,6 @@ def analyze_document_metrics(file_path: str):
             }
         }
 
-        // 点击“+”右侧的下拉箭头按钮：展开/折叠当前文档组下的历史会话
         private void btnToggleGroupExpand_Click(object sender, RoutedEventArgs e)
         {
             if (sender is FrameworkElement fe)
@@ -4106,7 +3938,6 @@ def analyze_document_metrics(file_path: str):
             }
         }
 
-        // 鼠标右键单击文档组上下文菜单：基于此文档组新建对话
         private async void menuNewSessionFromGroup_Click(object sender, RoutedEventArgs e)
         {
             DocumentGroup? group = null;
@@ -4122,9 +3953,6 @@ def analyze_document_metrics(file_path: str):
             }
         }
 
-        /// <summary>
-        /// 基于指定文档组创建新会话的核心方法
-        /// </summary>
         private async Task CreateNewSessionForGroupAsync(DocumentGroup group)
         {
             if (group == null) return;
@@ -4135,7 +3963,6 @@ def analyze_document_metrics(file_path: str):
                 return;
             }
 
-            // 统计当前已有绑定该组的会话数，首个保持组名，后续自动区分为 "组名 (2)", "组名 (3)"
             int existingCount = ChatSessions.Count(s => s.BindGroupId == group.GroupId);
             string sessionTitle = existingCount == 0 ? group.GroupName : $"{group.GroupName} ({existingCount + 1})";
 
@@ -4158,13 +3985,11 @@ def analyze_document_metrics(file_path: str):
             _currentSession = newSession;
             if (lvHistorySessions != null) lvHistorySessions.SelectedItem = newSession;
 
-            // 确保该文档组展开显示
             group.IsExpanded = true;
             SyncGroupSessions();
 
             await LibraryPersistenceService.Instance.SaveSessionAsync(newSession);
 
-            // 激活该文档组
             _currentGroup = group;
             foreach (var grp in DocumentGroups)
             {
@@ -4183,12 +4008,10 @@ def analyze_document_metrics(file_path: str):
                 }
             }
 
-            // 统一且幂等加载该文档组的所有文件到工作区
             await LoadGroupDocumentsAsync(group, selectAndPreviewFirstDoc: true);
             UpdateHistoryCountDisplay();
             btnTabDocPreview_Click(this, new RoutedEventArgs());
 
-            // 清空右侧当前消息流与图表画廊大屏，准备开始新会话
             RemoveActiveSkill();
             ChatMessages.Clear();
             ClearPlotVisualizationDashboard();
@@ -4255,20 +4078,17 @@ def analyze_document_metrics(file_path: str):
             _currentSession = newSession;
             if (lvHistorySessions != null) lvHistorySessions.SelectedItem = newSession;
 
-            // 持久化新会话
             await LibraryPersistenceService.Instance.SaveSessionAsync(newSession);
 
             SyncGroupSessions();
             UpdateHistoryCountDisplay();
 
-            // 清空并初始化欢迎消息与图表大屏
             RemoveActiveSkill();
             ChatMessages.Clear();
             ClearPlotVisualizationDashboard();
             InitializeWelcomeChatMessage();
         }
 
-        // 单击手风琴中折叠展开的会话卡片
         private void SessionItem_PointerPressed(object sender, PointerRoutedEventArgs e)
         {
             var point = e.GetCurrentPoint(sender as UIElement);
@@ -4295,7 +4115,6 @@ def analyze_document_metrics(file_path: str):
             }
             if (lvHistorySessions != null) lvHistorySessions.SelectedItem = session;
 
-            // 若所选会话绑定了文档组，且当前激活组与其不一致，联动切换当前文档组与工作区文件
             if (!string.IsNullOrEmpty(session.BindGroupId) && (_currentGroup == null || _currentGroup.GroupId != session.BindGroupId))
             {
                 var targetGroup = DocumentGroups.FirstOrDefault(g => g.GroupId == session.BindGroupId);
@@ -4317,14 +4136,12 @@ def analyze_document_metrics(file_path: str):
             }
             else if (string.IsNullOrEmpty(session.BindGroupId) && _currentGroup != null)
             {
-                // 自由独立会话（未绑定任何文档组）
                 _currentGroup = null;
                 foreach (var g in DocumentGroups) g.IsSelected = false;
                 if (lvDocumentGroups != null) lvDocumentGroups.SelectedItem = null;
                 _ = LoadGroupDocumentsAsync(null, selectAndPreviewFirstDoc: false);
             }
 
-            // 载入所选会话内容
             LoadSessionChat(session);
         }
 
@@ -4342,11 +4159,9 @@ def analyze_document_metrics(file_path: str):
 
             _currentSession = session;
 
-            // 1. 从磁盘读取最新持久化的完整会话记录（包含 messages 与图表）
             var persisted = await LibraryPersistenceService.Instance.LoadSessionAsync(session.Id, session.BindGroupId);
             var messagesToLoad = persisted?.Messages ?? session.Messages;
 
-            // 2. 清空界面并复原消息流与图表画廊
             ChatMessages.Clear();
             ClearPlotVisualizationDashboard();
 
@@ -4354,12 +4169,10 @@ def analyze_document_metrics(file_path: str):
             {
                 foreach (var msg in messagesToLoad)
                 {
-                    // 彻底纠正历史消息残留的瞬态思考状态与折叠状态
                     msg.IsThinking = false;
                     msg.IsReasoningExpanded = false;
                     ChatMessages.Add(msg);
 
-                    // 深度复原画廊中的图表（自动净化历史中残留的未带编号根目录临时图，并校验物理文件是否存在）
                     if (msg.GeneratedPlots != null && msg.GeneratedPlots.Count > 0)
                     {
                         string scratchDir = PythonExecutionService.LocateOrInitScratchDirectory(session.BindGroupId ?? _currentGroup?.GroupId);
@@ -4395,12 +4208,10 @@ def analyze_document_metrics(file_path: str):
             }
             else
             {
-                // 若为空对话，初始化首屏引导并清空可视化大屏
                 ClearPlotVisualizationDashboard();
                 InitializeWelcomeChatMessage();
             }
 
-            // 3. 自动匹配并秒级挂载关联文档组
             if (!string.IsNullOrEmpty(session.BindGroupId))
             {
                 var group = DocumentGroups.FirstOrDefault(g => g.GroupId == session.BindGroupId);
@@ -4433,7 +4244,6 @@ def analyze_document_metrics(file_path: str):
                         }
                     }
 
-                    // 统一且幂等加载组内所有文档元数据及 SchemaProfile（直接命中磁盘缓存）
                     await LoadGroupDocumentsAsync(group, selectAndPreviewFirstDoc: true);
                 }
             }
@@ -4448,11 +4258,9 @@ def analyze_document_metrics(file_path: str):
 
             UpdateDocCountDisplay();
 
-            // 滚动至最新消息
             svChatList?.ChangeView(null, svChatList.ScrollableHeight, null);
         }
 
-        // 右键菜单与按钮：重命名会话
         private async void menuRenameSession_Click(object sender, RoutedEventArgs e)
         {
             var session = (sender as FrameworkElement)?.Tag as ChatSessionItem
@@ -4476,7 +4284,6 @@ def analyze_document_metrics(file_path: str):
             menuRenameSession_Click(sender, e);
         }
 
-        // 右键菜单与按钮：删除会话
         private async void menuDeleteSession_Click(object sender, RoutedEventArgs e)
         {
             var session = (sender as FrameworkElement)?.Tag as ChatSessionItem
@@ -4610,7 +4417,6 @@ def analyze_document_metrics(file_path: str):
                 _toastTimer?.Stop();
                 _toastFadeOutStoryboard?.Stop();
 
-                // 进场动画：透明度平滑渐变至 1.0，Y 坐标自 -16 平滑滑至 0
                 var animFadeIn = new DoubleAnimation
                 {
                     From = borderGlobalToast.Opacity,
@@ -4639,7 +4445,6 @@ def analyze_document_metrics(file_path: str):
 
                 sbIn.Begin();
 
-                // 启动倒计时，延时后触发退出动画
                 _toastTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(durationMs) };
                 _toastTimer.Tick += (s, e) =>
                 {
@@ -4734,7 +4539,6 @@ def analyze_document_metrics(file_path: str):
                 double currentX = e.GetCurrentPoint(this.Content).Position.X;
                 double deltaX = currentX - _startDragX;
 
-                // 向左拖拽 (deltaX < 0) 右栏变宽；向右拖拽 (deltaX > 0) 右栏变窄
                 double targetWidth = _startRightColWidth - deltaX;
 
                 // 约束右栏最小宽度 280px
@@ -4758,13 +4562,10 @@ def analyze_document_metrics(file_path: str):
         {
             if (colRight == null || colMiddle == null || gridMainContentColumns == null) return;
 
-            // 减去左侧窄导航栏 56px、主区域边距 22px 与分割手柄 14px
             double availableWidth = windowWidth - 56 - 22 - 14;
             if (availableWidth <= 0) return;
 
-            // 中栏保留的最小可用宽度 (300px)
             double minMiddleWidth = 300;
-            // 右栏本身的最小可用宽度 (280px)
             double minRightWidth = 280;
 
             double maxRightWidth = Math.Max(minRightWidth, availableWidth - minMiddleWidth);
@@ -4802,9 +4603,6 @@ def analyze_document_metrics(file_path: str):
             }
         }
 
-        /// <summary>
-        /// 利用 WinUI 3 内部 ProtectedCursor 机制为拖动手柄赋予系统原生双向水平拉伸光标 (SizeWestEast)
-        /// </summary>
         private void InitSplitterCursor()
         {
             try
@@ -4843,5 +4641,3 @@ def analyze_document_metrics(file_path: str):
         #endregion
     }
 }
-
-

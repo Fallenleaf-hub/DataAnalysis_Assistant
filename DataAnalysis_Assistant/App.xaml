@@ -10,10 +10,8 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
 
-            <!-- 移除 ToggleSwitch 默认 154px 最小宽度，杜绝无文本时右侧留白 -->
             <x:Double x:Key="ToggleSwitchThemeMinWidth">0</x:Double>
 
-            <!-- 暖色调全局主题调色板（参考模板风格） -->
             <SolidColorBrush x:Key="WarmBgBrush" Color="#F7F4EB"/>
             <SolidColorBrush x:Key="SidebarBgBrush" Color="#EFEAE0"/>
             <SolidColorBrush x:Key="RailBgBrush" Color="#EAE5DA"/>
@@ -28,4 +26,3 @@
         </ResourceDictionary>
     </Application.Resources>
 </Application>
-
