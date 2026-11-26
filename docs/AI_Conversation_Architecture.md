@@ -12,8 +12,8 @@
 flowchart TD
     subgraph L1 ["1. 入口与交互层 (WinUI 3 Presentation)"]
         UI_Chat["现代化对话流 (ChatMessageItem)"]
-        UI_Card["思考卡片 / 工具执行卡片 / 图表渲染预览"]
-        UI_Auth["安全刹车审批对话框 (一键允许 / 拒绝)"]
+        UI_Card["默认折叠思考卡片 (气泡内实时状态) / 工具执行卡片 / 图表渲染预览"]
+        UI_Auth["高危代码硬拦截三重提醒 (气泡红色横幅 + 状态提示 + 确认弹窗)"]
     end
 
     subgraph L2 ["2. 会话与状态管理层 (Session & State Management)"]
@@ -30,7 +30,7 @@ flowchart TD
     subgraph L4 ["4. Agent 主循环状态机 (AgentQueryLoopService)"]
         LOOP_Assemble["组装上下文与 System Prompt"]
         LOOP_LLM["调用模型获取决策 / Tools 响应"]
-        LOOP_Check["安全权限校验 (拦截高危操作)"]
+        LOOP_Check["安全权限校验 (内置常驻高危静态硬拦截)"]
         LOOP_Exec["执行本地工具并捕获产物"]
         LOOP_Reflect["反思自愈、终轮强制收敛与异常分类"]
     end
@@ -51,7 +51,7 @@ flowchart TD
     L3 <--> L4
     L4 --> L5
     L4 <--> L6
-    L4 -. 触发审批 .-> UI_Auth
+    L4 -. 触发高危拦截 .-> UI_Auth
 ```
 
 ---
@@ -110,7 +110,7 @@ erDiagram
 ### 1. 存储目录拓扑规范 (`%AppData%\DataAnalysis_Assistant\`)
 ```
 %AppData%\DataAnalysis_Assistant\
-├─ settings.json                    # 全局配置 (API Key, 超时, 安全开关)
+├─ settings.json                    # 全局配置 (API Key, 超时, 模型列表, 图表主题)
 ├─ skills/                          # 专属用户受控技能目录 (SKILL.md)
 ├─ cache/
 │  └─ schema_profiles/              # 表结构探查缓存 ({DocId}.json)

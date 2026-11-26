@@ -377,3 +377,6 @@ ContentManagement_Target.md
 # VS Code directory & configs
 .vscode/
 .vscode/*
+
+# Local external reference folder (do not upload)
+cumt_agent_platform/

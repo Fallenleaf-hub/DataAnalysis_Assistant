@@ -25,42 +25,91 @@ namespace DataAnalysis_Assistant
         private static readonly SolidColorBrush BrushThemeError = new(Color.FromArgb(255, 0xC6, 0x28, 0x28));
 
         private bool _isThemeDialogOpen = false;
+        private string _draftChartLanguageId = ThemePresetCatalog.DefaultLanguageId;
+        private string _draftChartColorThemeId = ThemePresetCatalog.DefaultColorThemeId;
+
+        private void ResetThemeDraftFromSettings()
+        {
+            _draftChartLanguageId = ThemePresetCatalog.ResolveSelectedLanguage(_settings).Id;
+            _draftChartColorThemeId = ThemePresetCatalog.ResolveSelectedColorTheme(_settings).Id;
+            if (tbSystemPrompt != null)
+            {
+                tbSystemPrompt.Text = _settings.SystemPrompt;
+            }
+            if (infoBarThemeSettings != null)
+            {
+                infoBarThemeSettings.IsOpen = false;
+            }
+        }
+
+        private void NotifyThemeDraftPending(string? customMessage = null)
+        {
+            if (infoBarThemeSettings == null) return;
+
+            string savedLangId = ThemePresetCatalog.ResolveSelectedLanguage(_settings).Id;
+            string savedColorId = ThemePresetCatalog.ResolveSelectedColorTheme(_settings).Id;
+            string savedPrompt = _settings.SystemPrompt ?? string.Empty;
+            string currentPrompt = tbSystemPrompt?.Text.Trim() ?? savedPrompt;
+
+            bool hasChanges =
+                !string.Equals(_draftChartLanguageId, savedLangId, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(_draftChartColorThemeId, savedColorId, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(currentPrompt, savedPrompt, StringComparison.Ordinal);
+
+            if (hasChanges || !string.IsNullOrWhiteSpace(customMessage))
+            {
+                infoBarThemeSettings.IsOpen = true;
+                infoBarThemeSettings.Severity = InfoBarSeverity.Informational;
+                infoBarThemeSettings.Title = "待保存";
+                infoBarThemeSettings.Message = string.IsNullOrWhiteSpace(customMessage)
+                    ? "已切换选中项，请点击右下角【保存配置】使其生效。"
+                    : customMessage;
+            }
+            else
+            {
+                infoBarThemeSettings.IsOpen = false;
+            }
+        }
 
         private void btnSettingsNavTheme_Click(object sender, RoutedEventArgs e)
         {
             SwitchSettingsView(viewSettingsTheme, btnSettingsNavTheme, tbSettingsNavThemeText);
-            RenderThemeSectionCards();
-        }
-
-        private void tbSystemPrompt_LostFocus(object sender, RoutedEventArgs e)
-        {
-            if (tbSystemPrompt == null) return;
-            string trimmed = tbSystemPrompt.Text.Trim();
-            if (!string.Equals(_settings.SystemPrompt, trimmed, StringComparison.Ordinal))
+            if (string.IsNullOrWhiteSpace(_draftChartLanguageId) || string.IsNullOrWhiteSpace(_draftChartColorThemeId))
             {
-                _settings.SystemPrompt = trimmed;
-                SettingsService.SaveSettings(_settings);
+                ResetThemeDraftFromSettings();
             }
+            RenderThemeSectionCards();
         }
 
         private void btnSaveThemeSettings_Click(object sender, RoutedEventArgs e)
         {
+            var allLangs = ThemePresetCatalog.GetAllLanguages(_settings);
+            var targetLang = allLangs.FirstOrDefault(x => x.Id.Equals(_draftChartLanguageId, StringComparison.OrdinalIgnoreCase))
+                             ?? ThemePresetCatalog.ResolveSelectedLanguage(_settings);
+
+            var allColors = ThemePresetCatalog.GetAllColorThemes(_settings);
+            var targetColor = allColors.FirstOrDefault(x => x.Id.Equals(_draftChartColorThemeId, StringComparison.OrdinalIgnoreCase))
+                              ?? ThemePresetCatalog.ResolveSelectedColorTheme(_settings);
+
+            _settings.SelectedChartLanguageId = targetLang.Id;
+            _settings.SelectedChartColorThemeId = targetColor.Id;
+            _draftChartLanguageId = targetLang.Id;
+            _draftChartColorThemeId = targetColor.Id;
+
             if (tbSystemPrompt != null)
             {
                 _settings.SystemPrompt = tbSystemPrompt.Text.Trim();
             }
 
             SettingsService.SaveSettings(_settings);
-
-            var lang = ThemePresetCatalog.ResolveSelectedLanguage(_settings);
-            var colorTheme = ThemePresetCatalog.ResolveSelectedColorTheme(_settings);
+            RenderThemeSectionCards();
 
             if (infoBarThemeSettings != null)
             {
                 infoBarThemeSettings.IsOpen = true;
                 infoBarThemeSettings.Severity = InfoBarSeverity.Success;
                 infoBarThemeSettings.Title = "主题配置已保存";
-                infoBarThemeSettings.Message = $"当前图表语言：{lang.Name}，图表配色：{colorTheme.Name}，系统角色提示词已保存生效。";
+                infoBarThemeSettings.Message = $"当前图表语言：{targetLang.Name}，图表配色：{targetColor.Name}，系统角色提示词已保存生效。";
             }
         }
 
@@ -70,6 +119,9 @@ namespace DataAnalysis_Assistant
             _settings.SelectedChartLanguageId = ThemePresetCatalog.DefaultLanguageId;
             _settings.SelectedChartColorThemeId = ThemePresetCatalog.DefaultColorThemeId;
             _settings.SystemPrompt = defaults.SystemPrompt;
+
+            _draftChartLanguageId = _settings.SelectedChartLanguageId;
+            _draftChartColorThemeId = _settings.SelectedChartColorThemeId;
 
             if (tbSystemPrompt != null)
             {
@@ -94,11 +146,14 @@ namespace DataAnalysis_Assistant
 
             panelThemeLanguages.Children.Clear();
             var languages = ThemePresetCatalog.GetAllLanguages(_settings);
-            string selectedLangId = ThemePresetCatalog.ResolveSelectedLanguage(_settings).Id;
+            var selectedLang = languages.FirstOrDefault(x => x.Id.Equals(_draftChartLanguageId, StringComparison.OrdinalIgnoreCase))
+                               ?? ThemePresetCatalog.ResolveSelectedLanguage(_settings);
+            _draftChartLanguageId = selectedLang.Id;
+
             var langCards = new List<UIElement>(languages.Count + 1);
             foreach (var lang in languages)
             {
-                bool isSelected = lang.Id.Equals(selectedLangId, StringComparison.OrdinalIgnoreCase);
+                bool isSelected = lang.Id.Equals(_draftChartLanguageId, StringComparison.OrdinalIgnoreCase);
                 langCards.Add(CreateLanguageCard(lang, isSelected));
             }
             langCards.Add(CreateAddOptionCard(56, "新增语言", async () => await ShowLanguageEditorDialogAsync(null)));
@@ -106,11 +161,14 @@ namespace DataAnalysis_Assistant
 
             panelThemeColorPalettes.Children.Clear();
             var colorThemes = ThemePresetCatalog.GetAllColorThemes(_settings);
-            string selectedColorId = ThemePresetCatalog.ResolveSelectedColorTheme(_settings).Id;
+            var selectedColor = colorThemes.FirstOrDefault(x => x.Id.Equals(_draftChartColorThemeId, StringComparison.OrdinalIgnoreCase))
+                                ?? ThemePresetCatalog.ResolveSelectedColorTheme(_settings);
+            _draftChartColorThemeId = selectedColor.Id;
+
             var colorCards = new List<UIElement>(colorThemes.Count + 1);
             foreach (var theme in colorThemes)
             {
-                bool isSelected = theme.Id.Equals(selectedColorId, StringComparison.OrdinalIgnoreCase);
+                bool isSelected = theme.Id.Equals(_draftChartColorThemeId, StringComparison.OrdinalIgnoreCase);
                 colorCards.Add(CreateColorThemeCard(theme, isSelected));
             }
             colorCards.Add(CreateAddOptionCard(80, "新增配色", async () => await ShowColorThemeEditorDialogAsync(null)));
@@ -208,9 +266,9 @@ namespace DataAnalysis_Assistant
             };
             card.Tapped += (_, _) =>
             {
-                _settings.SelectedChartLanguageId = lang.Id;
-                SettingsService.SaveSettings(_settings);
+                _draftChartLanguageId = lang.Id;
                 RenderThemeSectionCards();
+                NotifyThemeDraftPending();
             };
 
             card.ContextFlyout = BuildLanguageContextFlyout(lang);
@@ -300,9 +358,9 @@ namespace DataAnalysis_Assistant
             };
             card.Tapped += (_, _) =>
             {
-                _settings.SelectedChartColorThemeId = theme.Id;
-                SettingsService.SaveSettings(_settings);
+                _draftChartColorThemeId = theme.Id;
                 RenderThemeSectionCards();
+                NotifyThemeDraftPending();
             };
 
             card.ContextFlyout = BuildColorThemeContextFlyout(theme);
@@ -504,6 +562,10 @@ namespace DataAnalysis_Assistant
                 if (!confirmed) return;
 
                 _settings.CustomChartLanguages.RemoveAll(x => x.Id.Equals(lang.Id, StringComparison.OrdinalIgnoreCase));
+                if (_draftChartLanguageId.Equals(lang.Id, StringComparison.OrdinalIgnoreCase))
+                {
+                    _draftChartLanguageId = ThemePresetCatalog.DefaultLanguageId;
+                }
                 if (_settings.SelectedChartLanguageId.Equals(lang.Id, StringComparison.OrdinalIgnoreCase))
                 {
                     _settings.SelectedChartLanguageId = ThemePresetCatalog.DefaultLanguageId;
@@ -511,6 +573,7 @@ namespace DataAnalysis_Assistant
 
                 SettingsService.SaveSettings(_settings);
                 RenderThemeSectionCards();
+                NotifyThemeDraftPending();
             }
             finally
             {
@@ -530,6 +593,10 @@ namespace DataAnalysis_Assistant
                 if (!confirmed) return;
 
                 _settings.CustomChartColorThemes.RemoveAll(x => x.Id.Equals(theme.Id, StringComparison.OrdinalIgnoreCase));
+                if (_draftChartColorThemeId.Equals(theme.Id, StringComparison.OrdinalIgnoreCase))
+                {
+                    _draftChartColorThemeId = ThemePresetCatalog.DefaultColorThemeId;
+                }
                 if (_settings.SelectedChartColorThemeId.Equals(theme.Id, StringComparison.OrdinalIgnoreCase))
                 {
                     _settings.SelectedChartColorThemeId = ThemePresetCatalog.DefaultColorThemeId;
@@ -537,6 +604,7 @@ namespace DataAnalysis_Assistant
 
                 SettingsService.SaveSettings(_settings);
                 RenderThemeSectionCards();
+                NotifyThemeDraftPending();
             }
             finally
             {
@@ -773,7 +841,7 @@ namespace DataAnalysis_Assistant
                         IsBuiltIn = false
                     };
                     _settings.CustomChartLanguages.Add(created);
-                    _settings.SelectedChartLanguageId = created.Id;
+                    _draftChartLanguageId = created.Id;
                 }
                 else
                 {
@@ -783,6 +851,10 @@ namespace DataAnalysis_Assistant
 
                 SettingsService.SaveSettings(_settings);
                 RenderThemeSectionCards();
+                if (existing == null)
+                {
+                    NotifyThemeDraftPending("已新增自定义语言并预选中，请点击右下角【保存配置】使其生效。");
+                }
             }
             finally
             {
@@ -948,7 +1020,7 @@ namespace DataAnalysis_Assistant
                         IsBuiltIn = false
                     };
                     _settings.CustomChartColorThemes.Add(created);
-                    _settings.SelectedChartColorThemeId = created.Id;
+                    _draftChartColorThemeId = created.Id;
                 }
                 else
                 {
@@ -959,6 +1031,10 @@ namespace DataAnalysis_Assistant
 
                 SettingsService.SaveSettings(_settings);
                 RenderThemeSectionCards();
+                if (existing == null)
+                {
+                    NotifyThemeDraftPending("已新增自定义配色并预选中，请点击右下角【保存配置】使其生效。");
+                }
             }
             finally
             {

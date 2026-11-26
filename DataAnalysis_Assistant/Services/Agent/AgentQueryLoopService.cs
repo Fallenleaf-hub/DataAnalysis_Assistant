@@ -20,6 +20,7 @@ namespace DataAnalysis_Assistant.Services.Agent
         public string? IntermediateReasoning { get; set; }
         public string? IntermediateContent { get; set; }
         public string? ActiveToolName { get; set; }
+        public string? SafetyBlockReason { get; set; }
         public List<string> GeneratedArtifactsSoFar { get; set; } = new();
     }
 
@@ -32,6 +33,7 @@ namespace DataAnalysis_Assistant.Services.Agent
         public List<string> GeneratedArtifactPaths { get; set; } = new();
         public List<ChatTurn> CompleteTurnHistory { get; set; } = new();
         public List<ToolCallRecordItem> ExecutedToolCalls { get; set; } = new();
+        public List<string> SafetyBlockNotices { get; set; } = new();
         public string? ErrorMessage { get; set; }
         public AgentTerminationReason TerminationReason { get; set; } = AgentTerminationReason.None;
         public bool IsStreamTruncated { get; set; } = false;
@@ -86,6 +88,8 @@ namespace DataAnalysis_Assistant.Services.Agent
             int totalSelfHealingRetries = 0;
             const int MaxGlobalSelfHealingRetries = 6;
             bool isLoopStreamTruncated = false;
+            int safetyBlockCount = 0;
+            var safetyBlockNotices = new List<string>();
 
             while (iteration < maxIterations)
             {
@@ -100,6 +104,7 @@ namespace DataAnalysis_Assistant.Services.Agent
                         GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
                         CompleteTurnHistory = loopHistory,
                         ExecutedToolCalls = executedToolCalls,
+                        SafetyBlockNotices = new List<string>(safetyBlockNotices),
                         IsStreamTruncated = isLoopStreamTruncated
                     };
                 }
@@ -153,7 +158,9 @@ namespace DataAnalysis_Assistant.Services.Agent
                             ErrorMessage = "任务已由用户手动停止。",
                             TotalIterations = iteration,
                             GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
-                            CompleteTurnHistory = loopHistory
+                            CompleteTurnHistory = loopHistory,
+                            ExecutedToolCalls = executedToolCalls,
+                            SafetyBlockNotices = new List<string>(safetyBlockNotices)
                         };
                     }
 
@@ -164,7 +171,9 @@ namespace DataAnalysis_Assistant.Services.Agent
                         ErrorMessage = $"大模型请求失败: {ex.Message}",
                         TotalIterations = iteration,
                         GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
-                        CompleteTurnHistory = loopHistory
+                        CompleteTurnHistory = loopHistory,
+                        ExecutedToolCalls = executedToolCalls,
+                        SafetyBlockNotices = new List<string>(safetyBlockNotices)
                     };
                 }
 
@@ -177,7 +186,9 @@ namespace DataAnalysis_Assistant.Services.Agent
                         ErrorMessage = "任务已由用户手动停止。",
                         TotalIterations = iteration,
                         GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
-                        CompleteTurnHistory = loopHistory
+                        CompleteTurnHistory = loopHistory,
+                        ExecutedToolCalls = executedToolCalls,
+                        SafetyBlockNotices = new List<string>(safetyBlockNotices)
                     };
                 }
 
@@ -263,6 +274,30 @@ namespace DataAnalysis_Assistant.Services.Agent
                             }
                             string truncatedErr = TruncateErrorForPrompt(execResult.ErrorMessage);
                             failedToolSummaries.Add($"[{fnName}] {truncatedErr}");
+
+                            if (execResult.IsSafetyBlocked)
+                            {
+                                safetyBlockCount++;
+                                string blockReason = !string.IsNullOrWhiteSpace(execResult.SafetyBlockReason)
+                                    ? execResult.SafetyBlockReason!
+                                    : (execResult.ErrorMessage ?? "检测到高危系统操作，已拒绝执行该段 Python 代码。");
+                                if (!safetyBlockNotices.Contains(blockReason))
+                                {
+                                    safetyBlockNotices.Add(blockReason);
+                                }
+
+                                progress?.Report(new AgentProgressUpdate
+                                {
+                                    CurrentIteration = iteration,
+                                    MaxIterations = maxIterations,
+                                    Phase = "safety_blocked",
+                                    ActiveToolName = fnName,
+                                    SafetyBlockReason = blockReason,
+                                    StatusMessage = $"第 {iteration}/{maxIterations} 轮：已拦截高危 Python 代码",
+                                    GeneratedArtifactsSoFar = new List<string>(allGeneratedArtifacts),
+                                    IntermediateReasoning = accumulatedReasoning.ToString()
+                                });
+                            }
                         }
 
                         string toolResultContent;
@@ -278,6 +313,10 @@ namespace DataAnalysis_Assistant.Services.Agent
                             {
                                 toolResultContent = baseOutput;
                             }
+                        }
+                        else if (execResult.IsSafetyBlocked)
+                        {
+                            toolResultContent = $"[安全策略硬拦截 - 拒绝执行]\n{execResult.ErrorMessage}\n指令约束：系统禁止执行系统命令行、外部子进程、删除文件/目录、注册表修改或底层 Socket 等高危代码。如果用户需求可以通过纯数据分析与绘图（pandas/numpy/matplotlib）安全完成，请立即改写为不含高危操作的安全代码重新尝试；如果用户需求本身要求执行上述高危系统操作，请勿再次调用工具，直接用清晰的文字向用户解释被拦截的原因。";
                         }
                         else
                         {
@@ -321,6 +360,7 @@ namespace DataAnalysis_Assistant.Services.Agent
                             GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
                             CompleteTurnHistory = loopHistory,
                             ExecutedToolCalls = executedToolCalls,
+                            SafetyBlockNotices = new List<string>(safetyBlockNotices),
                             IsStreamTruncated = isLoopStreamTruncated
                         };
                     }
@@ -329,6 +369,26 @@ namespace DataAnalysis_Assistant.Services.Agent
 
                     if (anyToolFailed)
                     {
+                        if (safetyBlockCount >= 2)
+                        {
+                            return await ExecuteFinalSynthesisTurnAsync(
+                                settings,
+                                loopHistory,
+                                documentContext,
+                                userQuestion,
+                                iteration,
+                                maxIterations,
+                                allGeneratedArtifacts,
+                                accumulatedReasoning,
+                                failedToolSummaries,
+                                executedToolCalls,
+                                AgentTerminationReason.ConsecutiveErrorsTripped,
+                                activeSkillInstruction,
+                                progress,
+                                cancellationToken,
+                                safetyBlockNotices);
+                        }
+
                         int allowedRetryQuota = turnErrors.Count > 0 ? turnErrors.Min(GetErrorRetryQuota) : 2;
 
                         if (!producedNewArtifacts &&
@@ -384,7 +444,8 @@ namespace DataAnalysis_Assistant.Services.Agent
                                 AgentTerminationReason.ConsecutiveErrorsTripped,
                                 activeSkillInstruction,
                                 progress,
-                                cancellationToken);
+                                cancellationToken,
+                                safetyBlockNotices);
                         }
                     }
                     else
@@ -410,7 +471,8 @@ namespace DataAnalysis_Assistant.Services.Agent
                             AgentTerminationReason.MaxIterationsReached,
                             activeSkillInstruction,
                             progress,
-                            cancellationToken);
+                            cancellationToken,
+                            safetyBlockNotices);
                     }
 
                     continue;
@@ -439,6 +501,7 @@ namespace DataAnalysis_Assistant.Services.Agent
                         GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
                         CompleteTurnHistory = loopHistory,
                         ExecutedToolCalls = executedToolCalls,
+                        SafetyBlockNotices = new List<string>(safetyBlockNotices),
                         IsStreamTruncated = isLoopStreamTruncated
                     };
                 }
@@ -458,7 +521,8 @@ namespace DataAnalysis_Assistant.Services.Agent
                 AgentTerminationReason.MaxIterationsReached,
                 activeSkillInstruction,
                 progress,
-                cancellationToken);
+                cancellationToken,
+                safetyBlockNotices);
         }
 
         private async Task<AgentLoopResult> ExecuteFinalSynthesisTurnAsync(
@@ -475,8 +539,13 @@ namespace DataAnalysis_Assistant.Services.Agent
             AgentTerminationReason terminationReason,
             string? activeSkillInstruction,
             IProgress<AgentProgressUpdate>? progress,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            List<string>? safetyBlockNotices = null)
         {
+            var resolvedSafetyNotices = safetyBlockNotices != null
+                ? new List<string>(safetyBlockNotices)
+                : new List<string>();
+
             if (cancellationToken.IsCancellationRequested)
             {
                 return new AgentLoopResult
@@ -487,7 +556,8 @@ namespace DataAnalysis_Assistant.Services.Agent
                     TotalIterations = iteration,
                     GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
                     CompleteTurnHistory = loopHistory,
-                    ExecutedToolCalls = executedToolCalls
+                    ExecutedToolCalls = executedToolCalls,
+                    SafetyBlockNotices = resolvedSafetyNotices
                 };
             }
 
@@ -513,7 +583,8 @@ namespace DataAnalysis_Assistant.Services.Agent
                     TotalIterations = iteration,
                     GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
                     CompleteTurnHistory = loopHistory,
-                    ExecutedToolCalls = executedToolCalls
+                    ExecutedToolCalls = executedToolCalls,
+                    SafetyBlockNotices = resolvedSafetyNotices
                 };
             }
 
@@ -569,7 +640,8 @@ namespace DataAnalysis_Assistant.Services.Agent
                         TotalIterations = iteration,
                         GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
                         CompleteTurnHistory = loopHistory,
-                        ExecutedToolCalls = executedToolCalls
+                        ExecutedToolCalls = executedToolCalls,
+                        SafetyBlockNotices = resolvedSafetyNotices
                     };
                 }
 
@@ -583,7 +655,8 @@ namespace DataAnalysis_Assistant.Services.Agent
                     TotalIterations = iteration,
                     GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
                     CompleteTurnHistory = loopHistory,
-                    ExecutedToolCalls = executedToolCalls
+                    ExecutedToolCalls = executedToolCalls,
+                    SafetyBlockNotices = resolvedSafetyNotices
                 };
             }
 
@@ -623,7 +696,8 @@ namespace DataAnalysis_Assistant.Services.Agent
                 TotalIterations = iteration,
                 GeneratedArtifactPaths = allGeneratedArtifacts.Distinct().ToList(),
                 CompleteTurnHistory = loopHistory,
-                ExecutedToolCalls = executedToolCalls
+                ExecutedToolCalls = executedToolCalls,
+                SafetyBlockNotices = resolvedSafetyNotices
             };
         }
 
@@ -668,9 +742,10 @@ namespace DataAnalysis_Assistant.Services.Agent
         {
             if (string.IsNullOrWhiteSpace(fullErrorMessage)) return 2;
 
-            // 0 次自愈：环境缺依赖，改代码无效，坚决阻断
+            // 0 次自愈：环境缺依赖或高危安全硬拦截，不计入静默自愈微调计数
             if (fullErrorMessage.Contains("[ERR_TYPE:ModuleNotFound]") ||
-                fullErrorMessage.Contains("ModuleNotFoundError"))
+                fullErrorMessage.Contains("ModuleNotFoundError") ||
+                fullErrorMessage.Contains("[ERR_TYPE:SafetyBlocked]"))
             {
                 return 0;
             }

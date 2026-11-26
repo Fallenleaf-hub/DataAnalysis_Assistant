@@ -89,6 +89,10 @@ namespace DataAnalysis_Assistant.Models
 
         public List<string> GeneratedArtifacts { get; set; } = new();
 
+        public bool IsSafetyBlocked { get; set; } = false;
+
+        public string? SafetyBlockReason { get; set; }
+
         public static ToolExecutionResult CreateSuccess(string output, List<string>? artifacts = null)
         {
             return new ToolExecutionResult
@@ -106,6 +110,18 @@ namespace DataAnalysis_Assistant.Models
                 Success = false,
                 ErrorMessage = errorMessage,
                 Output = partialOutput ?? string.Empty
+            };
+        }
+
+        public static ToolExecutionResult CreateSafetyBlocked(string reason, string errorMessage)
+        {
+            return new ToolExecutionResult
+            {
+                Success = false,
+                IsSafetyBlocked = true,
+                SafetyBlockReason = reason,
+                ErrorMessage = errorMessage,
+                Output = string.Empty
             };
         }
 

@@ -52,20 +52,12 @@ namespace DataAnalysis_Assistant.Services.Tools
                 required = new[] { "code" }
             });
 
-        public bool RequiresUserApproval
-        {
-            get
-            {
-                var settings = _getSettings();
-                return settings.PythonSecurityMode == 0;
-            }
-        }
+        public bool RequiresUserApproval => false;
 
-        /// 判定指定代码是否需要安全审批
+        /// 判定指定代码是否触发内置高危安全拦截
         public SafetyCheckResult EvaluateSafety(string code)
         {
-            var settings = _getSettings();
-            return _safetyGate.InspectCode(code, settings.PythonSecurityMode);
+            return _safetyGate.InspectCode(code);
         }
 
         public async Task<ToolExecutionResult> ExecuteAsync(string argumentsJson, CancellationToken cancellationToken = default)
@@ -96,10 +88,14 @@ namespace DataAnalysis_Assistant.Services.Tools
 
             var settings = _getSettings();
 
-            // 1. 安全刹车检查
-            var safetyCheck = _safetyGate.InspectCode(code, settings.PythonSecurityMode);
-            if (!safetyCheck.IsAllowedAutoRun && settings.PythonSecurityMode == 1)
+            // 1. 内置常驻高危代码静态硬拦截
+            var safetyCheck = _safetyGate.InspectCode(code);
+            if (!safetyCheck.IsAllowedAutoRun || safetyCheck.Level == CodeRiskLevel.HighRisk)
             {
+                string reason = string.IsNullOrWhiteSpace(safetyCheck.RiskReason)
+                    ? "检测到高危系统操作，系统已自动拒绝执行该段 Python 代码。"
+                    : safetyCheck.RiskReason;
+                return ToolExecutionResult.CreateSafetyBlocked(reason, $"[ERR_TYPE:SafetyBlocked] {reason}");
             }
 
             int baseTimeout = Math.Clamp(settings.PythonTimeoutSeconds, 30, 120);

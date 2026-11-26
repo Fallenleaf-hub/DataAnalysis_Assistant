@@ -16,6 +16,9 @@ namespace DataAnalysis_Assistant.Models
         private bool _isReasoningExpanded = false;
         private bool _isThinking = false;
         private double _thinkingSeconds = 0;
+        private string _liveStatusText = string.Empty;
+        private string? _completionStatusSummary;
+        private string? _safetyBlockMessage;
         private bool _isStopped = false;
         private AgentTerminationReason _terminationReason = AgentTerminationReason.None;
         private bool _isStreamTruncated = false;
@@ -123,7 +126,9 @@ namespace DataAnalysis_Assistant.Models
                     _reasoningContent = value;
                     OnPropertyChanged();
                     OnPropertyChanged(nameof(HasReasoning));
+                    OnPropertyChanged(nameof(HasReasoningBody));
                     OnPropertyChanged(nameof(HasReasoningVisibility));
+                    OnPropertyChanged(nameof(ReasoningToggleVisibility));
                     OnPropertyChanged(nameof(ReasoningBodyVisibility));
                     OnPropertyChanged(nameof(ReasoningDisplayText));
                 }
@@ -131,10 +136,16 @@ namespace DataAnalysis_Assistant.Models
         }
 
         [JsonIgnore]
-        public bool HasReasoning => !string.IsNullOrWhiteSpace(_reasoningContent) || _isThinking;
+        public bool HasReasoningBody => !string.IsNullOrWhiteSpace(_reasoningContent) || _isThinking;
+
+        [JsonIgnore]
+        public bool HasReasoning => HasReasoningBody || !string.IsNullOrWhiteSpace(_completionStatusSummary);
 
         [JsonIgnore]
         public Visibility HasReasoningVisibility => HasReasoning ? Visibility.Visible : Visibility.Collapsed;
+
+        [JsonIgnore]
+        public Visibility ReasoningToggleVisibility => HasReasoningBody ? Visibility.Visible : Visibility.Collapsed;
 
         [JsonIgnore]
         public string ReasoningDisplayText
@@ -165,7 +176,7 @@ namespace DataAnalysis_Assistant.Models
         }
 
         [JsonIgnore]
-        public Visibility ReasoningBodyVisibility => (HasReasoning && _isReasoningExpanded) ? Visibility.Visible : Visibility.Collapsed;
+        public Visibility ReasoningBodyVisibility => (HasReasoningBody && _isReasoningExpanded) ? Visibility.Visible : Visibility.Collapsed;
 
         [JsonIgnore]
         public string ReasoningToggleText => _isReasoningExpanded ? "收起思考 ⌃" : "展开思考 ⌄";
@@ -181,7 +192,9 @@ namespace DataAnalysis_Assistant.Models
                     _isThinking = value;
                     OnPropertyChanged();
                     OnPropertyChanged(nameof(HasReasoning));
+                    OnPropertyChanged(nameof(HasReasoningBody));
                     OnPropertyChanged(nameof(HasReasoningVisibility));
+                    OnPropertyChanged(nameof(ReasoningToggleVisibility));
                     OnPropertyChanged(nameof(ReasoningBodyVisibility));
                     OnPropertyChanged(nameof(ReasoningDisplayText));
                     OnPropertyChanged(nameof(ThinkingIndicatorVisibility));
@@ -192,6 +205,56 @@ namespace DataAnalysis_Assistant.Models
 
         [JsonIgnore]
         public Visibility ThinkingIndicatorVisibility => _isThinking ? Visibility.Visible : Visibility.Collapsed;
+
+        [JsonIgnore]
+        public string LiveStatusText
+        {
+            get => _liveStatusText;
+            set
+            {
+                string normalized = value ?? string.Empty;
+                if (_liveStatusText != normalized)
+                {
+                    _liveStatusText = normalized;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(ThinkingStatusText));
+                }
+            }
+        }
+
+        public string? CompletionStatusSummary
+        {
+            get => _completionStatusSummary;
+            set
+            {
+                if (_completionStatusSummary != value)
+                {
+                    _completionStatusSummary = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(HasReasoning));
+                    OnPropertyChanged(nameof(HasReasoningVisibility));
+                    OnPropertyChanged(nameof(ThinkingStatusText));
+                }
+            }
+        }
+
+        public string? SafetyBlockMessage
+        {
+            get => _safetyBlockMessage;
+            set
+            {
+                if (_safetyBlockMessage != value)
+                {
+                    _safetyBlockMessage = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(SafetyBlockNoticeVisibility));
+                }
+            }
+        }
+
+        [JsonIgnore]
+        public Visibility SafetyBlockNoticeVisibility =>
+            !string.IsNullOrWhiteSpace(_safetyBlockMessage) ? Visibility.Visible : Visibility.Collapsed;
 
         public double ThinkingSeconds
         {
@@ -214,7 +277,16 @@ namespace DataAnalysis_Assistant.Models
             {
                 if (_isThinking)
                 {
-                    return _thinkingSeconds > 0 ? $"正在思考... ({_thinkingSeconds:0.#}s)" : "正在思考...";
+                    if (!string.IsNullOrWhiteSpace(_liveStatusText))
+                    {
+                        return _liveStatusText;
+                    }
+                    return _thinkingSeconds > 0 ? $"正在思考... ({_thinkingSeconds:0.#}s)" : "正在深度思考...";
+                }
+
+                if (!string.IsNullOrWhiteSpace(_completionStatusSummary))
+                {
+                    return _completionStatusSummary;
                 }
                 return _thinkingSeconds > 0 ? $"已完成深度思考 (耗时 {_thinkingSeconds:0.#}s)" : "已完成深度思考";
             }

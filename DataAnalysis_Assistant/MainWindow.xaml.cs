@@ -74,10 +74,14 @@ namespace DataAnalysis_Assistant
 
         private CancellationTokenSource? _chatCts;
         private bool _isChatGenerating = false;
+        private ChatMessageItem? _activeGeneratingMessage;
+        private CancellationTokenSource? _briefStatusCts;
+        private readonly SemaphoreSlim _safetyDialogGate = new(1, 1);
         private readonly SemaphoreSlim _persistLock = new(1, 1);
         private readonly SemaphoreSlim _docsLoadLock = new(1, 1);
         private DateTime _lastDebouncePersistTime = DateTime.MinValue;
         private bool _isSelectingGroupProgrammatically = false;
+        private bool _isSyncingModelSelectors = false;
 
         public MainWindow()
         {
@@ -682,14 +686,6 @@ namespace DataAnalysis_Assistant
 
         private void ShowLargePlotViewer(ChartArtifactItem plot)
         {
-            _viewingPlot = plot;
-            if (tbViewerPlotTitle != null) tbViewerPlotTitle.Text = plot.Title;
-            if (tbViewerPlotInfo != null) tbViewerPlotInfo.Text = $"{plot.FormattedSize} | {plot.FormattedTime} | {plot.FilePath}";
-            if (imgViewerLargePlot != null)
-            {
-                imgViewerLargePlot.Source = plot.Bitmap ?? (plot.ImageUri != null ? new BitmapImage(plot.ImageUri) : null);
-            }
-
             _isViewerFullscreen = true;
             _savedViewerWidth = 1050;
             _savedViewerHeight = 720;
@@ -716,15 +712,155 @@ namespace DataAnalysis_Assistant
 
             if (gridPlotImageViewer != null) gridPlotImageViewer.Visibility = Visibility.Visible;
 
+            DisplayPlotInViewer(plot, syncGallerySelection: false);
+
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                btnClosePlotViewer?.Focus(FocusState.Programmatic);
+                FitPlotImageToViewport(resetView: true);
+            });
+        }
+
+        private int GetCurrentViewerGalleryIndex()
+        {
+            if (_viewingPlot == null || PlotGallery.Count == 0) return -1;
+
+            for (int i = 0; i < PlotGallery.Count; i++)
+            {
+                if (ReferenceEquals(PlotGallery[i], _viewingPlot))
+                {
+                    return i;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(_viewingPlot.FilePath))
+            {
+                string targetPath;
+                try { targetPath = Path.GetFullPath(_viewingPlot.FilePath); }
+                catch { targetPath = _viewingPlot.FilePath; }
+
+                for (int i = 0; i < PlotGallery.Count; i++)
+                {
+                    var candidate = PlotGallery[i];
+                    if (string.IsNullOrWhiteSpace(candidate.FilePath)) continue;
+
+                    string candidatePath;
+                    try { candidatePath = Path.GetFullPath(candidate.FilePath); }
+                    catch { candidatePath = candidate.FilePath; }
+
+                    if (candidatePath.Equals(targetPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return i;
+                    }
+                }
+            }
+
+            return -1;
+        }
+
+        private void UpdatePlotViewerNavButtons(int currentIndex)
+        {
+            if (btnViewerPrevPlot == null || btnViewerNextPlot == null) return;
+
+            if (PlotGallery.Count <= 1 || currentIndex < 0)
+            {
+                btnViewerPrevPlot.Visibility = Visibility.Collapsed;
+                btnViewerNextPlot.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            btnViewerPrevPlot.Visibility = currentIndex > 0 ? Visibility.Visible : Visibility.Collapsed;
+            btnViewerNextPlot.Visibility = currentIndex < PlotGallery.Count - 1 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void DisplayPlotInViewer(ChartArtifactItem plot, bool syncGallerySelection)
+        {
+            _viewingPlot = plot;
+            int galleryIdx = GetCurrentViewerGalleryIndex();
+
+            if (tbViewerPlotTitle != null) tbViewerPlotTitle.Text = plot.Title;
+            if (tbViewerPlotInfo != null)
+            {
+                string indexPrefix = (galleryIdx >= 0 && PlotGallery.Count > 0)
+                    ? $"{galleryIdx + 1} / {PlotGallery.Count} | "
+                    : string.Empty;
+                tbViewerPlotInfo.Text = $"{indexPrefix}{plot.FormattedSize} | {plot.FormattedTime} | {plot.FilePath}";
+            }
+            if (imgViewerLargePlot != null)
+            {
+                imgViewerLargePlot.Source = plot.Bitmap ?? (plot.ImageUri != null ? new BitmapImage(plot.ImageUri) : null);
+            }
+
+            UpdatePlotViewerNavButtons(galleryIdx);
+
+            if (syncGallerySelection && galleryIdx >= 0 && galleryIdx < PlotGallery.Count)
+            {
+                var galleryItem = PlotGallery[galleryIdx];
+                _activeDashboardPlot = galleryItem;
+                if (lvPlotGallery != null && !ReferenceEquals(lvPlotGallery.SelectedItem, galleryItem))
+                {
+                    lvPlotGallery.SelectedItem = galleryItem;
+                    lvPlotGallery.ScrollIntoView(galleryItem);
+                }
+                UpdateVisualizationDashboardUI();
+            }
+
             DispatcherQueue.TryEnqueue(() =>
             {
                 FitPlotImageToViewport(resetView: true);
             });
         }
 
-        private void btnClosePlotViewer_Click(object sender, RoutedEventArgs e)
+        private void NavigatePlotViewerByOffset(int delta)
+        {
+            int idx = GetCurrentViewerGalleryIndex();
+            if (idx < 0) return;
+
+            int nextIdx = idx + delta;
+            if (nextIdx < 0 || nextIdx >= PlotGallery.Count) return;
+
+            DisplayPlotInViewer(PlotGallery[nextIdx], syncGallerySelection: true);
+        }
+
+        private void btnViewerPrevPlot_Click(object sender, RoutedEventArgs e)
+        {
+            NavigatePlotViewerByOffset(-1);
+        }
+
+        private void btnViewerNextPlot_Click(object sender, RoutedEventArgs e)
+        {
+            NavigatePlotViewerByOffset(1);
+        }
+
+        private void CloseLargePlotViewer()
         {
             if (gridPlotImageViewer != null) gridPlotImageViewer.Visibility = Visibility.Collapsed;
+        }
+
+        private void btnClosePlotViewer_Click(object sender, RoutedEventArgs e)
+        {
+            CloseLargePlotViewer();
+        }
+
+        private void RootGrid_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            if (gridPlotImageViewer == null || gridPlotImageViewer.Visibility != Visibility.Visible) return;
+
+            if (e.Key == Windows.System.VirtualKey.Left)
+            {
+                NavigatePlotViewerByOffset(-1);
+                e.Handled = true;
+            }
+            else if (e.Key == Windows.System.VirtualKey.Right)
+            {
+                NavigatePlotViewerByOffset(1);
+                e.Handled = true;
+            }
+            else if (e.Key == Windows.System.VirtualKey.Escape)
+            {
+                CloseLargePlotViewer();
+                e.Handled = true;
+            }
         }
 
         #region 高清大图查看器交互控制 (自适应完全适屏显示、缩放、全屏切换、双侧跟手尺寸调节、自由平移与文件定位)
@@ -1108,73 +1244,6 @@ namespace DataAnalysis_Assistant
             UpdateVisualizationDashboardUI();
         }
 
-        private async void btnGenerateDemoPlot_Click(object sender, RoutedEventArgs e)
-        {
-            btnGenerateDemoPlot.IsEnabled = false;
-            btnGenerateDemoPlot.Content = "正在绘制示例图表...";
-
-            string pythonCode = @"
-import matplotlib.pyplot as plt
-import numpy as np
-
-quarters = ['2025 Q1', '2025 Q2', '2025 Q3', '2025 Q4', '2026 Q1']
-revenue = [128.5, 172.0, 226.4, 298.1, 356.8]
-growth = [16.2, 29.5, 33.8, 46.2, 53.4]
-
-fig, ax1 = plt.subplots(figsize=(8, 4.4), dpi=150)
-
-color_bar = '#8C5835'
-ax1.set_xlabel('季度业务周期 (Quarter)', fontsize=11, fontweight='bold')
-ax1.set_ylabel('核心业务营收 (万元)', color=color_bar, fontsize=11, fontweight='bold')
-bars = ax1.bar(quarters, revenue, color=color_bar, alpha=0.85, width=0.45, label='业务营收')
-ax1.tick_params(axis='y', labelcolor=color_bar)
-
-for bar in bars:
-    yval = bar.get_height()
-    ax1.text(bar.get_x() + bar.get_width()/2.0, yval + 6, f'{yval}万', ha='center', va='bottom', fontsize=9, fontweight='bold', color='#382E24')
-
-ax2 = ax1.twinx()
-color_line = '#2E7D32'
-ax2.set_ylabel('同比复合增速 (%)', color=color_line, fontsize=11, fontweight='bold')
-ax2.plot(quarters, growth, color=color_line, marker='o', markersize=7, linewidth=2.4, label='同比增速')
-ax2.tick_params(axis='y', labelcolor=color_line)
-
-for i, txt in enumerate(growth):
-    ax2.annotate(f'+{txt}%', (quarters[i], growth[i]), textcoords='offset points', xytext=(0,10), ha='center', fontsize=9, fontweight='bold', color='#1B5E20')
-
-plt.title('企业核心业务季度营收与增长走势多维对比图', fontsize=13, fontweight='bold', pad=14, color='#2E2822')
-ax1.grid(True, linestyle='--', alpha=0.35)
-fig.tight_layout()
-";
-
-            try
-            {
-                var result = await _pythonExecService.ExecuteCodeAsync(
-                    pythonCode,
-                    _settings.PythonPath,
-                    options: new PythonExecutionOptions { TimeoutSeconds = Math.Clamp(_settings.PythonTimeoutSeconds, 30, 120) });
-                if (result.Success && result.GeneratedArtifacts.Count > 0)
-                {
-                    foreach (var path in result.GeneratedArtifacts)
-                    {
-                        var plot = new ChartArtifactItem
-                        {
-                            FilePath = path,
-                            Title = "企业核心业务季度营收与增长走势多维对比图",
-                            CreatedAt = DateTime.Now
-                        };
-                        AddPlotToGallery(plot, switchToVis: true);
-                    }
-                }
-            }
-            catch { }
-            finally
-            {
-                btnGenerateDemoPlot.IsEnabled = true;
-                btnGenerateDemoPlot.Content = "生成示例数据分析图表";
-            }
-        }
-
         #endregion
 
         #region 二级界面：设置目录与视图管理 (LLM配置 / 主题 / Skill / 关于我们)
@@ -1343,56 +1412,123 @@ fig.tight_layout()
                 sliderPythonTimeout.Value = Math.Clamp(_settings.PythonTimeoutSeconds > 0 ? _settings.PythonTimeoutSeconds : 60, 30, 120);
             }
 
-            bool foundInSettings = false;
-            foreach (ComboBoxItem item in cbModelName.Items)
-            {
-                if (item.Content?.ToString() == _settings.ModelName)
-                {
-                    cbModelName.SelectedItem = item;
-                    foundInSettings = true;
-                    break;
-                }
-            }
-            if (!foundInSettings && !string.IsNullOrWhiteSpace(_settings.ModelName))
-            {
-                var customItem = new ComboBoxItem { Content = _settings.ModelName };
-                cbModelName.Items.Add(customItem);
-                cbModelName.SelectedItem = customItem;
-            }
-
-            if (cbQuickModel != null)
-            {
-                bool foundInQuick = false;
-                foreach (ComboBoxItem item in cbQuickModel.Items)
-                {
-                    if (item.Content?.ToString() == _settings.ModelName)
-                    {
-                        cbQuickModel.SelectedItem = item;
-                        foundInQuick = true;
-                        break;
-                    }
-                }
-                if (!foundInQuick && !string.IsNullOrWhiteSpace(_settings.ModelName))
-                {
-                    var customItem = new ComboBoxItem { Content = _settings.ModelName };
-                    cbQuickModel.Items.Add(customItem);
-                    cbQuickModel.SelectedItem = customItem;
-                }
-            }
+            SyncModelDropdownsFromSettings();
 
             if (tbCustomPythonPath != null)
             {
                 tbCustomPythonPath.Text = _settings.PythonPath ?? string.Empty;
             }
-            if (comboPythonSecurityMode != null)
-            {
-                comboPythonSecurityMode.SelectedIndex = Math.Clamp(_settings.PythonSecurityMode, 0, 2);
-            }
 
             UpdateSettingsDisplay();
+            ResetThemeDraftFromSettings();
             RenderThemeSectionCards();
             _ = CheckPythonEnvironmentAsync();
             _ = LoadInstalledSkillsAsync();
+        }
+
+        private List<string> GetEffectiveModelList()
+        {
+            IEnumerable<string> source = (_settings.AvailableModels != null && _settings.AvailableModels.Count > 0)
+                ? _settings.AvailableModels
+                : AppSettings.DefaultModels;
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var list = new List<string>();
+
+            foreach (var item in source)
+            {
+                if (string.IsNullOrWhiteSpace(item)) continue;
+                string trimmed = item.Trim();
+                if (seen.Add(trimmed))
+                {
+                    list.Add(trimmed);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(_settings.ModelName))
+            {
+                string active = _settings.ModelName.Trim();
+                if (seen.Add(active))
+                {
+                    list.Add(active);
+                }
+            }
+
+            if (list.Count == 0)
+            {
+                list.Add("gpt-4o");
+            }
+
+            return list;
+        }
+
+        private void SyncModelDropdownsFromSettings(string? overrideSettingsComboText = null)
+        {
+            var models = GetEffectiveModelList();
+            string activeModel = string.IsNullOrWhiteSpace(_settings.ModelName) ? models[0] : _settings.ModelName.Trim();
+            string settingsTargetModel = string.IsNullOrWhiteSpace(overrideSettingsComboText)
+                ? activeModel
+                : overrideSettingsComboText.Trim();
+
+            _isSyncingModelSelectors = true;
+            try
+            {
+                if (cbModelName != null)
+                {
+                    cbModelName.Items.Clear();
+                    ComboBoxItem? settingsMatch = null;
+                    foreach (var modelId in models)
+                    {
+                        var item = new ComboBoxItem { Content = modelId };
+                        cbModelName.Items.Add(item);
+                        if (settingsMatch == null && modelId.Equals(settingsTargetModel, StringComparison.OrdinalIgnoreCase))
+                        {
+                            settingsMatch = item;
+                        }
+                    }
+
+                    if (settingsMatch != null)
+                    {
+                        cbModelName.SelectedItem = settingsMatch;
+                        cbModelName.Text = settingsMatch.Content?.ToString() ?? settingsTargetModel;
+                    }
+                    else
+                    {
+                        cbModelName.SelectedIndex = -1;
+                        cbModelName.Text = settingsTargetModel;
+                    }
+                }
+
+                if (cbQuickModel != null)
+                {
+                    cbQuickModel.Items.Clear();
+                    ComboBoxItem? quickMatch = null;
+                    foreach (var modelId in models)
+                    {
+                        var item = new ComboBoxItem { Content = modelId };
+                        cbQuickModel.Items.Add(item);
+                        if (quickMatch == null && modelId.Equals(activeModel, StringComparison.OrdinalIgnoreCase))
+                        {
+                            quickMatch = item;
+                        }
+                    }
+
+                    if (quickMatch != null)
+                    {
+                        cbQuickModel.SelectedItem = quickMatch;
+                    }
+                    else if (cbQuickModel.Items.Count > 0)
+                    {
+                        cbQuickModel.SelectedIndex = 0;
+                    }
+
+                    ToolTipService.SetToolTip(cbQuickModel, $"当前模型：{activeModel}（点击快捷切换）");
+                }
+            }
+            finally
+            {
+                _isSyncingModelSelectors = false;
+            }
         }
 
         private void UpdateSettingsDisplay()
@@ -1411,28 +1547,42 @@ fig.tight_layout()
 
         private void cbQuickModel_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (_isSyncingModelSelectors) return;
+
             if (cbQuickModel?.SelectedItem is ComboBoxItem item)
             {
-                string model = item.Content?.ToString() ?? "gpt-4o";
-                _settings.ModelName = model;
+                string model = item.Content?.ToString()?.Trim() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(model)) return;
+
+                if (!string.Equals(_settings.ModelName, model, StringComparison.Ordinal))
+                {
+                    _settings.ModelName = model;
+                    SettingsService.SaveSettings(_settings);
+                }
+
+                ToolTipService.SetToolTip(cbQuickModel, $"当前模型：{model}（点击快捷切换）");
 
                 if (cbModelName != null)
                 {
-                    bool found = false;
-                    foreach (ComboBoxItem m in cbModelName.Items)
+                    _isSyncingModelSelectors = true;
+                    try
                     {
-                        if (m.Content?.ToString() == model)
+                        ComboBoxItem? match = cbModelName.Items
+                            .OfType<ComboBoxItem>()
+                            .FirstOrDefault(m => string.Equals(m.Content?.ToString(), model, StringComparison.OrdinalIgnoreCase));
+
+                        if (match == null)
                         {
-                            cbModelName.SelectedItem = m;
-                            found = true;
-                            break;
+                            match = new ComboBoxItem { Content = model };
+                            cbModelName.Items.Add(match);
                         }
+
+                        cbModelName.SelectedItem = match;
+                        cbModelName.Text = match.Content?.ToString() ?? model;
                     }
-                    if (!found)
+                    finally
                     {
-                        var newItem = new ComboBoxItem { Content = model };
-                        cbModelName.Items.Add(newItem);
-                        cbModelName.SelectedItem = newItem;
+                        _isSyncingModelSelectors = false;
                     }
                 }
             }
@@ -1500,42 +1650,39 @@ fig.tight_layout()
                     throw new Exception("接口返回成功，但未解析到有效的模型列表数据。");
                 }
 
-                modelIds.Sort();
-                string currentSelected = (cbModelName.SelectedItem as ComboBoxItem)?.Content?.ToString()
-                                          ?? cbModelName.Text
-                                          ?? _settings.ModelName;
+                modelIds = modelIds
+                    .Where(id => !string.IsNullOrWhiteSpace(id))
+                    .Select(id => id.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
 
-                cbModelName.Items.Clear();
-                cbQuickModel?.Items.Clear();
-
-                foreach (var id in modelIds)
+                if (modelIds.Count == 0)
                 {
-                    cbModelName.Items.Add(new ComboBoxItem { Content = id });
-                    cbQuickModel?.Items.Add(new ComboBoxItem { Content = id });
+                    throw new Exception("接口返回成功，但未解析到有效的模型列表数据。");
                 }
 
-                var match = cbModelName.Items.Cast<ComboBoxItem>().FirstOrDefault(i => i.Content?.ToString() == currentSelected);
-                if (match != null)
-                {
-                    cbModelName.SelectedItem = match;
-                    if (cbQuickModel != null)
-                    {
-                        cbQuickModel.SelectedItem = cbQuickModel.Items.Cast<ComboBoxItem>().FirstOrDefault(i => i.Content?.ToString() == currentSelected);
-                    }
-                }
-                else
-                {
-                    cbModelName.SelectedIndex = 0;
-                    if (cbQuickModel != null)
-                    {
-                        cbQuickModel.SelectedIndex = 0;
-                    }
-                }
+                string currentCandidate = !string.IsNullOrWhiteSpace(cbModelName.Text)
+                    ? cbModelName.Text.Trim()
+                    : ((cbModelName.SelectedItem as ComboBoxItem)?.Content?.ToString()?.Trim() ?? _settings.ModelName);
+
+                _settings.AvailableModels = modelIds;
+
+                string? matchedCandidate = modelIds.FirstOrDefault(id => id.Equals(currentCandidate, StringComparison.OrdinalIgnoreCase));
+                string preferredInSettings = matchedCandidate ?? modelIds[0];
+
+                string? matchedActive = modelIds.FirstOrDefault(id => id.Equals(_settings.ModelName, StringComparison.OrdinalIgnoreCase));
+                _settings.ModelName = matchedActive ?? modelIds[0];
+
+                SettingsService.SaveSettings(_settings);
+                SyncModelDropdownsFromSettings(overrideSettingsComboText: preferredInSettings);
 
                 infoBarSettings.IsOpen = true;
                 infoBarSettings.Severity = InfoBarSeverity.Success;
                 infoBarSettings.Title = "获取成功";
-                infoBarSettings.Message = $"已成功拉取到 {modelIds.Count} 个可用模型！当前选中: {(cbModelName.SelectedItem as ComboBoxItem)?.Content}";
+                infoBarSettings.Message = string.Equals(preferredInSettings, _settings.ModelName, StringComparison.OrdinalIgnoreCase)
+                    ? $"已成功拉取并保存 {modelIds.Count} 个可用模型！当前模型: {_settings.ModelName}"
+                    : $"已成功拉取并保存 {modelIds.Count} 个可用模型！当前候选: {preferredInSettings}（点击底部【保存配置】后切换生效，当前对话仍使用 {_settings.ModelName}）";
             }
             catch (Exception ex)
             {
@@ -1555,24 +1702,30 @@ fig.tight_layout()
         {
             _settings.ApiKey = pbApiKey.Password;
             _settings.BaseUrl = tbBaseUrl.Text.Trim();
-            if (cbModelName.SelectedItem is ComboBoxItem selectedItem)
+
+            string selectedModel = !string.IsNullOrWhiteSpace(cbModelName.Text)
+                ? cbModelName.Text.Trim()
+                : ((cbModelName.SelectedItem as ComboBoxItem)?.Content?.ToString()?.Trim() ?? string.Empty);
+
+            if (string.IsNullOrWhiteSpace(selectedModel))
             {
-                _settings.ModelName = selectedItem.Content?.ToString() ?? "gpt-4o";
+                selectedModel = "gpt-4o";
             }
-            else if (!string.IsNullOrWhiteSpace(cbModelName.Text))
+
+            _settings.ModelName = selectedModel;
+            if (_settings.AvailableModels != null &&
+                _settings.AvailableModels.Count > 0 &&
+                !_settings.AvailableModels.Any(m => m.Equals(selectedModel, StringComparison.OrdinalIgnoreCase)))
             {
-                _settings.ModelName = cbModelName.Text.Trim();
+                _settings.AvailableModels.Add(selectedModel);
             }
+
             _settings.MaxContextLength = (int)sliderContextLength.Value;
             _settings.Temperature = Math.Round(sliderTemperature.Value, 1);
 
             if (tbCustomPythonPath != null)
             {
                 _settings.PythonPath = tbCustomPythonPath.Text.Trim();
-            }
-            if (comboPythonSecurityMode != null && comboPythonSecurityMode.SelectedIndex >= 0)
-            {
-                _settings.PythonSecurityMode = comboPythonSecurityMode.SelectedIndex;
             }
 
             if (sliderMaxIterations != null)
@@ -1589,27 +1742,8 @@ fig.tight_layout()
             }
 
             SettingsService.SaveSettings(_settings);
+            SyncModelDropdownsFromSettings();
             UpdateSettingsDisplay();
-
-            if (cbQuickModel != null)
-            {
-                bool found = false;
-                foreach (ComboBoxItem item in cbQuickModel.Items)
-                {
-                    if (item.Content?.ToString() == _settings.ModelName)
-                    {
-                        cbQuickModel.SelectedItem = item;
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found && !string.IsNullOrWhiteSpace(_settings.ModelName))
-                {
-                    var newItem = new ComboBoxItem { Content = _settings.ModelName };
-                    cbQuickModel.Items.Add(newItem);
-                    cbQuickModel.SelectedItem = newItem;
-                }
-            }
 
             infoBarSettings.IsOpen = true;
             infoBarSettings.Severity = InfoBarSeverity.Success;
@@ -1622,6 +1756,7 @@ fig.tight_layout()
             var defaults = new AppSettings();
             _settings.BaseUrl = defaults.BaseUrl;
             _settings.ModelName = defaults.ModelName;
+            _settings.AvailableModels = new List<string>();
             _settings.MaxContextLength = defaults.MaxContextLength;
             _settings.Temperature = defaults.Temperature;
             _settings.AgentMaxIterations = defaults.AgentMaxIterations;
@@ -1630,18 +1765,17 @@ fig.tight_layout()
             tbBaseUrl.Text = _settings.BaseUrl;
             sliderContextLength.Value = _settings.MaxContextLength;
             sliderTemperature.Value = _settings.Temperature;
-            cbModelName.SelectedIndex = 0;
-            if (cbQuickModel != null && cbQuickModel.Items.Count > 0) cbQuickModel.SelectedIndex = 0;
             if (sliderMaxIterations != null) sliderMaxIterations.Value = _settings.AgentMaxIterations;
             if (toggleAutoFinalSynthesis != null) toggleAutoFinalSynthesis.IsOn = _settings.EnableAutoFinalSynthesis;
 
             SettingsService.SaveSettings(_settings);
+            SyncModelDropdownsFromSettings();
             UpdateSettingsDisplay();
 
             infoBarSettings.IsOpen = true;
             infoBarSettings.Severity = InfoBarSeverity.Informational;
             infoBarSettings.Title = "已恢复默认";
-            infoBarSettings.Message = "LLM 连接与调度参数已重置为标准默认值（已保留 API Key 与主题/自定义配置）。";
+            infoBarSettings.Message = "LLM 连接、默认模型列表与调度参数已重置为标准默认值（已保留 API Key 与主题/自定义配置）。";
         }
 
         #region 标准 Skill 规范与扩展管理
@@ -1852,15 +1986,6 @@ fig.tight_layout()
         private async void btnRefreshPythonEnv_Click(object sender, RoutedEventArgs e)
         {
             await CheckPythonEnvironmentAsync();
-        }
-
-        private void comboPythonSecurityMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (_settings != null && comboPythonSecurityMode != null && comboPythonSecurityMode.SelectedIndex >= 0)
-            {
-                _settings.PythonSecurityMode = comboPythonSecurityMode.SelectedIndex;
-                SettingsService.SaveSettings(_settings);
-            }
         }
 
         private void tbCustomPythonPath_TextChanged(object sender, TextChangedEventArgs e)
@@ -2488,9 +2613,82 @@ def analyze_document_metrics(file_path: str):
 
         private void btnToggleReasoning_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is Button btn && btn.Tag is ChatMessageItem item)
+            if (sender is Button btn && btn.Tag is ChatMessageItem item && item.HasReasoningBody)
             {
                 item.IsReasoningExpanded = !item.IsReasoningExpanded;
+            }
+        }
+
+        private static void AppendSafetyBlockMessage(ChatMessageItem message, string? reason)
+        {
+            if (message == null || string.IsNullOrWhiteSpace(reason)) return;
+
+            string trimmed = reason.Trim();
+            if (string.IsNullOrWhiteSpace(message.SafetyBlockMessage))
+            {
+                message.SafetyBlockMessage = trimmed;
+                return;
+            }
+
+            if (!message.SafetyBlockMessage.Contains(trimmed, StringComparison.Ordinal))
+            {
+                message.SafetyBlockMessage = $"{message.SafetyBlockMessage}\n{trimmed}";
+            }
+        }
+
+        private async Task ShowSafetyBlockDialogAsync(string reason)
+        {
+            if (string.IsNullOrWhiteSpace(reason) || this.Content?.XamlRoot == null) return;
+
+            await _safetyDialogGate.WaitAsync();
+            try
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = "已拦截高危代码执行",
+                    Content = new TextBlock
+                    {
+                        Text = $"{reason}\n\n系统已自动拒绝执行该段 Python 代码，AI 将尝试改用安全的数据分析方式或直接向您说明原因。",
+                        TextWrapping = TextWrapping.Wrap,
+                        FontSize = 13,
+                        LineHeight = 20
+                    },
+                    CloseButtonText = "我知道了",
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = this.Content.XamlRoot
+                };
+
+                await dialog.ShowAsync();
+            }
+            catch
+            {
+            }
+            finally
+            {
+                _safetyDialogGate.Release();
+            }
+        }
+
+        private async void ShowBriefInputHintStatus(string message, int durationMs = 3000)
+        {
+            if (tbChatRunStatus == null) return;
+
+            try
+            {
+                _briefStatusCts?.Cancel();
+                _briefStatusCts?.Dispose();
+                _briefStatusCts = new CancellationTokenSource();
+                var token = _briefStatusCts.Token;
+
+                tbChatRunStatus.Text = message;
+                await Task.Delay(durationMs, token);
+                if (!token.IsCancellationRequested && tbChatRunStatus.Text == message)
+                {
+                    tbChatRunStatus.Text = string.Empty;
+                }
+            }
+            catch (TaskCanceledException)
+            {
             }
         }
 
@@ -2719,7 +2917,10 @@ def analyze_document_metrics(file_path: str):
             if (_isChatGenerating && _chatCts != null && !_chatCts.IsCancellationRequested)
             {
                 _chatCts.Cancel();
-                tbChatRunStatus.Text = "正在中断...";
+                if (_activeGeneratingMessage != null)
+                {
+                    _activeGeneratingMessage.LiveStatusText = "正在中断...";
+                }
             }
         }
 
@@ -2791,7 +2992,6 @@ def analyze_document_metrics(file_path: str):
             btnSend.Content = "停止";
             btnSend.Background = BrushStopAction;
             tbQuestion.IsEnabled = false;
-            tbChatRunStatus.Text = "正在深度思考...";
 
             var assistantMessage = new ChatMessageItem
             {
@@ -2799,12 +2999,14 @@ def analyze_document_metrics(file_path: str):
                 Content = string.Empty,
                 ReasoningContent = string.Empty,
                 IsThinking = true,
-                IsReasoningExpanded = true,
+                IsReasoningExpanded = false,
+                LiveStatusText = "正在深度思考...",
                 ThinkingSeconds = 0,
                 Timestamp = DateTime.Now,
                 AgentTaskId = currentAgentTaskId,
                 TaskSequenceNumber = currentTaskSeq
             };
+            _activeGeneratingMessage = assistantMessage;
             ChatMessages.Add(assistantMessage);
 
             svChatList.ChangeView(null, svChatList.ScrollableHeight, null);
@@ -2966,7 +3168,16 @@ def analyze_document_metrics(file_path: str):
             {
                 DispatcherQueue.TryEnqueue(() =>
                 {
-                    tbChatRunStatus.Text = update.StatusMessage;
+                    if (!string.IsNullOrWhiteSpace(update.StatusMessage))
+                    {
+                        assistantMessage.LiveStatusText = update.StatusMessage;
+                    }
+
+                    if (update.Phase == "safety_blocked" && !string.IsNullOrWhiteSpace(update.SafetyBlockReason))
+                    {
+                        AppendSafetyBlockMessage(assistantMessage, update.SafetyBlockReason);
+                        _ = ShowSafetyBlockDialogAsync(update.SafetyBlockReason);
+                    }
 
                     if (!string.IsNullOrWhiteSpace(update.IntermediateReasoning))
                     {
@@ -3053,10 +3264,16 @@ def analyze_document_metrics(file_path: str):
                     {
                         assistantMessage.IsThinking = false;
                         assistantMessage.ThinkingSeconds = totalThinkingTime;
-                        assistantMessage.IsReasoningExpanded = false;
 
                         assistantMessage.TerminationReason = loopResult.TerminationReason;
                         assistantMessage.IsStreamTruncated = loopResult.IsStreamTruncated;
+                        if (loopResult.SafetyBlockNotices != null && loopResult.SafetyBlockNotices.Count > 0)
+                        {
+                            foreach (var notice in loopResult.SafetyBlockNotices)
+                            {
+                                AppendSafetyBlockMessage(assistantMessage, notice);
+                            }
+                        }
                         if (loopResult.ExecutedToolCalls != null && loopResult.ExecutedToolCalls.Count > 0)
                         {
                             assistantMessage.ToolCalls = new List<ToolCallRecordItem>(loopResult.ExecutedToolCalls);
@@ -3072,15 +3289,15 @@ def analyze_document_metrics(file_path: str):
                             assistantMessage.Content = loopResult.FinalContent;
                             if (loopResult.TerminationReason == AgentTerminationReason.MaxIterationsReached)
                             {
-                                tbChatRunStatus.Text = $"分析完毕 (达到探索上限 {loopResult.TotalIterations} 轮，已生成综合研报)";
+                                assistantMessage.CompletionStatusSummary = $"已完成深度思考 (耗时 {totalThinkingTime:0.#}s · 达到探索上限 {loopResult.TotalIterations} 轮)";
                             }
                             else if (loopResult.TerminationReason == AgentTerminationReason.ConsecutiveErrorsTripped)
                             {
-                                tbChatRunStatus.Text = "分析完毕 (触发连续报错熔断，已汇聚阶段性研报)";
+                                assistantMessage.CompletionStatusSummary = $"分析已收敛 (耗时 {totalThinkingTime:0.#}s · 触发保护熔断)";
                             }
                             else
                             {
-                                tbChatRunStatus.Text = $"分析完毕 (共 {loopResult.TotalIterations} 轮 Agent 决策)";
+                                assistantMessage.CompletionStatusSummary = $"已完成深度思考 (耗时 {totalThinkingTime:0.#}s · 共 {loopResult.TotalIterations} 轮决策)";
                             }
                         }
                         else
@@ -3092,12 +3309,12 @@ def analyze_document_metrics(file_path: str):
                                 {
                                     assistantMessage.Content = "*(已手动中止生成)*";
                                 }
-                                tbChatRunStatus.Text = "已停止";
+                                assistantMessage.CompletionStatusSummary = $"已停止生成 (耗时 {totalThinkingTime:0.#}s)";
                             }
                             else
                             {
                                 assistantMessage.Content = $"分析过程中出现异常：{loopResult.ErrorMessage}";
-                                tbChatRunStatus.Text = "分析异常";
+                                assistantMessage.CompletionStatusSummary = $"分析异常 (耗时 {totalThinkingTime:0.#}s)";
                             }
                         }
 
@@ -3172,7 +3389,7 @@ def analyze_document_metrics(file_path: str):
                     {
                         assistantMessage.Content = "*(已手动中止生成)*";
                     }
-                    tbChatRunStatus.Text = "已停止";
+                    assistantMessage.CompletionStatusSummary = "已停止生成";
                 });
             }
             catch (Exception ex)
@@ -3183,7 +3400,7 @@ def analyze_document_metrics(file_path: str):
                     {
                         assistantMessage.IsThinking = false;
                         assistantMessage.IsStopped = true;
-                        tbChatRunStatus.Text = "已停止";
+                        assistantMessage.CompletionStatusSummary = "已停止生成";
                     });
                 }
                 else
@@ -3191,6 +3408,7 @@ def analyze_document_metrics(file_path: str):
                     DispatcherQueue.TryEnqueue(() =>
                     {
                         assistantMessage.IsThinking = false;
+                        assistantMessage.CompletionStatusSummary = "分析异常";
                         assistantMessage.Content = $"**对话请求失败**\n\n```text\n{ex.Message}\n```\n\n> **排查建议**：请点击左下角【设置】检查 API Key、Base URL 及网络是否可达。如果是 Ollama 本地模型，请确保后台已运行 `ollama serve`。";
                         svChatList.ChangeView(null, svChatList.ScrollableHeight, null);
                     });
@@ -3199,6 +3417,7 @@ def analyze_document_metrics(file_path: str):
             finally
             {
                 _isChatGenerating = false;
+                _activeGeneratingMessage = null;
                 _chatCts?.Dispose();
                 _chatCts = null;
 
@@ -3208,10 +3427,6 @@ def analyze_document_metrics(file_path: str):
                     btnSend.Background = BrushAccentWarm;
                     btnSend.IsEnabled = true;
                     tbQuestion.IsEnabled = true;
-                    if (tbChatRunStatus.Text.StartsWith("正在"))
-                    {
-                        tbChatRunStatus.Text = string.Empty;
-                    }
                     tbQuestion.Focus(FocusState.Programmatic);
                     svChatList.ChangeView(null, svChatList.ScrollableHeight, null);
                 });
@@ -3300,7 +3515,7 @@ def analyze_document_metrics(file_path: str):
                         dataPackage.RequestedOperation = DataPackageOperation.Copy;
                         dataPackage.SetText(msg.Content);
                         Clipboard.SetContent(dataPackage);
-                        tbChatRunStatus.Text = "已复制回答内容至剪贴板";
+                        ShowBriefInputHintStatus("已复制回答内容至剪贴板");
                         ShowGlobalToast("已复制到剪贴板");
                     }
                     catch { }
@@ -3392,7 +3607,7 @@ def analyze_document_metrics(file_path: str):
                     string fileName = Path.GetFileName(savedPath);
                     string? dir = Path.GetDirectoryName(savedPath);
 
-                    tbChatRunStatus.Text = $"研报已成功导出: {fileName}";
+                    ShowBriefInputHintStatus($"研报已成功导出: {fileName}");
                     if (tbVisInsightTip != null)
                     {
                         tbVisInsightTip.Text = $"研报已导出：{fileName}（保存在 {dir}）";
@@ -3406,7 +3621,7 @@ def analyze_document_metrics(file_path: str):
             }
             catch (Exception ex)
             {
-                tbChatRunStatus.Text = $"研报导出失败: {ex.Message}";
+                ShowBriefInputHintStatus($"研报导出失败: {ex.Message}", 4500);
             }
         }
 

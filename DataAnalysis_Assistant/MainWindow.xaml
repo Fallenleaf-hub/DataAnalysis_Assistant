@@ -6,7 +6,7 @@
     xmlns:models="using:DataAnalysis_Assistant.Models"
     Title="DataAnalysis Assistant">
 
-    <Grid Background="{StaticResource WarmBgBrush}">
+    <Grid Background="{StaticResource WarmBgBrush}" PreviewKeyDown="RootGrid_PreviewKeyDown">
         <Grid.ColumnDefinitions>
 
             <ColumnDefinition Width="56"/>
@@ -273,7 +273,6 @@
                                                 <TextBlock Text="暂无生成的数据可视化图表" FontWeight="SemiBold" FontSize="15" Foreground="{StaticResource TextPrimaryBrush}" HorizontalAlignment="Center"/>
                                                 <TextBlock Text="在右侧对话框中提出数据统计需求（例如：'统计各类别占比并绘制柱状图'），&#x0a;AI 编写并执行 Python 脚本后，生成的矢量图表将就地内嵌并沉淀至本看板。" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Center" TextAlignment="Center" MaxWidth="440" TextWrapping="Wrap"/>
                                                 <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Margin="0,6,0,0">
-                                                    <Button x:Name="btnGenerateDemoPlot" Click="btnGenerateDemoPlot_Click" Content="生成示例数据分析图表" Padding="14,6" CornerRadius="8" Background="{StaticResource AccentWarmBrush}" Foreground="White" FontSize="12"/>
                                                     <Button Click="btnOpenPlotFolder_Click" Content="打开图表缓存目录" Padding="14,6" CornerRadius="8" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="12"/>
                                                 </StackPanel>
                                             </StackPanel>
@@ -443,14 +442,21 @@
                                                             <StackPanel Spacing="6">
 
                                                                 <Button Click="btnToggleReasoning_Click" Tag="{x:Bind}" Background="Transparent" BorderThickness="0" Padding="4,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-                                                                    <Grid>
-                                                                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                                    <Grid ColumnSpacing="8">
+                                                                        <Grid.ColumnDefinitions>
+                                                                            <ColumnDefinition Width="*"/>
+                                                                            <ColumnDefinition Width="Auto"/>
+                                                                        </Grid.ColumnDefinitions>
+                                                                        <Grid Grid.Column="0" ColumnSpacing="6" VerticalAlignment="Center">
+                                                                            <Grid.ColumnDefinitions>
+                                                                                <ColumnDefinition Width="Auto"/>
+                                                                                <ColumnDefinition Width="*"/>
+                                                                            </Grid.ColumnDefinitions>
+                                                                            <ProgressRing Grid.Column="0" Visibility="{x:Bind ThinkingIndicatorVisibility, Mode=OneWay}" IsActive="True" Width="12" Height="12" VerticalAlignment="Center"/>
+                                                                            <TextBlock Grid.Column="1" Text="{x:Bind ThinkingStatusText, Mode=OneWay}" FontSize="11" FontWeight="Medium" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" ToolTipService.ToolTip="{x:Bind ThinkingStatusText, Mode=OneWay}"/>
+                                                                        </Grid>
 
-                                                                            <ProgressRing Visibility="{x:Bind ThinkingIndicatorVisibility, Mode=OneWay}" IsActive="True" Width="12" Height="12" VerticalAlignment="Center"/>
-                                                                            <TextBlock Text="{x:Bind ThinkingStatusText, Mode=OneWay}" FontSize="11" FontWeight="Medium" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
-                                                                        </StackPanel>
-
-                                                                        <TextBlock Text="{x:Bind ReasoningToggleText, Mode=OneWay}" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                                                        <TextBlock Grid.Column="1" Text="{x:Bind ReasoningToggleText, Mode=OneWay}" Visibility="{x:Bind ReasoningToggleVisibility, Mode=OneWay}" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                                                                     </Grid>
                                                                 </Button>
 
@@ -502,6 +508,12 @@
                                                                         </DataTemplate>
                                                                     </ItemsControl.ItemTemplate>
                                                                 </ItemsControl>
+
+                                                                <InfoBar IsOpen="True" Severity="Error" IsClosable="False"
+                                                                         Visibility="{x:Bind SafetyBlockNoticeVisibility, Mode=OneWay}"
+                                                                         Title="已拦截高危代码执行"
+                                                                         Message="{x:Bind SafetyBlockMessage, Mode=OneWay}"
+                                                                         Margin="0,8,0,0" CornerRadius="6"/>
 
                                                                 <InfoBar IsOpen="True" Severity="Informational" IsClosable="False"
                                                                          Visibility="{x:Bind TerminationNoticeVisibility, Mode=OneWay}"
@@ -596,15 +608,8 @@
                                             </Grid>
 
                                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" VerticalAlignment="Center">
-                                                <!-- 模型选择下拉控件 (限制合理宽度 125px) -->
-                                                <ComboBox x:Name="cbQuickModel" SelectionChanged="cbQuickModel_SelectionChanged" Width="125" Height="32" Padding="8,4" CornerRadius="8" Background="{StaticResource WarmBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" ToolTipService.ToolTip="选择对话所使用的大语言模型">
-                                                    <ComboBoxItem Content="gpt-4o" IsSelected="True"/>
-                                                    <ComboBoxItem Content="gpt-4o-mini"/>
-                                                    <ComboBoxItem Content="claude-3-5-sonnet"/>
-                                                    <ComboBoxItem Content="deepseek-chat"/>
-                                                    <ComboBoxItem Content="deepseek-reasoner"/>
-                                                    <ComboBoxItem Content="qwen3.7-flash"/>
-                                                </ComboBox>
+                                                <!-- 模型选择下拉控件 (限制合理宽度 125px，选项由配置动态同步) -->
+                                                <ComboBox x:Name="cbQuickModel" SelectionChanged="cbQuickModel_SelectionChanged" Width="125" Height="32" Padding="8,4" CornerRadius="8" Background="{StaticResource WarmBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" ToolTipService.ToolTip="选择对话所使用的大语言模型"/>
 
                                                 <Button x:Name="btnSend" Click="btnSend_Click" Height="32" Padding="14,0" Content="发送" FontWeight="Medium" FontSize="12" Background="{StaticResource AccentWarmBrush}" Foreground="White" CornerRadius="8"/>
                                             </StackPanel>
@@ -1017,14 +1022,7 @@
                                                     <ColumnDefinition Width="*"/>
                                                     <ColumnDefinition Width="Auto"/>
                                                 </Grid.ColumnDefinitions>
-                                                <ComboBox x:Name="cbModelName" Grid.Column="0" IsEditable="True" HorizontalAlignment="Stretch" CornerRadius="8" BorderBrush="{StaticResource BorderMutedBrush}" Margin="0,0,8,0">
-                                                    <ComboBoxItem Content="gpt-4o" IsSelected="True"/>
-                                                    <ComboBoxItem Content="gpt-4o-mini"/>
-                                                    <ComboBoxItem Content="claude-3-5-sonnet"/>
-                                                    <ComboBoxItem Content="deepseek-chat"/>
-                                                    <ComboBoxItem Content="deepseek-reasoner"/>
-                                                    <ComboBoxItem Content="qwen3.7-flash"/>
-                                                </ComboBox>
+                                                <ComboBox x:Name="cbModelName" Grid.Column="0" IsEditable="True" HorizontalAlignment="Stretch" CornerRadius="8" BorderBrush="{StaticResource BorderMutedBrush}" Margin="0,0,8,0"/>
                                                 <Button x:Name="btnFetchModels" Click="btnFetchModels_Click" Grid.Column="1" Content="获取" Padding="12,6" CornerRadius="8" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="12" ToolTipService.ToolTip="根据当前 API Key 和 Base URL 获取可用模型列表"/>
                                             </Grid>
                                         </Grid>
@@ -1169,7 +1167,7 @@
                                 <Border Background="{StaticResource CardBgBrush}" CornerRadius="12" BorderBrush="{StaticResource BorderMutedBrush}" BorderThickness="1" Padding="20,16">
                                     <StackPanel Spacing="10">
                                         <TextBlock Text="定制伴读助手的专家人设、回答语言与数据分析格式约定：" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
-                                        <TextBox x:Name="tbSystemPrompt" AcceptsReturn="True" Height="96" TextWrapping="Wrap" CornerRadius="8" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="12" LostFocus="tbSystemPrompt_LostFocus"/>
+                                        <TextBox x:Name="tbSystemPrompt" AcceptsReturn="True" Height="96" TextWrapping="Wrap" CornerRadius="8" BorderBrush="{StaticResource BorderMutedBrush}" FontSize="12"/>
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
@@ -1297,25 +1295,6 @@
                                                     <TextBlock x:Name="tbBadgeNumpy" Text="Numpy" FontSize="10" FontWeight="SemiBold" Foreground="#382E24"/>
                                                 </Border>
                                             </StackPanel>
-                                        </Grid>
-
-                                        <Border Height="1" Background="#EDE8DD"/>
-
-                                        <!-- 条目 3: 安全刹车策略 (Safety Gate) -->
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="380"/>
-                                            </Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,16,0">
-                                                <TextBlock Text="代码安全审批策略 (Safety Gate)" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                                <TextBlock Text="严格审批：每次执行均确认；智能拦截：仅高危系统指令需确认" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap"/>
-                                            </StackPanel>
-                                            <ComboBox Grid.Column="1" x:Name="comboPythonSecurityMode" SelectionChanged="comboPythonSecurityMode_SelectionChanged" HorizontalAlignment="Stretch" VerticalAlignment="Center" CornerRadius="8" FontSize="12">
-                                                <ComboBoxItem Content="智能拦截 (仅高危/写操作需确认)"/>
-                                                <ComboBoxItem Content="严格确认 (每次代码执行均需审批)"/>
-                                                <ComboBoxItem Content="自动放行 (信任本地执行)"/>
-                                            </ComboBox>
                                         </Grid>
 
                                         <Border Height="1" Background="#EDE8DD"/>
@@ -1507,7 +1486,7 @@
                         <Button x:Name="btnViewerOpenFolder" Click="btnViewerOpenFolder_Click" Content="在资源管理器中打开" Padding="10,5" CornerRadius="6" Background="#33FFFFFF" Foreground="White" BorderThickness="0" FontSize="11" ToolTipService.ToolTip="在 Windows 资源管理器中定位并选中当前图表文件"/>
                         <Button x:Name="btnViewerZoomReset" Click="btnViewerZoomReset_Click" Content="100%" Padding="8,5" CornerRadius="6" Background="#33FFFFFF" Foreground="White" BorderThickness="0" FontSize="11" ToolTipService.ToolTip="缩放比例 (支持按住 Ctrl 滚动鼠标滚轮缩放，点击一键复位为 100%)"/>
                         <Button x:Name="btnViewerToggleFullscreen" Click="btnViewerToggleFullscreen_Click" Content="全屏" Padding="10,5" CornerRadius="6" Background="#33FFFFFF" Foreground="White" BorderThickness="0" FontSize="11" ToolTipService.ToolTip="全屏放大查看 / 还原窗口尺寸"/>
-                        <Button Click="btnClosePlotViewer_Click" Content="关闭" Padding="12,5" CornerRadius="6" Background="#33FFFFFF" Foreground="White" BorderThickness="0" FontSize="12"/>
+                        <Button x:Name="btnClosePlotViewer" Click="btnClosePlotViewer_Click" Content="关闭" Padding="12,5" CornerRadius="6" Background="#33FFFFFF" Foreground="White" BorderThickness="0" FontSize="12"/>
                     </StackPanel>
                 </Grid>
 
@@ -1535,6 +1514,45 @@
                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Grid>
                         </ScrollViewer>
+
+                        <Grid>
+                            <Grid.Resources>
+                                <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#B32E2822"/>
+                                <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#CC2E2822"/>
+                                <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#FFFFFF"/>
+                                <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#FFFFFF"/>
+                                <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#66FFFFFF"/>
+                                <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#88FFFFFF"/>
+                                <Style x:Key="ViewerNavCircleButtonStyle" TargetType="Button">
+                                    <Setter Property="Width" Value="44"/>
+                                    <Setter Property="Height" Value="44"/>
+                                    <Setter Property="CornerRadius" Value="22"/>
+                                    <Setter Property="Padding" Value="0"/>
+                                    <Setter Property="BorderThickness" Value="1"/>
+                                    <Setter Property="Background" Value="#662E2822"/>
+                                    <Setter Property="Foreground" Value="White"/>
+                                    <Setter Property="BorderBrush" Value="#33FFFFFF"/>
+                                </Style>
+                            </Grid.Resources>
+                            <Button x:Name="btnViewerPrevPlot"
+                                    Click="btnViewerPrevPlot_Click"
+                                    Style="{StaticResource ViewerNavCircleButtonStyle}"
+                                    HorizontalAlignment="Left" VerticalAlignment="Center"
+                                    Margin="16,0,0,0"
+                                    Visibility="Collapsed"
+                                    ToolTipService.ToolTip="上一张图表 (←)">
+                                <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE76B;" FontSize="16"/>
+                            </Button>
+                            <Button x:Name="btnViewerNextPlot"
+                                    Click="btnViewerNextPlot_Click"
+                                    Style="{StaticResource ViewerNavCircleButtonStyle}"
+                                    HorizontalAlignment="Right" VerticalAlignment="Center"
+                                    Margin="0,0,16,0"
+                                    Visibility="Collapsed"
+                                    ToolTipService.ToolTip="下一张图表 (→)">
+                                <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE76C;" FontSize="16"/>
+                            </Button>
+                        </Grid>
 
                         <Border x:Name="borderViewerResizeGripLeft"
                                 HorizontalAlignment="Left" VerticalAlignment="Bottom"

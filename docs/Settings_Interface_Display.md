@@ -68,7 +68,7 @@ flowchart TD
 - **配置项输入**：
   - `API 端点地址 (Base URL)`：如 `https://api.deepseek.com/v1`；
   - `API 密钥 (API Key)`：密码框脱敏呈现，支持一键显示/隐藏；
-  - `模型标识 (Model Identifier)`：支持自由键入或从常用模型下拉列表中选择（如 `deepseek-chat`、`deepseek-reasoner`、`gpt-4o`、`qwen-plus`）。
+  - `模型标识 (Model Identifier)`：支持自由键入、从列表下拉选择或点击【获取】拉取当前 API 可用模型列表；拉取结果自动持久化至 `settings.json`（`AvailableModels`）并与主工作区对话输入框旁的模型快捷切换框共享单一数据源。其中【获取】模型列表及对话框旁快捷切换模型即时落盘生效，设置页内手动切换或键入模型后点击页底【保存配置】统一生效并同步。
 
 ### 2. Agent 调度与推演预算
 - **Agent 最大自主探索轮次 (MaxIterations)**：
@@ -229,10 +229,9 @@ $$\text{用户当次提问显式要求} \;>\; \text{通过 / 启用的 Skill 专
 - **容错兜底**：读取旧版 `settings.json` 时，缺失的新字段自动取安全默认值；若反序列化后的 `SelectedChartLanguageId` 或 `SelectedChartColorThemeId` 在“内置预设 + 自定义列表”中均未匹配到，运行时自动安全回退至 `"zh-CN"` / `"auto"`。
 
 #### 6.3 保存时机与按页独立【恢复默认】规则
-- **卡片操作即时存盘**：点击任意语言/配色矩形框切换选中态、以及新增/编辑/删除自定义项完成后，立即更新 `_settings` 并调用 `SettingsService.SaveSettings(_settings)` 持久化；
-- **系统角色提示词保存**：`tbSystemPrompt` 在 `LostFocus` 失焦时自动触发存盘；页底保留【保存配置】按钮，点击后保存并弹出 `InfoBar` 明确成功提示；
+- **选型草稿与显式【保存配置】生效**：点击语言/配色矩形框切换选中态、通过 `+` 新增并预选中自定义项、以及编辑【系统角色提示词】均作为本页待保存草稿（未保存切换会通过 `InfoBar` 提示点击保存），**统一在点击页底【保存配置】按钮后更新生效项并写入 `settings.json`**；其中自定义项的增删改结构本身安全落盘（若删除当前生效项，自动回退默认项并持久化）；
 - **按页独立【恢复默认】**：
-  - 点击【主题】页底部的【恢复默认】，仅将 `SelectedChartLanguageId` 恢复为 `"zh-CN"`、`SelectedChartColorThemeId` 恢复为 `"auto"`、`SystemPrompt` 恢复为默认数据分析师人设，并立即写入磁盘；
+  - 点击【主题】页底部的【恢复默认】，仅将 `SelectedChartLanguageId` 与草稿恢复为 `"zh-CN"`、`SelectedChartColorThemeId` 与草稿恢复为 `"auto"`、`SystemPrompt` 恢复为默认数据分析师人设，并立即写入磁盘；
   - **严格保护边界**：恢复默认**绝不清空或修改** `CustomChartLanguages` 与 `CustomChartColorThemes` 中用户已创建的自定义项，也**绝不误清** `LLM配置` 页中的 `ApiKey`、`BaseUrl`、`ModelName` 等关键参数。
 
 ### 7. 验收标准（Acceptance Criteria）
@@ -240,7 +239,7 @@ $$\text{用户当次提问显式要求} \;>\; \text{通过 / 启用的 Skill 专
 2. **矩形框呈现与预设完备**：语言区以矩形框展示 `English`、`简体中文`（默认选中高亮）及 `+` 框；配色区以矩形框展示上方色块预览条与下方名称，完整包含 `默认自动`（默认选中高亮）+ 5 套经典预设及 `+` 框。
 3. **“+” 框交互与表单校验**：常态仅居中显示 `+`，悬停时边框高亮且框内文本切换为 `新增语言` / `新增配色`（附原生 `ToolTip`）；点击弹出 `ContentDialog`，新增配色支持 1~8 个 Hex 合法性实时校验与横向色块实时预览，重名或非法输入拦截保存。
 4. **只读保护与自定义 CRUD**：内置预设不可编辑/删除，右键支持【查看详情】与【复制为新自定义项】；自定义项右键支持【编辑】与【删除】，删除当前选中项自动回退至 `简体中文` / `默认自动`。
-5. **持久化与独立重置**：卡片选中与自定义增删改即时写入 `settings.json`；提示词失焦自动保存且页底【保存配置】有明确成功提示；主题页【恢复默认】不误清 `ApiKey` 及自定义列表；旧版 `settings.json` 启动加载无异常。
+5. **持久化与独立重置**：点选语言/配色矩形框及修改提示词仅更新草稿态并提示保存，点击页底【保存配置】后正式写入 `settings.json` 生效并展示成功提示；主题页【恢复默认】不误清 `ApiKey` 及自定义列表；旧版 `settings.json` 启动加载无异常。
 6. **Prompt 注入与优先级/作用域验证**：切换配置后，下一条发出的对话消息在 `System Message` 中正确包含对应图表语言与 Hex 色板指令；正文回答语言不被图表语言强行改写；当次提问显式指定或启用带配色规范的 Skill 时，能正确覆盖主题默认设定。
 7. **规范红线检查**：【主题】板块所有卡片、按钮、右键菜单、弹窗及提示文案均严格遵循纯文本零 Emoji 红线；主界面右侧 AI 对话栏未增加多余控件。
 
@@ -267,9 +266,10 @@ $$\text{用户当次提问显式要求} \;>\; \text{通过 / 启用的 Skill 专
   - 控件：滑动条（Slider），默认基准为 `60 秒`；
   - 调节范围：`[30, 120]` 秒；
   - 底层兼容保底：系统强制施加 `Math.Max(60, settings.PythonTimeoutSeconds)` 保底计算，消除旧版本配置残留 30s 造成的频繁超时报错。
-- **安全刹车审批开关 (RequireExecutionApproval)**：
-  - 控件：开关（ToggleSwitch），默认根据场景配置；
-  - 开启后，凡是涉及系统命令或修改性操作的代码，均强制在 UI 弹出阻断审批对话框，用户点击【允许】后方可拉起本地进程。
+- **内置常驻高危代码静态硬拦截 (Safety Gate)**：
+  - 系统不再在设置界面提供容易误解的手工审批开关，转为**内置常驻高危静默拦截机制**：`pandas / numpy / matplotlib` 数据分析、绘图与常规文件写入均自动放行；
+  - 执行前剥离 Python `#` 单行注释，命中系统命令行（`os.system`、`subprocess`、`powershell`、`cmd.exe`）、危险文件/目录删除（`shutil.rmtree`、`os.remove/unlink/rmdir`、`Path.unlink/rmdir`）、底层内存/注册表/Socket（`ctypes`、`winreg`、`socket`）或磁盘格式化指令时**直接拒绝执行**（不拉起 Python 进程）；
+  - 拒绝执行后，界面通过 **对话气泡内红色 `InfoBar` 横幅 + 气泡思考状态栏实时状态 + “我知道了”原生 `ContentDialog` 确认弹窗** 三重提醒用户，并将拦截原因反馈给模型促使其改写安全分析代码或向用户解释原因。
 
 ---
 
@@ -312,6 +312,6 @@ $$\text{用户当次提问显式要求} \;>\; \text{通过 / 启用的 Skill 专
 
 1. **纯文本无 Emoji 按钮红线**：
    - 设置界面的所有操作按钮、选项卡片角标、右键菜单与弹窗控件（如【重新检测 Python 环境】、【导入技能...】、【打开技能目录】、【刷新列表】、【清空缓存】以及【主题】板块的新增/查看/复制/编辑/删除操作等），一律采用严谨高质感的**纯文本标签**，严禁掺杂任何装饰性 Emoji。
-2. **即时存盘、独立重置与无损向后兼容**：
-   - 开关切换、卡片选中、自定义项增删改与文本框失焦均支持自动触发 `SettingsService` 写入本地 `settings.json`；配置页底部的【保存配置】提供显式成功提示，【恢复默认】严格按页独立作用域，绝不误清其他模块或用户自建配置；
-   - 所有配置属性（含【主题】板块新增的 `SelectedChartLanguageId`、`SelectedChartColorThemeId`、`CustomChartLanguages`、`CustomChartColorThemes`）均提供安全默认值，旧版或空缺的 `settings.json` 能够平滑补全并反序列化，坚决杜绝因升级配置结构导致软件启动报错。
+2. **分级存盘、独立重置与无损向后兼容**：
+   - 开关切换、拉取模型列表、对话快捷切换模型及自定义主题列表维护支持即时触发 `SettingsService` 写入本地 `settings.json`；`LLM配置` 与 `主题` 页内的参数调整及选中切换通过页底【保存配置】统一生效并给出成功提示，【恢复默认】严格按页独立作用域，绝不误清其他模块或用户自建配置；
+   - 所有配置属性（含 `AvailableModels` 以及【主题】板块新增的 `SelectedChartLanguageId`、`SelectedChartColorThemeId`、`CustomChartLanguages`、`CustomChartColorThemes`）均提供安全默认值，旧版或空缺的 `settings.json` 能够平滑补全并反序列化，坚决杜绝因升级配置结构导致软件启动报错。

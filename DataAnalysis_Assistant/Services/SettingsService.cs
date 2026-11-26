@@ -56,8 +56,26 @@ namespace DataAnalysis_Assistant.Services
         private static AppSettings NormalizeSettings(AppSettings settings)
         {
             settings.DisabledSkills ??= new List<string>();
+            settings.AvailableModels ??= new List<string>();
             settings.CustomChartLanguages ??= new List<ChartLanguageOption>();
             settings.CustomChartColorThemes ??= new List<ChartColorThemeOption>();
+
+            settings.ModelName = string.IsNullOrWhiteSpace(settings.ModelName)
+                ? "gpt-4o"
+                : settings.ModelName.Trim();
+
+            var seenModels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var cleanModels = new List<string>();
+            foreach (var m in settings.AvailableModels)
+            {
+                if (string.IsNullOrWhiteSpace(m)) continue;
+                string trimmed = m.Trim();
+                if (seenModels.Add(trimmed))
+                {
+                    cleanModels.Add(trimmed);
+                }
+            }
+            settings.AvailableModels = cleanModels;
 
             settings.CustomChartLanguages = settings.CustomChartLanguages
                 .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Id) && !string.IsNullOrWhiteSpace(x.Name))
